@@ -1,60 +1,67 @@
-Ext.define('Store.promatic_dashboard_pilot.Module', {
+/**
+ * promatic-dashboard-pilot — Skeleton inicial
+ * Objetivo: confirmar que la extensión carga y se comporta correctamente
+ * dentro del entorno PILOT antes de construir la lógica real del dashboard.
+ *
+ * Extension name (slug): promatic_dashboard_enhancer
+ * Clase generada por PILOT: Store.promatic_dashboard_enhancer.Module
+ */
+
+Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
-    extensionName: 'promatic_dashboard_pilot',
 
     initModule: function () {
-        this.loadStyles();
+        console.log('[promatic_dashboard_enhancer] Extension loading...');
 
-        var mainPanel = this.buildMainPanel();
-        var navTab = this.buildNavTab(mainPanel);
-
-        navTab.map_frame = mainPanel;
-
-        if (window.skeleton && skeleton.navigation && typeof skeleton.navigation.add === 'function') {
-            skeleton.navigation.add(navTab);
-        }
-    },
-
-    buildNavTab: function (mainPanel) {
-        var NavTabClass = Ext.ClassManager.get('Pilot.utils.LeftBarPanel') ?
-            'Pilot.utils.LeftBarPanel' :
-            'Ext.panel.Panel';
-
-        return Ext.create(NavTabClass, {
-            title: l('Promatic Dashboard'),
-            iconCls: 'fa fa-th-large',
+        // 1. TAB DE NAVEGACIÓN (panel izquierdo)
+        var navTab = Ext.create('Pilot.utils.LeftBarPanel', {
+            title: 'Dashboard Pilot',
+            iconCls: 'fa fa-zap',
             iconAlign: 'top',
             minimized: true,
-            items: [mainPanel]
+            items: [
+                {
+                    xtype: 'panel',
+                    title: 'Panel',
+                    iconCls: 'fa fa-th-large',
+                    layout: 'fit',
+                    html: '<div style="padding:20px;">Skeleton cargado correctamente.</div>'
+                }
+            ]
         });
-    },
 
-    buildMainPanel: function () {
-        return Ext.create('Ext.panel.Panel', {
-            cls: 'promatic_dashboard_pilot-panel',
+        // 2. PANEL PRINCIPAL (área central)
+        var mainPanel = Ext.create('Ext.panel.Panel', {
             layout: 'fit',
-            html: '<div class="promatic_dashboard_pilot-status">' +
-                l('Promatic Dashboard — conexión OK') +
-                '</div>'
+            html: `
+                <div style="padding: 30px;">
+                    <h2>promatic-dashboard-pilot — Skeleton inicial</h2>
+                    <p>Si ves esto, la extensión cargó y se enganchó correctamente
+                    a <code>skeleton.navigation</code> y <code>skeleton.mapframe</code>.</p>
+                    <p>Próximo paso: reemplazar este contenido por el sistema de
+                    widgets/mosaicos configurables.</p>
+                </div>
+            `
         });
-    },
 
-    getModuleBaseUrl: function () {
-        var scripts = document.getElementsByTagName('script');
-        for (var i = scripts.length - 1; i >= 0; i--) {
-            var src = scripts[i].src || '';
-            if (src.indexOf('/Module.js') !== -1) {
-                return src.substring(0, src.lastIndexOf('/') + 1);
-            }
-        }
-        return '/store/promatic_dashboard_pilot/';
+        // 3. ENLAZAR TAB CON PANEL PRINCIPAL
+        navTab.map_frame = mainPanel;
+
+        // 4. REGISTRAR EN LA UI DE PILOT
+        skeleton.navigation.add(navTab);
+        skeleton.mapframe.add(mainPanel);
+
+        // 5. CARGAR ESTILOS PROPIOS
+        this.loadStyles();
+
+        console.log('[promatic_dashboard_enhancer] Extension initialized successfully.');
     },
 
     loadStyles: function () {
-        var css = document.createElement('link');
-        css.setAttribute('rel', 'stylesheet');
-        css.setAttribute('type', 'text/css');
-        css.setAttribute('href', this.getModuleBaseUrl() + 'style.css');
-        document.head.appendChild(css);
+        var cssLink = document.createElement('link');
+        cssLink.setAttribute('rel', 'stylesheet');
+        cssLink.setAttribute('type', 'text/css');
+        cssLink.setAttribute('href', '/store/promatic_dashboard_enhancer/style.css');
+        document.head.appendChild(cssLink);
     }
 });
