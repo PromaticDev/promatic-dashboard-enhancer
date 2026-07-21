@@ -23,3 +23,12 @@
 .promatic_dashboard_enhancer-dot-offline {
     background-color: #DC2626;
 }
+
+.promatic_dashboard_enhancer-speeding-panel {
+    margin-top: 8px;
+}
+
+.promatic_dashboard_enhancer-chart {
+    width: 100%;
+    height: 100%;
+}

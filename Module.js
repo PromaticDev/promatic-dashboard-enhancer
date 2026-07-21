@@ -43,13 +43,85 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             },
             items: [
                 this.summaryBar,
-                this.buildFleetGrid()
+                this.buildFleetGrid(),
+                this.buildSpeedingPanel()
             ]
         });
 
         this.bindFleetUpdates();
 
         return panel;
+    },
+
+    buildSpeedingPanel: function () {
+        this.speedingChartEl = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-chart',
+            autoEl: { tag: 'div' },
+            html: l('Cargando distribución de velocidad...')
+        });
+
+        var panel = Ext.create('Ext.panel.Panel', {
+            title: l('Distribución de velocidad'),
+            cls: 'promatic_dashboard_enhancer-speeding-panel',
+            height: 260,
+            items: [this.speedingChartEl]
+        });
+
+        this.loadSpeedingData();
+
+        return panel;
+    },
+
+    loadSpeedingData: function () {
+        var me = this;
+
+        Ext.Ajax.request({
+            url: '/backend/ax/dashboard/speeding_pie.php',
+            method: 'GET',
+            success: function (resp) {
+                var data = Ext.decode(resp.responseText, true);
+                if (data) {
+                    me.renderSpeedingChart(data);
+                }
+            },
+            failure: function () {
+                if (me.speedingChartEl) {
+                    me.speedingChartEl.update(l('No se pudo cargar la distribución de velocidad.'));
+                }
+            }
+        });
+    },
+
+    renderSpeedingChart: function (data, attempt) {
+        attempt = attempt || 0;
+
+        if (!this.speedingChartEl || !this.speedingChartEl.rendered) {
+            if (attempt < 20) {
+                Ext.defer(this.renderSpeedingChart, 250, this, [data, attempt + 1]);
+            }
+            return;
+        }
+
+        if (!window.Highcharts) {
+            this.speedingChartEl.update(l('Highcharts no está disponible en este runtime.'));
+            return;
+        }
+
+        var categories = [];
+        for (var i = 0; i < data.dist.length; i++) {
+            // Rango de velocidad exacto por bucket sin confirmar todavía — ver spec/api.md
+            categories.push(l('Rango') + ' ' + (i + 1));
+        }
+
+        Highcharts.chart(this.speedingChartEl.getEl().dom, {
+            chart: { type: 'column' },
+            title: { text: null },
+            xAxis: { categories: categories, title: { text: l('Rango de velocidad') } },
+            yAxis: { title: { text: l('Distancia (km)') } },
+            series: [{ name: l('Distancia'), data: data.dist, color: '#2563EB' }],
+            credits: { enabled: false },
+            legend: { enabled: false }
+        });
     },
 
     buildFleetGrid: function () {
@@ -149,10 +221,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         });
 
+        var pct = total > 0 ? Math.round((online / total) * 100) : 0;
+
         this.summaryBar.update(
             l('Flota') + ': ' + total +
             ' &nbsp;|&nbsp; <span class="promatic_dashboard_enhancer-dot promatic_dashboard_enhancer-dot-online"></span> ' +
-            online + ' ' + l('en línea') +
+            online + ' ' + l('en línea') + ' (' + pct + '%)' +
             ' &nbsp;|&nbsp; <span class="promatic_dashboard_enhancer-dot promatic_dashboard_enhancer-dot-offline"></span> ' +
             (total - online) + ' ' + l('desconectados') +
             ' &nbsp;—&nbsp; ' + l('actualizado') + ' ' + Ext.Date.format(new Date(), 'H:i:s')
