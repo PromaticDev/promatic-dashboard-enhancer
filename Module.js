@@ -76,22 +76,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return panel;
     },
 
-    loadMileageData: function (attempt) {
-        attempt = attempt || 0;
-        console.log('[promatic_dashboard_enhancer] loadMileageData: intento ' + attempt);
-        var onlineTree = this.getOnlineTree();
-
-        if (!onlineTree) {
-            console.log('[promatic_dashboard_enhancer] loadMileageData: online_tree no disponible aún');
-            if (attempt < 20) {
-                Ext.defer(this.loadMileageData, 500, this, [attempt + 1]);
-            } else if (this.mileageEl) {
-                console.log('[promatic_dashboard_enhancer] loadMileageData: se agotaron los reintentos (20)');
-                this.mileageEl.update(l('No se pudo conectar al árbol de vehículos de PILOT.'));
-            }
-            return;
-        }
-
+    getFleetVehicleIds: function (onlineTree) {
         var records = onlineTree.getStore().getData().items;
         var vehIds = [];
         for (var i = 0; i < records.length; i++) {
@@ -100,12 +85,37 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 vehIds.push(agentid);
             }
         }
+        return vehIds;
+    },
 
-        console.log('[promatic_dashboard_enhancer] loadMileageData: ' + vehIds.length + ' vehículos encontrados', vehIds);
+    loadMileageData: function () {
+        var me = this;
+        var onlineTree = this.getOnlineTree();
 
-        if (vehIds.length === 0) {
+        // No usar polling con tope fijo ni asumir tiempos de carga: el
+        // backend corre en la nube (EEUU) y la latencia real hasta que el
+        // store termina de traer datos de la BD es variable. Escuchar el
+        // evento 'load' real del store en vez de adivinar.
+        if (!onlineTree) {
+            console.log('[promatic_dashboard_enhancer] loadMileageData: online_tree no existe aún, esperando...');
+            Ext.defer(this.loadMileageData, 500, this);
             return;
         }
+
+        var vehIds = this.getFleetVehicleIds(onlineTree);
+
+        if (vehIds.length === 0) {
+            // Mismo evento que ya usa bindFleetUpdates para refrescar la
+            // grilla (confirmado funcionando) — no 'load', que puede no
+            // dispararse si el store no usa un proxy remoto tradicional.
+            console.log('[promatic_dashboard_enhancer] loadMileageData: store sin datos aún, esperando datachanged...');
+            onlineTree.getStore().on('datachanged', function () {
+                me.loadMileageData();
+            }, this, { single: true });
+            return;
+        }
+
+        console.log('[promatic_dashboard_enhancer] loadMileageData: ' + vehIds.length + ' vehículos encontrados', vehIds);
 
         var stopDate = new Date();
         var startDate = new Date();
