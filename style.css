@@ -54,6 +54,14 @@
     background-color: #DC2626;
 }
 
+.promatic_dashboard_enhancer-mileage-panel {
+    margin-top: 12px;
+}
+
+.promatic_dashboard_enhancer-mileage {
+    padding: 8px 12px;
+}
+
 .promatic_dashboard_enhancer-speeding-panel {
     margin-top: 12px;
 }

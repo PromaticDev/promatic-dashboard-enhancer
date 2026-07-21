@@ -44,6 +44,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             items: [
                 this.summaryBar,
                 this.buildFleetGrid(),
+                this.buildMileagePanel(),
                 this.buildSpeedingPanel()
             ]
         });
@@ -51,6 +52,179 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.bindFleetUpdates();
 
         return panel;
+    },
+
+    buildMileagePanel: function () {
+        this.mileageEl = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-mileage',
+            html: l('Cargando kilometraje...')
+        });
+
+        var panel = Ext.create('Ext.panel.Panel', {
+            title: l('Kilometraje (últimos 7 días)'),
+            cls: 'promatic_dashboard_enhancer-mileage-panel',
+            items: [this.mileageEl]
+        });
+
+        this.loadMileageData();
+
+        return panel;
+    },
+
+    loadMileageData: function (attempt) {
+        attempt = attempt || 0;
+        var onlineTree = this.getOnlineTree();
+
+        if (!onlineTree) {
+            if (attempt < 20) {
+                Ext.defer(this.loadMileageData, 500, this, [attempt + 1]);
+            }
+            return;
+        }
+
+        var records = onlineTree.getStore().getData().items;
+        var vehIds = [];
+        for (var i = 0; i < records.length; i++) {
+            var agentid = records[i].get('agentid');
+            if (agentid) {
+                vehIds.push(agentid);
+            }
+        }
+
+        if (vehIds.length === 0) {
+            return;
+        }
+
+        var stopDate = new Date();
+        var startDate = new Date();
+        startDate.setDate(startDate.getDate() - 7);
+
+        var me = this;
+        var body = this.buildMileageReportBody(vehIds.join(','), startDate, stopDate);
+
+        // Guardrail: reports.php con muchos toggles "on" + rango de fechas +
+        // varios vehículos puede ser una consulta pesada del lado de PILOT
+        // (a diferencia de events.php, más liviano). Se corta sola a los 20s
+        // en vez de dejar el widget colgado esperando indefinidamente.
+        var ctrl = new AbortController();
+        var timeout = setTimeout(function () {
+            ctrl.abort();
+        }, 20000);
+        var startedAt = performance.now();
+
+        // Endpoint y formato del body confirmados 21 jul 2026 interceptando la
+        // request nativa del panel de Reportes — ver spec/api.md. Sin confirmar
+        // todavía si veh_id con lista separada por comas trae toda la flota en
+        // una sola llamada (asumido aquí) o si requiere una llamada por vehículo.
+        fetch('/backend/ax/reports.php', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body,
+            signal: ctrl.signal
+        }).then(function (resp) {
+            if (!resp.ok) {
+                throw new Error('HTTP ' + resp.status);
+            }
+            return resp.json();
+        }).then(function (report) {
+            console.log('[promatic_dashboard_enhancer] reports.php (kilometraje) tardó ' +
+                ((performance.now() - startedAt) / 1000).toFixed(1) + 's');
+            me.renderMileageSummary(report, vehIds.length);
+        }).catch(function (err) {
+            var timedOut = err && err.name === 'AbortError';
+            console.error('[promatic_dashboard_enhancer] reports.php (kilometraje) falló:',
+                timedOut ? 'timeout 20s' : err);
+            if (me.mileageEl) {
+                me.mileageEl.update(timedOut ?
+                    l('El reporte de kilometraje está tardando demasiado — intenta un rango más corto.') :
+                    l('No se pudo cargar el kilometraje.'));
+            }
+        }).finally(function () {
+            clearTimeout(timeout);
+        });
+    },
+
+    buildMileageReportBody: function (vehIdsCsv, startDate, stopDate) {
+        var pad = function (n) {
+            return n < 10 ? '0' + n : '' + n;
+        };
+        var fmtDate = function (d) {
+            return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '.' + d.getFullYear();
+        };
+        var fmtMonth = function (d) {
+            return pad(d.getMonth() + 1) + '.' + d.getFullYear();
+        };
+
+        var pairs = [
+            ['download', '0'], ['start_time', '00:00'], ['stop_time', '00:00'],
+            ['veh_id', vehIdsCsv],
+            ['zones_id', ''], ['lines_id', ''], ['stopping_points_id', ''],
+            ['drivers_id', ''], ['groups_id', ''], ['holidays', ''],
+            ['lang', 'es'], ['explode', '1'],
+            ['start_month', fmtMonth(startDate)], ['stop_month', fmtMonth(stopDate)],
+            ['pre_start_date', fmtDate(startDate)], ['pre_stop_date', fmtDate(stopDate)],
+            ['start_date', fmtDate(startDate) + ' 00:00'], ['stop_date', fmtDate(stopDate) + ' 00:00'],
+            ['group', '1'], ['tags[]', ''], ['level[]', ''],
+            ['event_group', ''], ['event_groups[]', ''],
+            ['map_type', '1'], ['trailer', ''], ['last_ibutton_used', '0'],
+            ['report_type', '4'],
+            ['vehicle_not_moving_time', '1'], ['vehicles_has_covered_km', '1'],
+            ['fillings', 'on'], ['stales', 'on'], ['speed', 'on'], ['rashod', 'on'],
+            ['stops', 'on'], ['run', 'on'], ['planned_stops', 'on'], ['unplanned_stops', 'on'],
+            ['inside_bus_line', 'on'], ['outside_bus_line', 'on'],
+            ['emp_name', ''], ['reason_for_opening', ''], ['report_mc_aid', ''],
+            ['trip_types[]', '1'], ['trip_types[]', '2'],
+            ['contr_time', '120'], ['limit_count', '0'], ['contr_time_max', '0'],
+            ['inspections_report_type', '0'], ['set_months_range', '1'],
+            ['type', '1'], ['template', '1']
+        ];
+
+        var parts = [];
+        for (var i = 0; i < pairs.length; i++) {
+            parts.push(encodeURIComponent(pairs[i][0]) + '=' + encodeURIComponent(pairs[i][1]));
+        }
+        return parts.join('&');
+    },
+
+    renderMileageSummary: function (report, vehicleCount) {
+        if (!this.mileageEl) {
+            return;
+        }
+
+        var totalKm = 0;
+        var dateGroups = (report && report.data) || {};
+
+        for (var dateKey in dateGroups) {
+            if (!dateGroups.hasOwnProperty(dateKey)) {
+                continue;
+            }
+            var vehGroups = dateGroups[dateKey];
+            for (var vehKey in vehGroups) {
+                if (!vehGroups.hasOwnProperty(vehKey)) {
+                    continue;
+                }
+                var trips = vehGroups[vehKey];
+                for (var i = 0; i < trips.length; i++) {
+                    totalKm += trips[i].length || 0;
+                }
+            }
+        }
+
+        var avgKm = vehicleCount > 0 ? (totalKm / vehicleCount) : 0;
+
+        this.mileageEl.update(
+            '<div class="promatic_dashboard_enhancer-summary__row">' +
+                '<div class="promatic_dashboard_enhancer-stat">' +
+                    '<span class="promatic_dashboard_enhancer-stat__value">' + totalKm.toFixed(1) + ' km</span>' +
+                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('total flota') + '</span>' +
+                '</div>' +
+                '<div class="promatic_dashboard_enhancer-stat">' +
+                    '<span class="promatic_dashboard_enhancer-stat__value">' + avgKm.toFixed(1) + ' km</span>' +
+                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('promedio por vehículo') + '</span>' +
+                '</div>' +
+            '</div>'
+        );
     },
 
     buildSpeedingPanel: function () {
