@@ -287,14 +287,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
     },
 
-    renderSpeedingChart: function (data, attempt) {
-        attempt = attempt || 0;
+    renderSpeedingChart: function (data) {
+        var me = this;
 
+        // No usar polling con tope fijo: el componente puede no renderizarse
+        // hasta que el tab se active visualmente en el layout de Ext JS, lo
+        // cual puede tardar más de lo que alcanza cualquier timeout arbitrario.
+        // Escuchar el evento 'render' real, sin límite.
         if (!this.speedingChartEl || !this.speedingChartEl.rendered) {
-            console.log('[promatic_dashboard_enhancer] renderSpeedingChart: elemento no renderizado aún, intento ' + attempt);
-            if (attempt < 20) {
-                Ext.defer(this.renderSpeedingChart, 250, this, [data, attempt + 1]);
-            }
+            console.log('[promatic_dashboard_enhancer] renderSpeedingChart: esperando evento render...');
+            this.speedingChartEl.on('render', function () {
+                me.renderSpeedingChart(data);
+            }, this, { single: true });
             return;
         }
 
@@ -309,19 +313,33 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             containerEl.offsetWidth + 'px, alto = ' + containerEl.offsetHeight + 'px');
 
         if (containerEl.offsetWidth === 0) {
-            if (attempt < 20) {
-                Ext.defer(this.renderSpeedingChart, 250, this, [data, attempt + 1]);
-            }
+            // Mismo motivo: esperar a que el layout real termine, no adivinar con tiempo fijo.
+            this.speedingChartEl.on('resize', function () {
+                me.renderSpeedingChart(data);
+            }, this, { single: true });
             return;
         }
 
-        var categories = [];
-        for (var i = 0; i < data.dist.length; i++) {
-            // Rango de velocidad exacto por bucket sin confirmar todavía — ver spec/api.md
-            categories.push(l('Rango') + ' ' + (i + 1));
+        // dist/dur pueden llegar como array denso ([0.1, 0.2, ...]) o como
+        // objeto disperso ({2: 0.1, 5: 0.2}) cuando algún rango de velocidad
+        // no tiene ningún evento en el período — confirmado en runtime real
+        // 21 jul 2026 (flota mayormente detenida de noche). Normalizar a
+        // array denso de 13 buckets antes de graficar.
+        var bucketCount = 13;
+        var distValues = [];
+        var durValues = [];
+        for (var i = 0; i < bucketCount; i++) {
+            distValues.push(Number(data.dist && data.dist[i]) || 0);
+            durValues.push(Number(data.dur && data.dur[i]) || 0);
         }
 
-        var durations = data.dur;
+        var categories = [];
+        for (var c = 0; c < bucketCount; c++) {
+            // Rango de velocidad exacto por bucket sin confirmar todavía — ver spec/api.md
+            categories.push(l('Rango') + ' ' + (c + 1));
+        }
+
+        var durations = durValues;
 
         Highcharts.chart(this.speedingChartEl.getEl().dom, {
             chart: { type: 'column', spacingTop: 4, spacingBottom: 4 },
@@ -347,7 +365,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         l('Velocidad promedio') + ': ' + avgSpeed + ' km/h';
                 }
             },
-            series: [{ name: l('Distancia'), data: data.dist, color: '#2563EB' }],
+            series: [{ name: l('Distancia'), data: distValues, color: '#2563EB' }],
             credits: { enabled: false },
             legend: { enabled: false }
         });
