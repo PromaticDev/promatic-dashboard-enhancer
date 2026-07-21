@@ -3,15 +3,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extensionName: 'promatic_dashboard_enhancer',
 
     initModule: function () {
+        console.log('[promatic_dashboard_enhancer] initModule: inicio');
         this.loadStyles();
 
         var mainPanel = this.buildMainPanel();
+        console.log('[promatic_dashboard_enhancer] initModule: mainPanel construido');
         var navTab = this.buildNavTab(mainPanel);
 
         navTab.map_frame = mainPanel;
 
         if (window.skeleton && skeleton.navigation && typeof skeleton.navigation.add === 'function') {
             skeleton.navigation.add(navTab);
+            console.log('[promatic_dashboard_enhancer] initModule: navTab agregado a skeleton.navigation');
+        } else {
+            console.log('[promatic_dashboard_enhancer] initModule: skeleton.navigation.add NO disponible todavía');
         }
     },
 
@@ -73,11 +78,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     loadMileageData: function (attempt) {
         attempt = attempt || 0;
+        console.log('[promatic_dashboard_enhancer] loadMileageData: intento ' + attempt);
         var onlineTree = this.getOnlineTree();
 
         if (!onlineTree) {
+            console.log('[promatic_dashboard_enhancer] loadMileageData: online_tree no disponible aún');
             if (attempt < 20) {
                 Ext.defer(this.loadMileageData, 500, this, [attempt + 1]);
+            } else if (this.mileageEl) {
+                console.log('[promatic_dashboard_enhancer] loadMileageData: se agotaron los reintentos (20)');
+                this.mileageEl.update(l('No se pudo conectar al árbol de vehículos de PILOT.'));
             }
             return;
         }
@@ -91,6 +101,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
+        console.log('[promatic_dashboard_enhancer] loadMileageData: ' + vehIds.length + ' vehículos encontrados', vehIds);
+
         if (vehIds.length === 0) {
             return;
         }
@@ -101,6 +113,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var me = this;
         var body = this.buildMileageReportBody(vehIds.join(','), startDate, stopDate);
+        console.log('[promatic_dashboard_enhancer] loadMileageData: disparando fetch a reports.php');
 
         // Guardrail: reports.php con muchos toggles "on" + rango de fechas +
         // varios vehículos puede ser una consulta pesada del lado de PILOT
@@ -248,6 +261,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     loadSpeedingData: function () {
         var me = this;
+        console.log('[promatic_dashboard_enhancer] loadSpeedingData: disparando fetch a speeding_pie.php');
 
         // Nota: Ext.Ajax.request reescribe rutas relativas bajo el proxy
         // /store/<extension>/ dentro del contexto de una extensión (404
@@ -255,12 +269,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // que sí resuelve contra el origen real de la página. Ver spec/api.md.
         fetch('/backend/ax/dashboard/speeding_pie.php', { credentials: 'include' })
             .then(function (resp) {
+                console.log('[promatic_dashboard_enhancer] speeding_pie.php respondió HTTP ' + resp.status);
                 if (!resp.ok) {
                     throw new Error('HTTP ' + resp.status);
                 }
                 return resp.json();
             })
             .then(function (data) {
+                console.log('[promatic_dashboard_enhancer] speeding_pie.php data:', data);
                 me.renderSpeedingChart(data);
             })
             .catch(function (err) {
@@ -275,6 +291,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         attempt = attempt || 0;
 
         if (!this.speedingChartEl || !this.speedingChartEl.rendered) {
+            console.log('[promatic_dashboard_enhancer] renderSpeedingChart: elemento no renderizado aún, intento ' + attempt);
             if (attempt < 20) {
                 Ext.defer(this.renderSpeedingChart, 250, this, [data, attempt + 1]);
             }
@@ -282,7 +299,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         if (!window.Highcharts) {
+            console.log('[promatic_dashboard_enhancer] renderSpeedingChart: window.Highcharts NO disponible');
             this.speedingChartEl.update(l('Highcharts no está disponible en este runtime.'));
+            return;
+        }
+
+        var containerEl = this.speedingChartEl.getEl().dom;
+        console.log('[promatic_dashboard_enhancer] renderSpeedingChart: ancho del contenedor = ' +
+            containerEl.offsetWidth + 'px, alto = ' + containerEl.offsetHeight + 'px');
+
+        if (containerEl.offsetWidth === 0) {
+            if (attempt < 20) {
+                Ext.defer(this.renderSpeedingChart, 250, this, [data, attempt + 1]);
+            }
             return;
         }
 
