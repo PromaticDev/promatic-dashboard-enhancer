@@ -34,24 +34,36 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
+    // -----------------------------------------------------------------------
+    // Layout principal — grid de widgets (ADR-007, simplificado esta fase:
+    // sin requiere_flags/requiere_modules ni skeleton/timeout multi-etapa,
+    // solo el grid CSS + contrato de metadata por widget).
+    // -----------------------------------------------------------------------
+
     buildMainPanel: function () {
         this.summaryBar = Ext.create('Ext.Component', {
             cls: 'promatic_dashboard_enhancer-summary',
             html: l('Cargando estado de flota...')
         });
 
+        var grid = Ext.create('Ext.container.Container', {
+            cls: 'promatic_dashboard_enhancer-grid',
+            layout: 'auto',
+            items: [
+                this.buildFleetWidget(),
+                this.buildSpeedingWidget(),
+                this.buildFleetSummaryWidget(),
+                this.buildMileageWidget(),
+                this.buildBatteryWidget(),
+                this.buildZonesWidget(),
+                this.buildEventsWidget()
+            ]
+        });
+
         var panel = Ext.create('Ext.panel.Panel', {
             cls: 'promatic_dashboard_enhancer-panel',
-            layout: {
-                type: 'vbox',
-                align: 'stretch'
-            },
-            items: [
-                this.summaryBar,
-                this.buildFleetGrid(),
-                this.buildMileagePanel(),
-                this.buildSpeedingPanel()
-            ]
+            layout: { type: 'vbox', align: 'stretch' },
+            items: [this.summaryBar, grid]
         });
 
         this.bindFleetUpdates();
@@ -59,326 +71,29 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return panel;
     },
 
-    buildMileagePanel: function () {
-        this.mileageEl = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-mileage',
-            html: l('Cargando kilometraje...')
-        });
+    // Contrato de widget (ADR-007 sección 1). `size` decide la clase CSS de
+    // tamaño (small/medium/large) y la altura fija asociada — el grid es
+    // CSS puro (grid-template-columns + grid-column: span), sin librería de
+    // layout externa, tal como decidió el ADR.
+    wrapWidget: function (id, size, title, contentCmp) {
+        var heights = { small: 140, medium: 220, large: 360 };
 
-        var panel = Ext.create('Ext.panel.Panel', {
-            title: l('Kilometraje (últimos 7 días)'),
-            cls: 'promatic_dashboard_enhancer-mileage-panel',
-            items: [this.mileageEl]
-        });
-
-        this.loadMileageData();
-
-        return panel;
-    },
-
-    getFleetVehicleIds: function (onlineTree) {
-        var records = onlineTree.getStore().getData().items;
-        var vehIds = [];
-        for (var i = 0; i < records.length; i++) {
-            var agentid = records[i].get('agentid');
-            if (agentid) {
-                vehIds.push(agentid);
-            }
-        }
-        return vehIds;
-    },
-
-    loadMileageData: function () {
-        var me = this;
-        var onlineTree = this.getOnlineTree();
-
-        // No usar polling con tope fijo ni asumir tiempos de carga: el
-        // backend corre en la nube (EEUU) y la latencia real hasta que el
-        // store termina de traer datos de la BD es variable. Escuchar el
-        // evento 'load' real del store en vez de adivinar.
-        if (!onlineTree) {
-            console.log('[promatic_dashboard_enhancer] loadMileageData: online_tree no existe aún, esperando...');
-            Ext.defer(this.loadMileageData, 500, this);
-            return;
-        }
-
-        var vehIds = this.getFleetVehicleIds(onlineTree);
-
-        if (vehIds.length === 0) {
-            // Mismo evento que ya usa bindFleetUpdates para refrescar la
-            // grilla (confirmado funcionando) — no 'load', que puede no
-            // dispararse si el store no usa un proxy remoto tradicional.
-            console.log('[promatic_dashboard_enhancer] loadMileageData: store sin datos aún, esperando datachanged...');
-            onlineTree.getStore().on('datachanged', function () {
-                me.loadMileageData();
-            }, this, { single: true });
-            return;
-        }
-
-        console.log('[promatic_dashboard_enhancer] loadMileageData: ' + vehIds.length + ' vehículos encontrados', vehIds);
-
-        var stopDate = new Date();
-        var startDate = new Date();
-        startDate.setDate(startDate.getDate() - 7);
-
-        var me = this;
-        var body = this.buildMileageReportBody(vehIds.join(','), startDate, stopDate);
-        console.log('[promatic_dashboard_enhancer] loadMileageData: disparando fetch a reports.php');
-
-        // Guardrail: reports.php con muchos toggles "on" + rango de fechas +
-        // varios vehículos puede ser una consulta pesada del lado de PILOT
-        // (a diferencia de events.php, más liviano). Se corta sola a los 20s
-        // en vez de dejar el widget colgado esperando indefinidamente.
-        var ctrl = new AbortController();
-        var timeout = setTimeout(function () {
-            ctrl.abort();
-        }, 20000);
-        var startedAt = performance.now();
-
-        // Endpoint y formato del body confirmados 21 jul 2026 interceptando la
-        // request nativa del panel de Reportes — ver spec/api.md. Sin confirmar
-        // todavía si veh_id con lista separada por comas trae toda la flota en
-        // una sola llamada (asumido aquí) o si requiere una llamada por vehículo.
-        fetch('/backend/ax/reports.php', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body,
-            signal: ctrl.signal
-        }).then(function (resp) {
-            if (!resp.ok) {
-                throw new Error('HTTP ' + resp.status);
-            }
-            return resp.json();
-        }).then(function (report) {
-            console.log('[promatic_dashboard_enhancer] reports.php (kilometraje) tardó ' +
-                ((performance.now() - startedAt) / 1000).toFixed(1) + 's');
-            me.renderMileageSummary(report, vehIds.length);
-        }).catch(function (err) {
-            var timedOut = err && err.name === 'AbortError';
-            console.error('[promatic_dashboard_enhancer] reports.php (kilometraje) falló:',
-                timedOut ? 'timeout 20s' : err);
-            if (me.mileageEl) {
-                me.mileageEl.update(timedOut ?
-                    l('El reporte de kilometraje está tardando demasiado — intenta un rango más corto.') :
-                    l('No se pudo cargar el kilometraje.'));
-            }
-        }).finally(function () {
-            clearTimeout(timeout);
+        return Ext.create('Ext.panel.Panel', {
+            itemId: 'promatic_dashboard_enhancer-widget-' + id,
+            cls: 'promatic_dashboard_enhancer-widget promatic_dashboard_enhancer-widget--' + size,
+            title: title,
+            height: heights[size] || heights.medium,
+            layout: 'fit',
+            items: [contentCmp]
         });
     },
 
-    buildMileageReportBody: function (vehIdsCsv, startDate, stopDate) {
-        var pad = function (n) {
-            return n < 10 ? '0' + n : '' + n;
-        };
-        var fmtDate = function (d) {
-            return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '.' + d.getFullYear();
-        };
-        var fmtMonth = function (d) {
-            return pad(d.getMonth() + 1) + '.' + d.getFullYear();
-        };
+    // -----------------------------------------------------------------------
+    // Widget: Estado de Flota — online_tree (ya en memoria, sin llamada HTTP)
+    // -----------------------------------------------------------------------
 
-        var pairs = [
-            ['download', '0'], ['start_time', '00:00'], ['stop_time', '00:00'],
-            ['veh_id', vehIdsCsv],
-            ['zones_id', ''], ['lines_id', ''], ['stopping_points_id', ''],
-            ['drivers_id', ''], ['groups_id', ''], ['holidays', ''],
-            ['lang', 'es'], ['explode', '1'],
-            ['start_month', fmtMonth(startDate)], ['stop_month', fmtMonth(stopDate)],
-            ['pre_start_date', fmtDate(startDate)], ['pre_stop_date', fmtDate(stopDate)],
-            ['start_date', fmtDate(startDate) + ' 00:00'], ['stop_date', fmtDate(stopDate) + ' 00:00'],
-            ['group', '1'], ['tags[]', ''], ['level[]', ''],
-            ['event_group', ''], ['event_groups[]', ''],
-            ['map_type', '1'], ['trailer', ''], ['last_ibutton_used', '0'],
-            ['report_type', '4'],
-            ['vehicle_not_moving_time', '1'], ['vehicles_has_covered_km', '1'],
-            ['fillings', 'on'], ['stales', 'on'], ['speed', 'on'], ['rashod', 'on'],
-            ['stops', 'on'], ['run', 'on'], ['planned_stops', 'on'], ['unplanned_stops', 'on'],
-            ['inside_bus_line', 'on'], ['outside_bus_line', 'on'],
-            ['emp_name', ''], ['reason_for_opening', ''], ['report_mc_aid', ''],
-            ['trip_types[]', '1'], ['trip_types[]', '2'],
-            ['contr_time', '120'], ['limit_count', '0'], ['contr_time_max', '0'],
-            ['inspections_report_type', '0'], ['set_months_range', '1'],
-            ['type', '1'], ['template', '1']
-        ];
-
-        var parts = [];
-        for (var i = 0; i < pairs.length; i++) {
-            parts.push(encodeURIComponent(pairs[i][0]) + '=' + encodeURIComponent(pairs[i][1]));
-        }
-        return parts.join('&');
-    },
-
-    renderMileageSummary: function (report, vehicleCount) {
-        if (!this.mileageEl) {
-            return;
-        }
-
-        var totalKm = 0;
-        var dateGroups = (report && report.data) || {};
-
-        for (var dateKey in dateGroups) {
-            if (!dateGroups.hasOwnProperty(dateKey)) {
-                continue;
-            }
-            var vehGroups = dateGroups[dateKey];
-            for (var vehKey in vehGroups) {
-                if (!vehGroups.hasOwnProperty(vehKey)) {
-                    continue;
-                }
-                var trips = vehGroups[vehKey];
-                for (var i = 0; i < trips.length; i++) {
-                    totalKm += trips[i].length || 0;
-                }
-            }
-        }
-
-        var avgKm = vehicleCount > 0 ? (totalKm / vehicleCount) : 0;
-
-        this.mileageEl.update(
-            '<div class="promatic_dashboard_enhancer-summary__row">' +
-                '<div class="promatic_dashboard_enhancer-stat">' +
-                    '<span class="promatic_dashboard_enhancer-stat__value">' + totalKm.toFixed(1) + ' km</span>' +
-                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('total flota') + '</span>' +
-                '</div>' +
-                '<div class="promatic_dashboard_enhancer-stat">' +
-                    '<span class="promatic_dashboard_enhancer-stat__value">' + avgKm.toFixed(1) + ' km</span>' +
-                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('promedio por vehículo') + '</span>' +
-                '</div>' +
-            '</div>'
-        );
-    },
-
-    buildSpeedingPanel: function () {
-        this.speedingChartEl = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-chart',
-            autoEl: { tag: 'div' },
-            html: l('Cargando distribución de velocidad...')
-        });
-
-        var panel = Ext.create('Ext.panel.Panel', {
-            title: l('Distribución de velocidad'),
-            cls: 'promatic_dashboard_enhancer-speeding-panel',
-            height: 190,
-            items: [this.speedingChartEl]
-        });
-
-        this.loadSpeedingData();
-
-        return panel;
-    },
-
-    loadSpeedingData: function () {
-        var me = this;
-        console.log('[promatic_dashboard_enhancer] loadSpeedingData: disparando fetch a speeding_pie.php');
-
-        // Nota: Ext.Ajax.request reescribe rutas relativas bajo el proxy
-        // /store/<extension>/ dentro del contexto de una extensión (404
-        // confirmado en runtime real, 21 jul 2026) — usar fetch() nativo,
-        // que sí resuelve contra el origen real de la página. Ver spec/api.md.
-        fetch('/backend/ax/dashboard/speeding_pie.php', { credentials: 'include' })
-            .then(function (resp) {
-                console.log('[promatic_dashboard_enhancer] speeding_pie.php respondió HTTP ' + resp.status);
-                if (!resp.ok) {
-                    throw new Error('HTTP ' + resp.status);
-                }
-                return resp.json();
-            })
-            .then(function (data) {
-                console.log('[promatic_dashboard_enhancer] speeding_pie.php data:', data);
-                me.renderSpeedingChart(data);
-            })
-            .catch(function (err) {
-                console.error('[promatic_dashboard_enhancer] speeding_pie.php falló:', err);
-                if (me.speedingChartEl) {
-                    me.speedingChartEl.update(l('No se pudo cargar la distribución de velocidad.'));
-                }
-            });
-    },
-
-    renderSpeedingChart: function (data) {
-        var me = this;
-
-        // No usar polling con tope fijo: el componente puede no renderizarse
-        // hasta que el tab se active visualmente en el layout de Ext JS, lo
-        // cual puede tardar más de lo que alcanza cualquier timeout arbitrario.
-        // Escuchar el evento 'render' real, sin límite.
-        if (!this.speedingChartEl || !this.speedingChartEl.rendered) {
-            console.log('[promatic_dashboard_enhancer] renderSpeedingChart: esperando evento render...');
-            this.speedingChartEl.on('render', function () {
-                me.renderSpeedingChart(data);
-            }, this, { single: true });
-            return;
-        }
-
-        if (!window.Highcharts) {
-            console.log('[promatic_dashboard_enhancer] renderSpeedingChart: window.Highcharts NO disponible');
-            this.speedingChartEl.update(l('Highcharts no está disponible en este runtime.'));
-            return;
-        }
-
-        var containerEl = this.speedingChartEl.getEl().dom;
-        console.log('[promatic_dashboard_enhancer] renderSpeedingChart: ancho del contenedor = ' +
-            containerEl.offsetWidth + 'px, alto = ' + containerEl.offsetHeight + 'px');
-
-        if (containerEl.offsetWidth === 0) {
-            // Mismo motivo: esperar a que el layout real termine, no adivinar con tiempo fijo.
-            this.speedingChartEl.on('resize', function () {
-                me.renderSpeedingChart(data);
-            }, this, { single: true });
-            return;
-        }
-
-        // dist/dur pueden llegar como array denso ([0.1, 0.2, ...]) o como
-        // objeto disperso ({2: 0.1, 5: 0.2}) cuando algún rango de velocidad
-        // no tiene ningún evento en el período — confirmado en runtime real
-        // 21 jul 2026 (flota mayormente detenida de noche). Normalizar a
-        // array denso de 13 buckets antes de graficar.
-        var bucketCount = 13;
-        var distValues = [];
-        var durValues = [];
-        for (var i = 0; i < bucketCount; i++) {
-            distValues.push(Number(data.dist && data.dist[i]) || 0);
-            durValues.push(Number(data.dur && data.dur[i]) || 0);
-        }
-
-        var categories = [];
-        for (var c = 0; c < bucketCount; c++) {
-            // Rango de velocidad exacto por bucket sin confirmar todavía — ver spec/api.md
-            categories.push(l('Rango') + ' ' + (c + 1));
-        }
-
-        var durations = durValues;
-
-        Highcharts.chart(this.speedingChartEl.getEl().dom, {
-            chart: { type: 'column', spacingTop: 4, spacingBottom: 4 },
-            title: { text: null },
-            xAxis: { categories: categories },
-            yAxis: { title: { text: l('Distancia (km)') }, gridLineColor: '#F1F5F9' },
-            plotOptions: {
-                column: { borderRadius: 4, pointPadding: 0.05, groupPadding: 0.08 }
-            },
-            tooltip: {
-                formatter: function () {
-                    var seconds = durations[this.point.index] || 0;
-                    var hours = Math.floor(seconds / 3600);
-                    var minutes = Math.round((seconds % 3600) / 60);
-                    var durationText = hours > 0 ?
-                        (hours + 'h ' + minutes + 'min') :
-                        (minutes + 'min');
-                    var avgSpeed = seconds > 0 ? Math.round((this.y / seconds) * 3600) : 0;
-
-                    return '<strong>' + this.key + '</strong><br/>' +
-                        l('Distancia') + ': ' + this.y.toFixed(1) + ' km<br/>' +
-                        l('Duración') + ': ' + durationText + '<br/>' +
-                        l('Velocidad promedio') + ': ' + avgSpeed + ' km/h';
-                }
-            },
-            series: [{ name: l('Distancia'), data: distValues, color: '#2563EB' }],
-            credits: { enabled: false },
-            legend: { enabled: false }
-        });
+    buildFleetWidget: function () {
+        return this.wrapWidget('estado_flota', 'large', l('Estado de Flota'), this.buildFleetGrid());
     },
 
     buildFleetGrid: function () {
@@ -388,7 +103,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         return Ext.create('Ext.grid.Panel', {
             store: this.fleetStore,
-            flex: 1,
             columns: [
                 { text: l('Vehículo'), dataIndex: 'name', flex: 2 },
                 { text: l('Grupo'), dataIndex: 'group', flex: 1 },
@@ -412,6 +126,34 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     getOnlineTree: function () {
         return (window.skeleton && skeleton.navigation && skeleton.navigation.online &&
             skeleton.navigation.online.online_tree) || null;
+    },
+
+    getFleetVehicleIds: function (onlineTree) {
+        var records = onlineTree.getStore().getData().items;
+        var vehIds = [];
+        for (var i = 0; i < records.length; i++) {
+            var agentid = records[i].get('agentid');
+            if (agentid) {
+                vehIds.push(agentid);
+            }
+        }
+        return vehIds;
+    },
+
+    getVehicleNameById: function () {
+        var onlineTree = this.getOnlineTree();
+        var map = {};
+        if (!onlineTree) {
+            return map;
+        }
+        var records = onlineTree.getStore().getData().items;
+        for (var i = 0; i < records.length; i++) {
+            var agentid = records[i].get('agentid');
+            if (agentid) {
+                map[agentid] = records[i].get('name');
+            }
+        }
+        return map;
     },
 
     bindFleetUpdates: function (attempt) {
@@ -502,6 +244,700 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '</div>'
         );
     },
+
+    // -----------------------------------------------------------------------
+    // Fetch compartido — reports.php (get_report / report_type) y analytics/*
+    // Todo vía fetch() nativo, nunca Ext.Ajax.request: dentro del proxy
+    // /store/<extension>/ de una extensión, Ext.Ajax reescribe rutas
+    // relativas y devuelve 404 (confirmado en runtime real, ver spec/api.md).
+    // -----------------------------------------------------------------------
+
+    buildReportBody: function (reportType, vehIdsCsv, startDate, stopDate) {
+        var pad = function (n) {
+            return n < 10 ? '0' + n : '' + n;
+        };
+        var fmtDate = function (d) {
+            return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '.' + d.getFullYear();
+        };
+        var fmtMonth = function (d) {
+            return pad(d.getMonth() + 1) + '.' + d.getFullYear();
+        };
+
+        var pairs = [
+            ['download', '0'], ['start_time', '00:00'], ['stop_time', '00:00'],
+            ['veh_id', vehIdsCsv],
+            ['zones_id', ''], ['lines_id', ''], ['stopping_points_id', ''],
+            ['drivers_id', ''], ['groups_id', ''], ['holidays', ''],
+            ['lang', 'es'], ['explode', '1'],
+            ['start_month', fmtMonth(startDate)], ['stop_month', fmtMonth(stopDate)],
+            ['pre_start_date', fmtDate(startDate)], ['pre_stop_date', fmtDate(stopDate)],
+            ['start_date', fmtDate(startDate) + ' 00:00'], ['stop_date', fmtDate(stopDate) + ' 00:00'],
+            ['group', '1'], ['tags[]', ''], ['level[]', ''],
+            ['event_group', ''], ['event_groups[]', ''],
+            ['map_type', '1'], ['trailer', ''], ['last_ibutton_used', '0'],
+            ['report_type', String(reportType)],
+            ['vehicle_not_moving_time', '1'], ['vehicles_has_covered_km', '1'],
+            ['fillings', 'on'], ['stales', 'on'], ['speed', 'on'], ['rashod', 'on'],
+            ['stops', 'on'], ['run', 'on'], ['planned_stops', 'on'], ['unplanned_stops', 'on'],
+            ['inside_bus_line', 'on'], ['outside_bus_line', 'on'],
+            ['emp_name', ''], ['reason_for_opening', ''], ['report_mc_aid', ''],
+            ['trip_types[]', '1'], ['trip_types[]', '2'],
+            ['contr_time', '120'], ['limit_count', '0'], ['contr_time_max', '0'],
+            ['inspections_report_type', '0'], ['set_months_range', '1'],
+            ['type', '1'], ['template', '1']
+        ];
+
+        var parts = [];
+        for (var i = 0; i < pairs.length; i++) {
+            parts.push(encodeURIComponent(pairs[i][0]) + '=' + encodeURIComponent(pairs[i][1]));
+        }
+        return parts.join('&');
+    },
+
+    fetchReportType: function (reportType, vehIdsCsv, startDate, stopDate, timeoutMs) {
+        var body = this.buildReportBody(reportType, vehIdsCsv, startDate, stopDate);
+        var ctrl = new AbortController();
+        var timeout = setTimeout(function () {
+            ctrl.abort();
+        }, timeoutMs || 20000);
+
+        return fetch('/backend/ax/reports.php', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body,
+            signal: ctrl.signal
+        }).then(function (resp) {
+            if (!resp.ok) {
+                throw new Error('HTTP ' + resp.status);
+            }
+            return resp.json();
+        }).finally(function () {
+            clearTimeout(timeout);
+        });
+    },
+
+    fetchAnalyticsMainData: function (vehIdsCsv, timeoutMs) {
+        var isoDay = new Date().toISOString().slice(0, 10) + 'T00:00:00';
+        var pairs = [
+            ['cmd', 'get_main_data'], ['cons_value', 'l/100km'],
+            ['ts', isoDay], ['te', isoDay], ['today', 'true'], ['sync', ''],
+            ['agent_ids', vehIdsCsv]
+        ];
+        var parts = [];
+        for (var i = 0; i < pairs.length; i++) {
+            parts.push(encodeURIComponent(pairs[i][0]) + '=' + encodeURIComponent(pairs[i][1]));
+        }
+
+        var ctrl = new AbortController();
+        var timeout = setTimeout(function () {
+            ctrl.abort();
+        }, timeoutMs || 8000);
+
+        return fetch('/backend/ax/analytics/vehicles.php', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: parts.join('&'),
+            signal: ctrl.signal
+        }).then(function (resp) {
+            if (!resp.ok) {
+                throw new Error('HTTP ' + resp.status);
+            }
+            return resp.json();
+        }).finally(function () {
+            clearTimeout(timeout);
+        });
+    },
+
+    fetchDashboardCmd: function (cmd, vehIdsCsv, timeoutMs) {
+        var isoDay = new Date().toISOString().slice(0, 10) + 'T00:00:00';
+        var pairs = [['cmd', cmd], ['agent_ids', vehIdsCsv], ['ts', isoDay], ['te', isoDay]];
+        var parts = [];
+        for (var i = 0; i < pairs.length; i++) {
+            parts.push(encodeURIComponent(pairs[i][0]) + '=' + encodeURIComponent(pairs[i][1]));
+        }
+
+        var ctrl = new AbortController();
+        var timeout = setTimeout(function () {
+            ctrl.abort();
+        }, timeoutMs || 8000);
+
+        return fetch('/backend/ax/analytics/dashboard.php', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: parts.join('&'),
+            signal: ctrl.signal
+        }).then(function (resp) {
+            if (!resp.ok) {
+                throw new Error('HTTP ' + resp.status);
+            }
+            return resp.json();
+        }).finally(function () {
+            clearTimeout(timeout);
+        });
+    },
+
+    fetchEventCount: function (vehIdsCsv, type, dateStart, dateStop) {
+        var qs = 'cmd=search&veh=' + encodeURIComponent(vehIdsCsv) +
+            '&type=' + encodeURIComponent(type) +
+            '&date_start=' + encodeURIComponent(dateStart) +
+            '&date_stop=' + encodeURIComponent(dateStop) +
+            '&limit=1&page=1&start=0';
+
+        return fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include' })
+            .then(function (resp) {
+                if (!resp.ok) {
+                    throw new Error('HTTP ' + resp.status);
+                }
+                return resp.json();
+            })
+            .then(function (data) {
+                return (data && typeof data.total === 'number') ? data.total : 0;
+            });
+    },
+
+    // Espera a que online_tree tenga datos y devuelve la lista de agent_ids —
+    // patrón compartido por todos los widgets que dependen de la flota.
+    withFleetVehicleIds: function (callback) {
+        var me = this;
+        var onlineTree = this.getOnlineTree();
+
+        if (!onlineTree) {
+            Ext.defer(function () { me.withFleetVehicleIds(callback); }, 500, this);
+            return;
+        }
+
+        var vehIds = this.getFleetVehicleIds(onlineTree);
+        if (vehIds.length === 0) {
+            onlineTree.getStore().on('datachanged', function () {
+                me.withFleetVehicleIds(callback);
+            }, this, { single: true });
+            return;
+        }
+
+        callback.call(this, vehIds);
+    },
+
+    // -----------------------------------------------------------------------
+    // Widget: Kilometraje (últimos 7 días) — reports.php report_type=4
+    // -----------------------------------------------------------------------
+
+    buildMileageWidget: function () {
+        this.mileageEl = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-mileage',
+            html: l('Cargando kilometraje...')
+        });
+
+        this.loadMileageData();
+
+        return this.wrapWidget('kilometraje', 'medium', l('Kilometraje (últimos 7 días)'), this.mileageEl);
+    },
+
+    loadMileageData: function () {
+        var me = this;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            console.log('[promatic_dashboard_enhancer] loadMileageData: ' + vehIds.length + ' vehículos encontrados', vehIds);
+
+            var stopDate = new Date();
+            var startDate = new Date();
+            startDate.setDate(startDate.getDate() - 7);
+            var startedAt = performance.now();
+
+            me.fetchReportType(4, vehIds.join(','), startDate, stopDate, 20000)
+                .then(function (report) {
+                    console.log('[promatic_dashboard_enhancer] reports.php (kilometraje) tardó ' +
+                        ((performance.now() - startedAt) / 1000).toFixed(1) + 's');
+                    me.renderMileageSummary(report, vehIds.length);
+                })
+                .catch(function (err) {
+                    var timedOut = err && err.name === 'AbortError';
+                    console.error('[promatic_dashboard_enhancer] reports.php (kilometraje) falló:',
+                        timedOut ? 'timeout 20s' : err);
+                    if (me.mileageEl) {
+                        me.mileageEl.update(timedOut ?
+                            l('El reporte de kilometraje está tardando demasiado — intenta un rango más corto.') :
+                            l('No se pudo cargar el kilometraje.'));
+                    }
+                });
+        });
+    },
+
+    renderMileageSummary: function (report, vehicleCount) {
+        if (!this.mileageEl) {
+            return;
+        }
+
+        var totalKm = 0;
+        var dateGroups = (report && report.data) || {};
+
+        for (var dateKey in dateGroups) {
+            if (!dateGroups.hasOwnProperty(dateKey)) {
+                continue;
+            }
+            var vehGroups = dateGroups[dateKey];
+            for (var vehKey in vehGroups) {
+                if (!vehGroups.hasOwnProperty(vehKey)) {
+                    continue;
+                }
+                var trips = vehGroups[vehKey];
+                for (var i = 0; i < trips.length; i++) {
+                    totalKm += trips[i].length || 0;
+                }
+            }
+        }
+
+        var avgKm = vehicleCount > 0 ? (totalKm / vehicleCount) : 0;
+
+        this.mileageEl.update(
+            '<div class="promatic_dashboard_enhancer-summary__row">' +
+                '<div class="promatic_dashboard_enhancer-stat">' +
+                    '<span class="promatic_dashboard_enhancer-stat__value">' + totalKm.toFixed(1) + ' km</span>' +
+                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('total flota') + '</span>' +
+                '</div>' +
+                '<div class="promatic_dashboard_enhancer-stat">' +
+                    '<span class="promatic_dashboard_enhancer-stat__value">' + avgKm.toFixed(1) + ' km</span>' +
+                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('promedio por vehículo') + '</span>' +
+                '</div>' +
+            '</div>'
+        );
+    },
+
+    // -----------------------------------------------------------------------
+    // Widget: Distribución de velocidad — speeding_pie.php
+    // -----------------------------------------------------------------------
+
+    buildSpeedingWidget: function () {
+        this.speedingChartEl = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-chart',
+            autoEl: { tag: 'div' }
+        });
+
+        this.loadSpeedingData();
+
+        return this.wrapWidget('velocidad', 'large', l('Distribución de velocidad'), this.speedingChartEl);
+    },
+
+    loadSpeedingData: function () {
+        var me = this;
+        console.log('[promatic_dashboard_enhancer] loadSpeedingData: disparando fetch a speeding_pie.php');
+
+        fetch('/backend/ax/dashboard/speeding_pie.php', { credentials: 'include' })
+            .then(function (resp) {
+                console.log('[promatic_dashboard_enhancer] speeding_pie.php respondió HTTP ' + resp.status);
+                if (!resp.ok) {
+                    throw new Error('HTTP ' + resp.status);
+                }
+                return resp.json();
+            })
+            .then(function (data) {
+                console.log('[promatic_dashboard_enhancer] speeding_pie.php data:', data);
+                me.renderSpeedingChart(data);
+            })
+            .catch(function (err) {
+                console.error('[promatic_dashboard_enhancer] speeding_pie.php falló:', err);
+                if (me.speedingChartEl) {
+                    me.speedingChartEl.update(l('No se pudo cargar la distribución de velocidad.'));
+                }
+            });
+    },
+
+    renderSpeedingChart: function (data) {
+        var me = this;
+
+        if (!this.speedingChartEl || !this.speedingChartEl.rendered) {
+            console.log('[promatic_dashboard_enhancer] renderSpeedingChart: esperando evento render...');
+            this.speedingChartEl.on('render', function () {
+                me.renderSpeedingChart(data);
+            }, this, { single: true });
+            return;
+        }
+
+        if (!window.Highcharts) {
+            console.log('[promatic_dashboard_enhancer] renderSpeedingChart: window.Highcharts NO disponible');
+            this.speedingChartEl.update(l('Highcharts no está disponible en este runtime.'));
+            return;
+        }
+
+        var containerEl = this.speedingChartEl.getEl().dom;
+        console.log('[promatic_dashboard_enhancer] renderSpeedingChart: ancho del contenedor = ' +
+            containerEl.offsetWidth + 'px, alto = ' + containerEl.offsetHeight + 'px');
+
+        if (containerEl.offsetWidth === 0) {
+            this.speedingChartEl.on('resize', function () {
+                me.renderSpeedingChart(data);
+            }, this, { single: true });
+            return;
+        }
+
+        // dist/dur pueden llegar como array denso o como objeto disperso
+        // ({2: 0.1, 5: 0.2}) cuando algún rango de velocidad no tiene ningún
+        // evento en el período — normalizar a array denso de 13 buckets.
+        var bucketCount = 13;
+        var distValues = [];
+        var durValues = [];
+        for (var i = 0; i < bucketCount; i++) {
+            distValues.push(Number(data.dist && data.dist[i]) || 0);
+            durValues.push(Number(data.dur && data.dur[i]) || 0);
+        }
+
+        var categories = [];
+        for (var c = 0; c < bucketCount; c++) {
+            categories.push(l('Rango') + ' ' + (c + 1));
+        }
+
+        var durations = durValues;
+
+        Highcharts.chart(this.speedingChartEl.getEl().dom, {
+            chart: { type: 'column', spacingTop: 4, spacingBottom: 4 },
+            title: { text: null },
+            xAxis: { categories: categories },
+            yAxis: { title: { text: l('Distancia (km)') }, gridLineColor: '#F1F5F9' },
+            plotOptions: {
+                column: { borderRadius: 4, pointPadding: 0.05, groupPadding: 0.08 }
+            },
+            tooltip: {
+                formatter: function () {
+                    var seconds = durations[this.point.index] || 0;
+                    var hours = Math.floor(seconds / 3600);
+                    var minutes = Math.round((seconds % 3600) / 60);
+                    var durationText = hours > 0 ?
+                        (hours + 'h ' + minutes + 'min') :
+                        (minutes + 'min');
+                    var avgSpeed = seconds > 0 ? Math.round((this.y / seconds) * 3600) : 0;
+
+                    return '<strong>' + this.key + '</strong><br/>' +
+                        l('Distancia') + ': ' + this.y.toFixed(1) + ' km<br/>' +
+                        l('Duración') + ': ' + durationText + '<br/>' +
+                        l('Velocidad promedio') + ': ' + avgSpeed + ' km/h';
+                }
+            },
+            series: [{ name: l('Distancia'), data: distValues, color: '#2563EB' }],
+            credits: { enabled: false },
+            legend: { enabled: false }
+        });
+    },
+
+    // -----------------------------------------------------------------------
+    // Widget: Voltaje de batería — reports.php report_type=15 (sensores
+    // especiales). El nombre exacto del sensor puede variar por dispositivo
+    // ("External Voltage:V:196350::1" en la cuenta de pruebas) — se busca por
+    // coincidencia de substring "voltage", no por el string exacto.
+    // -----------------------------------------------------------------------
+
+    buildBatteryWidget: function () {
+        this.batteryEl = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-battery',
+            html: l('Cargando voltaje de batería...')
+        });
+
+        this.loadBatteryData();
+
+        return this.wrapWidget('bateria', 'medium', l('Voltaje de batería'), this.batteryEl);
+    },
+
+    loadBatteryData: function () {
+        var me = this;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            var stopDate = new Date();
+            var startDate = new Date();
+            startDate.setDate(startDate.getDate() - 7);
+
+            me.fetchReportType(15, vehIds.join(','), startDate, stopDate, 20000)
+                .then(function (report) {
+                    me.renderBatterySummary(report);
+                })
+                .catch(function (err) {
+                    var timedOut = err && err.name === 'AbortError';
+                    if (me.batteryEl) {
+                        me.batteryEl.update(timedOut ?
+                            l('El reporte de voltaje está tardando demasiado.') :
+                            l('No se pudo cargar el voltaje de batería.'));
+                    }
+                });
+        });
+    },
+
+    renderBatterySummary: function (report) {
+        if (!this.batteryEl) {
+            return;
+        }
+
+        var readings = [];
+        var dateGroups = (report && report.data) || {};
+
+        for (var dateKey in dateGroups) {
+            if (!dateGroups.hasOwnProperty(dateKey)) {
+                continue;
+            }
+            var vehGroups = dateGroups[dateKey];
+            for (var vehName in vehGroups) {
+                if (!vehGroups.hasOwnProperty(vehName)) {
+                    continue;
+                }
+                var sensors = vehGroups[vehName] && vehGroups[vehName].sensors;
+                if (!sensors) {
+                    continue;
+                }
+                for (var sensorName in sensors) {
+                    if (!sensors.hasOwnProperty(sensorName) || sensorName.toLowerCase().indexOf('voltage') === -1) {
+                        continue;
+                    }
+                    var series = sensors[sensorName];
+                    if (series && series.length) {
+                        readings.push({ vehicle: vehName, volts: series[series.length - 1][1] });
+                    }
+                }
+            }
+        }
+
+        if (readings.length === 0) {
+            this.batteryEl.update(l('Sin sensor de voltaje habilitado en esta flota.'));
+            return;
+        }
+
+        var rows = '';
+        for (var i = 0; i < readings.length; i++) {
+            rows += '<div class="promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row">' +
+                '<span class="promatic_dashboard_enhancer-stat__label">' + Ext.String.htmlEncode(readings[i].vehicle) + '</span>' +
+                '<span class="promatic_dashboard_enhancer-stat__value">' + Number(readings[i].volts).toFixed(1) + ' V</span>' +
+            '</div>';
+        }
+        this.batteryEl.update(rows);
+    },
+
+    // -----------------------------------------------------------------------
+    // Widget: Resumen de flota (hoy) — analytics/vehicles.php get_main_data
+    // Guardrail NOC-003: en flotas grandes este endpoint puede caer a un job
+    // asíncrono + WebSocket en vez de responder directo — timeout corto
+    // (8s) y fallback acotado a este widget, sin bloquear el resto del
+    // dashboard.
+    // -----------------------------------------------------------------------
+
+    buildFleetSummaryWidget: function () {
+        this.fleetSummaryEl = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-fleet-summary',
+            html: l('Cargando resumen de flota...')
+        });
+
+        this.loadFleetSummaryData();
+
+        return this.wrapWidget('resumen_flota', 'large', l('Resumen de flota (hoy)'), this.fleetSummaryEl);
+    },
+
+    loadFleetSummaryData: function () {
+        var me = this;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            me.fetchAnalyticsMainData(vehIds.join(','), 8000)
+                .then(function (data) {
+                    me.renderFleetSummary(data);
+                })
+                .catch(function (err) {
+                    var timedOut = err && err.name === 'AbortError';
+                    if (me.fleetSummaryEl) {
+                        me.fleetSummaryEl.update(timedOut ?
+                            l('El resumen de flota está tardando demasiado (cuentas con flota grande pueden requerir sincronización manual).') :
+                            l('No se pudo cargar el resumen de flota.'));
+                    }
+                });
+        });
+    },
+
+    formatInfoblockValue: function (renderer, value) {
+        if (renderer === 'secondsToHumanTime' && typeof secondsToHumanTime === 'function') {
+            return secondsToHumanTime(value);
+        }
+        if ((renderer === 'volumeSSS' || renderer === 'volumeSS') && typeof volumeSS === 'function') {
+            return volumeSS(value);
+        }
+        if ((renderer === 'mileageSSS' || renderer === 'mileageSS') && typeof mileageSS === 'function') {
+            return mileageSS(value);
+        }
+        return value;
+    },
+
+    renderFleetSummary: function (data) {
+        if (!this.fleetSummaryEl) {
+            return;
+        }
+
+        // Se muestran solo los infoblocks que no se solapan con otro widget
+        // ya construido (ej. "Driving distance"/"Average mileage in period"
+        // quedan fuera porque el widget de Kilometraje ya cubre esa métrica
+        // con la fuente preferente, report_type=4 — ver anomalía documentada
+        // en spec/api.md).
+        var wanted = [
+            { key: 'Trips count', label: l('Viajes') },
+            { key: 'Driving time', label: l('Tiempo conduciendo') },
+            { key: 'Parking time', label: l('Tiempo estacionado') },
+            { key: 'Fuel consumed', label: l('Combustible consumido') },
+            { key: 'Average cars on line', label: l('Autos promedio en línea') },
+            { key: 'Idle time', label: l('Tiempo en ralentí') }
+        ];
+
+        var infoblocks = (data && data.infoblocks) || [];
+        var byTitle = {};
+        for (var i = 0; i < infoblocks.length; i++) {
+            if (infoblocks[i] && infoblocks[i].title) {
+                byTitle[infoblocks[i].title] = infoblocks[i];
+            }
+        }
+
+        var rows = '';
+        for (var j = 0; j < wanted.length; j++) {
+            var block = byTitle[wanted[j].key];
+            if (!block) {
+                continue;
+            }
+            rows += '<div class="promatic_dashboard_enhancer-stat">' +
+                '<span class="promatic_dashboard_enhancer-stat__value">' + this.formatInfoblockValue(block.renderer, block.info) + '</span>' +
+                '<span class="promatic_dashboard_enhancer-stat__label">' + wanted[j].label + '</span>' +
+            '</div>';
+        }
+
+        this.fleetSummaryEl.update(rows || l('Sin datos de resumen para el período.'));
+    },
+
+    // -----------------------------------------------------------------------
+    // Widget: Zonas ocupadas ahora — analytics/dashboard.php cmd=zones
+    // -----------------------------------------------------------------------
+
+    buildZonesWidget: function () {
+        this.zonesEl = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-zones',
+            html: l('Cargando geocercas ocupadas...')
+        });
+
+        this.loadZonesData();
+
+        return this.wrapWidget('zonas', 'medium', l('Zonas ocupadas ahora'), this.zonesEl);
+    },
+
+    loadZonesData: function () {
+        var me = this;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            me.fetchDashboardCmd('zones', vehIds.join(','), 8000)
+                .then(function (data) {
+                    me.renderZonesSummary(data);
+                })
+                .catch(function (err) {
+                    var timedOut = err && err.name === 'AbortError';
+                    if (me.zonesEl) {
+                        me.zonesEl.update(timedOut ?
+                            l('La consulta de geocercas está tardando demasiado.') :
+                            l('No se pudo cargar la ocupación de geocercas.'));
+                    }
+                });
+        });
+    },
+
+    renderZonesSummary: function (data) {
+        if (!this.zonesEl) {
+            return;
+        }
+
+        var zoneNames = data ? Object.keys(data) : [];
+        if (zoneNames.length === 0) {
+            this.zonesEl.update(l('Ningún vehículo en geocerca ahora mismo.'));
+            return;
+        }
+
+        var nameByAgent = this.getVehicleNameById();
+        var rows = '';
+
+        for (var i = 0; i < zoneNames.length; i++) {
+            var zone = zoneNames[i];
+            var agentIds = data[zone] || [];
+            var names = [];
+            for (var j = 0; j < agentIds.length; j++) {
+                names.push(Ext.String.htmlEncode(nameByAgent[agentIds[j]] || ('#' + agentIds[j])));
+            }
+            rows += '<div class="promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row">' +
+                '<span class="promatic_dashboard_enhancer-stat__label">' + Ext.String.htmlEncode(zone) + '</span>' +
+                '<span class="promatic_dashboard_enhancer-stat__value">' + names.join(', ') + '</span>' +
+            '</div>';
+        }
+        this.zonesEl.update(rows);
+    },
+
+    // -----------------------------------------------------------------------
+    // Widget: Eventos puntuales (últimos 7 días) — events.php por type.
+    // Catálogo confirmado en brain/REF-001 (21-22 jul): 8=GSM, 9=caída de
+    // voltaje, 10=reabastecimiento, 11=geocerca. type=1 (ignición) queda
+    // fuera — volumen demasiado alto para un contador puntual (557k
+    // eventos/7 meses en la auditoría de campo).
+    // -----------------------------------------------------------------------
+
+    buildEventsWidget: function () {
+        this.eventsEl = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-events',
+            html: l('Cargando eventos...')
+        });
+
+        this.loadEventsData();
+
+        return this.wrapWidget('eventos', 'medium', l('Eventos (últimos 7 días)'), this.eventsEl);
+    },
+
+    loadEventsData: function () {
+        var me = this;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            var stopDate = new Date();
+            var startDate = new Date();
+            startDate.setDate(startDate.getDate() - 7);
+            var fmt = function (d) {
+                return d.toISOString().slice(0, 10);
+            };
+            var vehIdsCsv = vehIds.join(',');
+
+            var types = [
+                { type: 8, label: l('Señal GSM degradada') },
+                { type: 9, label: l('Caídas de voltaje') },
+                { type: 10, label: l('Reabastecimientos') },
+                { type: 11, label: l('Entradas/salidas de geocerca') }
+            ];
+
+            var promises = types.map(function (t) {
+                return me.fetchEventCount(vehIdsCsv, t.type, fmt(startDate), fmt(stopDate))
+                    .then(function (total) {
+                        return { label: t.label, total: total };
+                    })
+                    .catch(function () {
+                        return { label: t.label, total: null };
+                    });
+            });
+
+            Promise.all(promises).then(function (results) {
+                me.renderEventsSummary(results);
+            });
+        });
+    },
+
+    renderEventsSummary: function (results) {
+        if (!this.eventsEl) {
+            return;
+        }
+
+        var rows = '';
+        for (var i = 0; i < results.length; i++) {
+            var value = results[i].total === null ? l('N/D') : results[i].total;
+            rows += '<div class="promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row">' +
+                '<span class="promatic_dashboard_enhancer-stat__label">' + results[i].label + '</span>' +
+                '<span class="promatic_dashboard_enhancer-stat__value">' + value + '</span>' +
+            '</div>';
+        }
+        this.eventsEl.update(rows);
+    },
+
+    // -----------------------------------------------------------------------
+    // Assets
+    // -----------------------------------------------------------------------
 
     getModuleBaseUrl: function () {
         var scripts = document.getElementsByTagName('script');

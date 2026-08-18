@@ -6,7 +6,7 @@
 
 .promatic_dashboard_enhancer-summary {
     padding: 8px 12px;
-    margin-bottom: 8px;
+    margin-bottom: 16px;
     background-color: #F8FAFC; /* segunda capa neutra, distinta de la superficie de contenido */
     border-radius: 4px;
 }
@@ -29,6 +29,16 @@
     gap: 4px;
 }
 
+/* Variante en fila (etiqueta izquierda, valor derecha) — usada por los
+   widgets de lista (batería, zonas, eventos), a diferencia de la variante
+   por defecto (valor grande arriba, etiqueta abajo). */
+.promatic_dashboard_enhancer-stat--row {
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid #F1F5F9;
+}
+
 .promatic_dashboard_enhancer-stat__value {
     font-size: 15px;
     font-weight: 600;
@@ -36,7 +46,9 @@
 
 .promatic_dashboard_enhancer-stat__label {
     font-size: 13px;
-    color: #64748B;
+    color: #64748B !important; /* !important: el CSS global de PILOT pisa esta clase
+        por especificidad y la muestra azul/subrayada como link — ver spec/features.md */
+    text-decoration: none !important;
 }
 
 .promatic_dashboard_enhancer-dot {
@@ -54,17 +66,122 @@
     background-color: #DC2626;
 }
 
-.promatic_dashboard_enhancer-mileage-panel {
-    margin-top: 12px;
+/* -----------------------------------------------------------------------
+   Grid de widgets — ADR-007 (grid de 3 tamaños, CSS puro sin librería de
+   layout). Columnas responsivas vía auto-fit; "grande" ocupa 2 columnas.
+   ----------------------------------------------------------------------- */
+
+.promatic_dashboard_enhancer-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-auto-rows: min-content;
+    align-items: start;
+    gap: 16px;
 }
 
-.promatic_dashboard_enhancer-mileage {
+.promatic_dashboard_enhancer-widget {
+    border-radius: 8px;
+    border: 1px solid #E2E8F0;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 10px rgba(15, 23, 42, 0.03);
+    overflow: hidden;
+}
+
+.promatic_dashboard_enhancer-widget--large {
+    grid-column: span 2;
+}
+
+.promatic_dashboard_enhancer-widget--medium {
+    grid-column: span 2; /* corregido: mediano es 2x1 según ADR-007, no 1x1 */
+}
+
+.promatic_dashboard_enhancer-widget--small {
+    grid-column: span 1;
+}
+
+/* Estado de Flota compacto — lista de filas en vez de grid Ext completo */
+.promatic_dashboard_enhancer-fleet-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-bottom: 1px solid #F1F5F9;
+    font-size: 13px;
+}
+
+.promatic_dashboard_enhancer-fleet-row__plate {
+    font-weight: 600;
+    min-width: 70px;
+}
+
+.promatic_dashboard_enhancer-fleet-row__group {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.promatic_dashboard_enhancer-fleet-row__state {
+    margin-left: auto;
+    color: #64748B;
+    font-size: 12px;
+}
+
+.promatic_dashboard_enhancer-widget-footer {
+    padding: 6px 12px;
+    text-align: right;
+}
+
+.promatic_dashboard_enhancer-widget-footer a {
+    font-size: 12px;
+    color: #2563EB;
+    text-decoration: none;
+}
+
+/* Distribución de velocidad — barra de rango con marcas de límite */
+.promatic_dashboard_enhancer-speed-range {
+    padding: 12px;
+}
+
+.promatic_dashboard_enhancer-speed-range__track {
+    position: relative;
+    height: 10px;
+    border-radius: 5px;
+    background: linear-gradient(to right, #16A34A, #F59E0B, #DC2626);
+    margin: 26px 6px 10px;
+}
+
+.promatic_dashboard_enhancer-speed-range__marker {
+    position: absolute;
+    top: -18px;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: #64748B;
+    white-space: nowrap;
+}
+
+.promatic_dashboard_enhancer-speed-range__marker::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 18px;
+    width: 1px;
+    height: 14px;
+    background: #0F172A;
+}
+
+.promatic_dashboard_enhancer-speed-range__stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #64748B;
+}
+
+.promatic_dashboard_enhancer-mileage,
+.promatic_dashboard_enhancer-battery,
+.promatic_dashboard_enhancer-fleet-summary,
+.promatic_dashboard_enhancer-zones,
+.promatic_dashboard_enhancer-events {
     padding: 8px 12px;
-}
-
-.promatic_dashboard_enhancer-speeding-panel {
-    margin-top: 12px;
-    max-width: 480px; /* el chart no necesita ocupar todo el ancho del panel */
 }
 
 .promatic_dashboard_enhancer-chart {
