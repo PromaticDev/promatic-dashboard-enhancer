@@ -71,12 +71,16 @@
    layout). Columnas responsivas vía auto-fit; "grande" ocupa 2 columnas.
    ----------------------------------------------------------------------- */
 
+/* !important necesario: Ext JS aplica estilos inline (display/width) por
+   JS a sus paneles, con más especificidad que una clase CSS normal — sin
+   esto, el grid queda pisado y todo se apila en una sola columna. */
 .promatic_dashboard_enhancer-grid {
-    display: grid;
+    display: grid !important;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     grid-auto-rows: min-content;
     align-items: start;
     gap: 16px;
+    width: 100% !important;
 }
 
 .promatic_dashboard_enhancer-widget {
@@ -84,18 +88,19 @@
     border: 1px solid #E2E8F0;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 10px rgba(15, 23, 42, 0.03);
     overflow: hidden;
+    width: auto !important;
 }
 
 .promatic_dashboard_enhancer-widget--large {
-    grid-column: span 2;
+    grid-column: span 2 !important;
 }
 
 .promatic_dashboard_enhancer-widget--medium {
-    grid-column: span 2; /* corregido: mediano es 2x1 según ADR-007, no 1x1 */
+    grid-column: span 2 !important; /* corregido: mediano es 2x1 según ADR-007, no 1x1 */
 }
 
 .promatic_dashboard_enhancer-widget--small {
-    grid-column: span 1;
+    grid-column: span 1 !important;
 }
 
 /* Estado de Flota compacto — lista de filas en vez de grid Ext completo */

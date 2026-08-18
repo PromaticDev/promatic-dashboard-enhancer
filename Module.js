@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-18-03',
+    moduleBuild: '2026-08-18-04',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
