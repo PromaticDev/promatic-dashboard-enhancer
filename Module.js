@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-18-02',
+    moduleBuild: '2026-08-18-03',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -64,6 +64,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var panel = Ext.create('Ext.panel.Panel', {
             cls: 'promatic_dashboard_enhancer-panel',
             layout: { type: 'vbox', align: 'stretch' },
+            scrollable: 'y',
             items: [this.summaryBar, grid]
         });
 
@@ -969,7 +970,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var css = document.createElement('link');
         css.setAttribute('rel', 'stylesheet');
         css.setAttribute('type', 'text/css');
-        css.setAttribute('href', this.getModuleBaseUrl() + 'style.css');
+        css.setAttribute('href', this.getModuleBaseUrl() + 'style.css?v=' + this.moduleBuild);
         document.head.appendChild(css);
     }
 });
