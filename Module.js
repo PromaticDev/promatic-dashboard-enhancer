@@ -1,9 +1,10 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
+    moduleBuild: '2026-08-18-02',
 
     initModule: function () {
-        console.log('[promatic_dashboard_enhancer] initModule: inicio');
+        console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
         this.loadStyles();
 
         var mainPanel = this.buildMainPanel();
@@ -50,13 +51,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: 'promatic_dashboard_enhancer-grid',
             layout: 'auto',
             items: [
-                this.buildFleetWidget(),
-                this.buildSpeedingWidget(),
-                this.buildFleetSummaryWidget(),
-                this.buildMileageWidget(),
-                this.buildBatteryWidget(),
-                this.buildZonesWidget(),
-                this.buildEventsWidget()
+                this.safeBuildWidget('estado_flota', this.buildFleetWidget),
+                this.safeBuildWidget('velocidad', this.buildSpeedingWidget),
+                this.safeBuildWidget('resumen_flota', this.buildFleetSummaryWidget),
+                this.safeBuildWidget('kilometraje', this.buildMileageWidget),
+                this.safeBuildWidget('bateria', this.buildBatteryWidget),
+                this.safeBuildWidget('zonas', this.buildZonesWidget),
+                this.safeBuildWidget('eventos', this.buildEventsWidget)
             ]
         });
 
@@ -69,6 +70,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.bindFleetUpdates();
 
         return panel;
+    },
+
+    // Aísla la construcción sincrónica de cada widget: si uno tira un error
+    // (config de Ext inválida, referencia rota, etc.), el resto del grid
+    // sigue renderizando en vez de que un solo widget roto tumbe todo el panel.
+    safeBuildWidget: function (id, builderFn) {
+        try {
+            return builderFn.call(this);
+        } catch (err) {
+            console.error('[promatic_dashboard_enhancer] widget "' + id + '" falló al construir:', err);
+            return this.wrapWidget(id, 'small', l('Error'), Ext.create('Ext.Component', {
+                html: l('No se pudo cargar este widget.')
+            }));
+        }
     },
 
     // Contrato de widget (ADR-007 sección 1). `size` decide la clase CSS de
