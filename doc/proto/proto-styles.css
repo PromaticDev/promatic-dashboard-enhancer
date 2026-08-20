@@ -1,0 +1,929 @@
+/* ==========================================================================
+   Variables y Reset Base
+   ========================================================================== */
+:root {
+  /* Paleta "Cálida" (Versión 1) — dev/palettes/version1.css, adoptada 20 ago 2026,
+     rebalanceada el mismo día (más azul, menos naranjo) y recortada a 8 tonos
+     (se retiraron --g8/--g9, muy parecidos a --g6/--g7, sobraban). Un solo azul
+     fuerte (--accent-azure) en vez de dos compitiendo entre sí; baltic-blue
+     domina la rampa estructural (--g3..--g7). --g2 era el último respiro cálido
+     (vanilla-custard) — se retiró también: los bordes/divisores que lo usaban
+     se veían mal contra el resto de la paleta azul, así que --g2 pasó a un
+     verde sage (hue 170°, igual que --accent-teal) para que combine en vez de
+     chocar. --accent-teal reservado para semántica "positivo/en regla". */
+  --g0: #f4f6f8;
+  --g1: #e6edf3;
+  --g2: #cae2de;
+  --g3: #b9d2e2;
+  --g4: #87b3cf;
+  --g5: #498db8;
+  --g6: #0a67a0;
+  --g7: #064368;
+  --accent-azure: #008be3;
+  --accent-teal: #1c9c87;
+
+  /* Colores "semáforo" — solo para widgets con límite mantenido/excedido
+     (velocidad, estado de flota, batería, etc.), nunca para chrome general.
+     --status-text es el color de texto validado por contraste WCAG AA
+     contra los 4 (ADR-009) — ver dev/palettes/preview.html para el ejemplo. */
+  --status-ok: #a8d5ba;
+  --status-warn: #f0d97d;
+  --status-alert: #f0a868;
+  --status-danger: #e8938a;
+  --status-text: #04283e;
+
+  /* Versiones "fuertes" (más saturadas/oscuras) de los 3 estados principales —
+     los pasteles fallan el 3:1 de contraste WCAG (objeto gráfico/texto) contra
+     fondos claros, así que estos son para trazos/anillos/números, nunca para
+     fondos de badge (ahí van los pasteles de arriba). Ver ADR-009. */
+  --status-ok-strong: #238a4c;
+  --status-warn-strong: #996600;
+  --status-alert-strong: #a34d00;
+  --status-danger-strong: #ad1100;
+
+  /* Chrome de desarrollo — envoltorio de preview, no forma parte de la UI de PILOT */
+  --dev-canvas-bg: #cbd5e1;
+  --dev-label: #475569;
+  --dev-label-strong: #1e293b;
+  --dev-frame-border: #94a3b8;
+
+  --font: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+/* Helpers para color inline */
+.bg-g0 {
+  background-color: var(--g0);
+}
+
+.bg-g1 {
+  background-color: var(--g1);
+}
+
+.bg-g2 {
+  background-color: var(--g2);
+}
+
+.bg-g3 {
+  background-color: var(--g3);
+}
+
+.bg-g4 {
+  background-color: var(--g4);
+}
+
+.bg-g5 {
+  background-color: var(--g5);
+}
+
+.bg-g6 {
+  background-color: var(--g6);
+}
+
+.bg-g7 {
+  background-color: var(--g7);
+}
+
+.bg-status-ok {
+  background-color: var(--status-ok);
+}
+
+.bg-status-warn {
+  background-color: var(--status-warn);
+}
+
+.bg-status-alert {
+  background-color: var(--status-alert);
+}
+
+.bg-status-danger {
+  background-color: var(--status-danger);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--dev-canvas-bg);
+  font-family: var(--font);
+  padding: 12px;
+}
+
+.frame-label {
+  width: 100%;
+  max-width: 1522px;
+  margin: 0 auto 8px auto;
+  font-size: 12px;
+  color: var(--dev-label);
+}
+
+.frame-label b {
+  color: var(--dev-label-strong);
+}
+
+/* ==========================================================================
+   Contenedor Principal (Fluid Frame)
+   ========================================================================== */
+.pilot-frame {
+  width: 100%;
+  max-width: 1522px;
+  min-height: 100vh;
+  margin: 0 auto;
+  background: var(--g0);
+  border: 2px dashed var(--dev-frame-border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.tabs {
+  flex-shrink: 0;
+  padding: 8px 14px 0 14px;
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--g3);
+  background: var(--g0);
+  overflow-x: auto;
+}
+
+.tab-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--g5);
+  border-bottom: 2px solid transparent;
+  font-family: var(--font);
+  white-space: nowrap;
+}
+
+.tab-btn.active {
+  color: var(--accent-azure);
+  border-bottom-color: var(--accent-azure);
+}
+
+.view {
+  display: none;
+  flex: 1;
+  padding: 12px;
+}
+
+.view.active {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ==========================================================================
+   Componente Base Widget
+   ========================================================================== */
+.widget {
+  background: var(--g0);
+  border: 1px solid var(--g3);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.widget__head {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--g2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.widget__title {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  color: var(--g6);
+}
+
+.widget__meta {
+  font-size: 9px;
+  color: var(--g4);
+}
+
+.widget__body {
+  padding: 10px 12px;
+  flex: 1;
+}
+
+.widget__footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--g2);
+  padding: 4px 8px;
+}
+
+.widget-btn {
+  display: block;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .2px;
+  color: var(--g5);
+  text-decoration: none;
+  padding: 4px 0;
+  border-radius: 3px;
+}
+
+.widget-btn:hover {
+  background: var(--g1);
+  color: var(--accent-azure);
+}
+
+/* ==========================================================================
+   Franja Superior (Priority Strip)
+   ========================================================================== */
+.priority-strip,
+.priority-strip-loc {
+  display: grid;
+  grid-template-columns: minmax(160px, 180px) minmax(280px, 1.2fr) minmax(280px, 1fr);
+  gap: 12px;
+}
+
+.priority-strip-loc {
+  /* 4 widgets en LOP en vez de 3: gs / alertas (chips, más angosto) / velocidad / ralentí */
+  grid-template-columns: minmax(160px, 180px) minmax(200px, 0.6fr) minmax(280px, 1fr) minmax(200px, 0.6fr);
+}
+
+.gauge-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100px;
+}
+
+.gauge-num {
+  font-size: 26px;
+  font-weight: 800;
+  fill: var(--accent-azure);
+}
+
+.gauge-lbl {
+  font-size: 7.5px;
+  fill: var(--g5);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+.alert-subtitle {
+  font-size: 11px;
+  color: var(--g5);
+  margin-bottom: 8px;
+}
+
+.alert-5col {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  align-items: center;
+}
+
+.alert-stat {
+  flex: 1;
+  min-width: 0;
+  border-left: 1px solid var(--g2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  height: 160px;
+  justify-content: space-around;
+  background-color: var(--g1);
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.alert-stat:first-child {
+  border-left: none;
+}
+
+.alert-stat .l {
+  font-size: 12px;
+  color: var(--g5);
+  text-transform: uppercase;
+  letter-spacing: .2px;
+  line-height: 1.2;
+  align-content: start;
+  padding-top: 12px;
+  font-weight: 700;
+}
+
+
+
+.alert-stat .n {
+  font-size: 40px;
+  font-weight: 600;
+  color: var(--g5);
+  line-height: 1;
+  display: flex;
+  align-self: center;
+  margin-top: auto;
+  height: 70px;
+}
+
+.alert-stat .action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 24px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--g5);
+  text-transform: uppercase;
+  letter-spacing: .15px;
+  line-height: 1.15;
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-radius: 0px 0px 6px 6px;
+  background: color-mix(in srgb, var(--accent-azure) 12%, transparent);
+  border-bottom-color: var(--g4);
+}
+
+.alert-stat .action:hover {
+  background: color-mix(in srgb, var(--accent-azure) 30%, transparent);
+  color: var(--g6);
+}
+
+/* ==========================================================================
+   Category Chips — alternativa compacta al alert-5col, probada primero en
+   dev/palettes/preview.html (Variación A). Pensada para escalar a más
+   categorías sin agrandar el widget: fluyen en varias líneas (flex-wrap).
+   ========================================================================== */
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+  height: 100%;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px 5px 5px;
+  border-radius: 20px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--g6);
+  background: var(--g0);
+  border: 1px solid var(--g3);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  background: var(--g1);
+}
+
+.chip-icon {
+  width: 31px;
+  height: 31px;
+  border-radius: 50%;
+  background: var(--g1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chip-icon svg {
+  width: 19px;
+  height: 19px;
+  stroke-width: 1.7;
+}
+
+.chip-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.speed-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 100%;
+}
+
+.speed-donut-wrap {
+  flex-shrink: 0;
+}
+
+.speed-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.speed-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  color: var(--g6);
+}
+
+.speed-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.speed-top5 {
+  flex: 1;
+  min-width: 0;
+  border-left: 1px solid var(--g2);
+  padding-left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ==========================================================================
+   Grilla Densa Principal (Responsive Grid)
+   ========================================================================== */
+.dense-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 12px;
+  flex: 1;
+}
+
+.dg-3 {
+  grid-column: span 3;
+}
+
+.dg-6 {
+  grid-column: span 6;
+}
+
+.dg-4 {
+  grid-column: span 4;
+}
+
+/* Flota Heatmap */
+.fleet-body {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.fleet-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.fleet-stats {
+  flex-shrink: 0;
+  width: 140px;
+  border-left: 1px solid var(--g2);
+  padding-left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fleet-stat-row {
+  font-size: 11px;
+  color: var(--g6);
+}
+
+.fleet-stat-row b {
+  display: block;
+  color: var(--g6);
+  font-size: 14px;
+}
+
+.fleet-total {
+  font-size: 12px;
+  color: var(--g5);
+}
+
+.heat-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-height: 130px;
+  overflow-y: auto;
+}
+
+.heat-cell {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.heat-cell--moving {
+  background: var(--status-ok);
+}
+
+.heat-cell--parked {
+  background: var(--status-warn);
+}
+
+.heat-cell--offline {
+  background: var(--status-danger);
+  border: 1px solid var(--g3);
+}
+
+.heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--g5);
+}
+
+.heat-legend .heat-cell {
+  width: 10px;
+  height: 10px;
+}
+
+/* KM Recorridos & Rankings */
+.km-widget-body {
+  display: flex;
+  gap: 12px;
+  height: 100%;
+}
+
+.km-stack-wrap {
+  flex-shrink: 0;
+  width: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.km-stack-total {
+  font-size: 9px;
+  color: var(--g5);
+  text-align: center;
+}
+
+.km-stack-total b {
+  display: block;
+  color: var(--g6);
+  font-size: 13px;
+}
+
+.stacked-track--v {
+  display: flex;
+  flex-direction: column;
+  width: 28px;
+  height: 110px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stacked-seg {
+  width: 100%;
+}
+
+.km-top5 {
+  flex: 1;
+  min-width: 0;
+  border-left: 1px solid var(--g2);
+  padding-left: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.km-date-range {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--g6);
+  margin-bottom: 2px;
+}
+
+.km-color-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 8.5px;
+  color: var(--g5);
+}
+
+.km-legend-grad {
+  width: 36px;
+  height: 8px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--g5), var(--g1));
+}
+
+/* Filas de Ranking */
+.km-top5-label {
+  font-size: 8.5px;
+  color: var(--g4);
+  text-transform: uppercase;
+}
+
+a.rank-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  text-decoration: none;
+  padding: 3px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+a.rank-row:hover {
+  background: var(--g1);
+}
+
+a.rank-row .name {
+  width: 60px;
+  flex-shrink: 0;
+  color: var(--g7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+a.rank-row:hover .name {
+  text-decoration: underline;
+}
+
+.rank-track {
+  flex: 1;
+  height: 6px;
+  background: var(--g1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.rank-fill {
+  height: 100%;
+  background: var(--g4);
+  border-radius: 2px;
+}
+
+.rank-row.emphasized .rank-fill {
+  background: var(--g5);
+}
+
+.rank-row.emphasized .name {
+  color: var(--g6);
+  font-weight: 700;
+}
+
+.rank-row .rank-val {
+  width: 42px;
+  text-align: right;
+  color: var(--g6);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+}
+
+.rank-row .chev {
+  opacity: 0;
+  color: var(--g5);
+  font-size: 10px;
+}
+
+a.rank-row:hover .chev {
+  opacity: 1;
+}
+
+.idle-list {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.map-el {
+  width: 100%;
+  min-height: 150px;
+  height: 100%;
+  border-radius: 5px;
+  /* filter: grayscale(1) contrast(1.05); */
+  background: var(--g2);
+}
+
+/* ==========================================================================
+   Franja de IA / Búsqueda (AI Strip)
+   ========================================================================== */
+.ai-strip {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 12px;
+  min-height: 80px;
+}
+
+.search-widget {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search-inner {
+  width: 100%;
+  padding: 0 16px;
+  text-align: center;
+  position: relative;
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px 14px;
+  border: 1px solid var(--g3);
+  border-radius: 20px;
+  font-size: 11px;
+  font-family: var(--font);
+  color: var(--g6);
+  background: var(--g1);
+}
+
+.search-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 8.5px;
+  color: var(--g4);
+}
+
+.search-suggestions {
+  display: none;
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: calc(100% + 2px);
+  background: var(--g0);
+  border: 1px solid var(--g3);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .14);
+  max-height: 168px;
+  overflow-y: auto;
+  z-index: 20;
+  text-align: left;
+}
+
+.search-suggestions.open {
+  display: block;
+}
+
+.search-suggestion {
+  padding: 6px 12px;
+  font-size: 10.5px;
+  color: var(--g6);
+  cursor: pointer;
+}
+
+.search-suggestion:hover,
+.search-suggestion.active {
+  background: var(--g1);
+  color: var(--accent-azure);
+}
+
+.search-suggestions-empty {
+  padding: 8px 12px;
+  font-size: 9.5px;
+  color: var(--g4);
+  font-style: italic;
+}
+
+.placeholder-card {
+  border: 1.5px dashed var(--g4);
+  background: transparent;
+  align-items: center;
+  justify-content: center;
+  display: flex;
+}
+
+.ph-label {
+  font-size: 10px;
+  color: var(--g4);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+/* ==========================================================================
+   Media Queries (Breakpoints)
+   ========================================================================== */
+
+/* Laptop / Desktops medianos (<= 1200px) */
+@media (max-width: 1200px) {
+  .priority-strip {
+    grid-template-columns: 160px 1fr;
+  }
+
+  .eco-widget {
+    grid-column: span 2;
+  }
+
+  .dg-3 {
+    grid-column: span 5;
+  }
+
+  .dg-4 {
+    grid-column: span 6;
+  }
+}
+
+/* Tablets (<= 900px) */
+@media (max-width: 900px) {
+  body {
+    padding: 8px;
+  }
+
+  .priority-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .eco-widget {
+    grid-column: span 1;
+  }
+
+  .dg-1,
+  .dg-3 {
+    grid-column: span 3;
+  }
+
+  .dg-4 {
+    grid-column: span 12;
+    height: fit-content;
+  }
+
+  .fleet-body,
+  .km-widget-body {
+    flex-direction: column;
+  }
+
+  .fleet-stats {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--g2);
+    padding-left: 0;
+    padding-top: 8px;
+    flex-direction: row;
+    justify-content: space-around;
+  }
+
+  .ai-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Pantallas Móviles (<= 550px) */
+@media (max-width: 550px) {
+  .alert-5col {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .alert-stat {
+    border-left: none;
+    border-bottom: 1px solid var(--g2);
+    padding-bottom: 4px;
+  }
+
+  .speed-body {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .speed-top5 {
+    border-left: none;
+    padding-left: 0;
+    width: 100%;
+  }
+}
