@@ -142,7 +142,7 @@ function buildFueraZona(elId) {
 }
 
 buildGauge('gauge-rac', 82);
-buildGauge('gauge-lop', 76);
+buildGauge('gauge-lop', 73);
 buildSemiDonut('donut-rac', [
   { pct: 18, color: '--status-ok' }, { pct: 55, color: '--status-warn' },
   { pct: 19, color: '--status-alert' }, { pct: 8, color: '--status-danger' }

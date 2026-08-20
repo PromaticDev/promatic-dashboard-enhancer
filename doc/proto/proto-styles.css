@@ -37,7 +37,7 @@
      fondos claros, así que estos son para trazos/anillos/números, nunca para
      fondos de badge (ahí van los pasteles de arriba). Ver ADR-009. */
   --status-ok-strong: #238a4c;
-  --status-warn-strong: #996600;
+  --status-warn-strong: #997a00;
   --status-alert-strong: #a34d00;
   --status-danger-strong: #ad1100;
 
