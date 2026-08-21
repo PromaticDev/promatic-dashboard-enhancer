@@ -157,6 +157,27 @@ buildFueraZona('map-fuerazona');
 buildHotspots('map-hotspots-lop');
 buildDisponibilidad('map-disponibilidad-lop');
 
+// -------- Reloj "Hora exacta Chile" — placeholder izquierdo del ai-strip --------
+// Usa Intl con timeZone fijo a America/Santiago, así siempre muestra la hora
+// de Chile sin importar dónde esté el navegador que renderiza el prototipo.
+// "Exacta" acá depende del reloj del sistema del navegador, no de un servidor
+// horario — suficiente para un prototipo/demo, no para un uso que exija NTP.
+function updateChileClock() {
+  var parts = new Intl.DateTimeFormat('es-CL', {
+    timeZone: 'America/Santiago',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).formatToParts(new Date());
+  var lookup = {};
+  parts.forEach(function (p) { lookup[p.type] = p.value; });
+  var text = lookup.hour + ':' + lookup.minute + ':' + lookup.second;
+  ['clock-time-rac', 'clock-time-lop'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) { el.textContent = text; }
+  });
+}
+updateChileClock();
+setInterval(updateChileClock, 1000);
+
 // -------- Buscador de reportes — autocompletado dummy, sin conexión real --------
 // Catálogo ilustrativo basado en los report_type/events confirmados en spec/api.md
 // (kilometraje rt=4, ralentí type=16, eco driving type=24, voltaje rt=15, etc.)

@@ -22,6 +22,8 @@
   --accent-azure: #008be3;
   --accent-teal: #1c9c87;
 
+  --WalterWhite: #ffffff;
+
   /* Colores "semáforo" — solo para widgets con límite mantenido/excedido
      (velocidad, estado de flota, batería, etc.), nunca para chrome general.
      --status-text es el color de texto validado por contraste WCAG AA
@@ -182,13 +184,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  background-color: var(--g3);
 }
 
 /* ==========================================================================
    Componente Base Widget
    ========================================================================== */
 .widget {
-  background: var(--g0);
+  background: var(--WalterWhite);
   border: 1px solid var(--g3);
   border-radius: 8px;
   display: flex;
@@ -824,6 +827,7 @@ a.rank-row:hover .chev {
 .placeholder-card {
   border: 1.5px dashed var(--g4);
   background: transparent;
+  background-color: var(--WalterWhite);
   align-items: center;
   justify-content: center;
   display: flex;
@@ -834,6 +838,62 @@ a.rank-row:hover .chev {
   color: var(--g4);
   text-transform: uppercase;
   letter-spacing: .3px;
+}
+
+/* Reloj "Hora exacta Chile" — ocupa el placeholder izquierdo del ai-strip */
+.clock-widget {
+  flex-direction: column;
+}
+
+.clock-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--g5);
+  margin-bottom: 4px;
+}
+
+.clock-time {
+  font-size: 28px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--g7);
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Logo dummy — placeholder derecho del ai-strip, para branding a futuro */
+.logo-widget {
+  padding: 10px;
+}
+
+.logo-dummy {
+  width: 100%;
+  max-width: 140px;
+  height: auto;
+}
+
+.logo-dummy__bg {
+  fill: var(--g1);
+  stroke: var(--g3);
+  stroke-width: 1;
+}
+
+.logo-dummy__mark--a {
+  fill: var(--g5);
+}
+
+.logo-dummy__mark--b {
+  fill: var(--g6);
+  opacity: .85;
+}
+
+.logo-dummy__text {
+  font-family: var(--font);
+  font-size: 20px;
+  font-weight: 700;
+  fill: var(--g7);
 }
 
 /* ==========================================================================
