@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-18-04',
+    moduleBuild: '2026-08-21-01',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -128,9 +128,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     dataIndex: 'isOnline',
                     flex: 1,
                     renderer: function (value) {
-                        return value ?
-                            '<span class="promatic_dashboard_enhancer-dot promatic_dashboard_enhancer-dot-online"></span> ' + l('En línea') :
-                            '<span class="promatic_dashboard_enhancer-dot promatic_dashboard_enhancer-dot-offline"></span> ' + l('Desconectado');
+                        return Ext.DomHelper.markup([
+                            { tag: 'span', cls: 'promatic_dashboard_enhancer-dot promatic_dashboard_enhancer-dot-' + (value ? 'online' : 'offline') },
+                            { tag: 'span', html: ' ' + (value ? l('En línea') : l('Desconectado')) }
+                        ]);
                     }
                 },
                 { text: l('Último estado'), dataIndex: 'statusText', flex: 2 },
@@ -238,27 +239,26 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var pct = total > 0 ? Math.round((online / total) * 100) : 0;
 
-        this.summaryBar.update(
-            '<div class="promatic_dashboard_enhancer-summary__row">' +
-                '<div class="promatic_dashboard_enhancer-stat">' +
-                    '<span class="promatic_dashboard_enhancer-stat__value">' + total + '</span>' +
-                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('flota') + '</span>' +
-                '</div>' +
-                '<div class="promatic_dashboard_enhancer-stat">' +
-                    '<span class="promatic_dashboard_enhancer-dot promatic_dashboard_enhancer-dot-online"></span>' +
-                    '<span class="promatic_dashboard_enhancer-stat__value">' + online + '</span>' +
-                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('en línea') + ' (' + pct + '%)</span>' +
-                '</div>' +
-                '<div class="promatic_dashboard_enhancer-stat">' +
-                    '<span class="promatic_dashboard_enhancer-dot promatic_dashboard_enhancer-dot-offline"></span>' +
-                    '<span class="promatic_dashboard_enhancer-stat__value">' + (total - online) + '</span>' +
-                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('desconectados') + '</span>' +
-                '</div>' +
-                '<div class="promatic_dashboard_enhancer-summary__updated">' +
-                    l('actualizado') + ' ' + Ext.Date.format(new Date(), 'H:i:s') +
-                '</div>' +
-            '</div>'
-        );
+        this.summaryBar.update(Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-summary__row',
+            cn: [
+                { cls: 'promatic_dashboard_enhancer-stat', cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: String(total) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('flota') }
+                ] },
+                { cls: 'promatic_dashboard_enhancer-stat', cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-dot promatic_dashboard_enhancer-dot-online' },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: String(online) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('en línea') + ' (' + pct + '%)' }
+                ] },
+                { cls: 'promatic_dashboard_enhancer-stat', cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-dot promatic_dashboard_enhancer-dot-offline' },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: String(total - online) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('desconectados') }
+                ] },
+                { cls: 'promatic_dashboard_enhancer-summary__updated', html: l('actualizado') + ' ' + Ext.Date.format(new Date(), 'H:i:s') }
+            ]
+        }));
     },
 
     // -----------------------------------------------------------------------
@@ -507,18 +507,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var avgKm = vehicleCount > 0 ? (totalKm / vehicleCount) : 0;
 
-        this.mileageEl.update(
-            '<div class="promatic_dashboard_enhancer-summary__row">' +
-                '<div class="promatic_dashboard_enhancer-stat">' +
-                    '<span class="promatic_dashboard_enhancer-stat__value">' + totalKm.toFixed(1) + ' km</span>' +
-                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('total flota') + '</span>' +
-                '</div>' +
-                '<div class="promatic_dashboard_enhancer-stat">' +
-                    '<span class="promatic_dashboard_enhancer-stat__value">' + avgKm.toFixed(1) + ' km</span>' +
-                    '<span class="promatic_dashboard_enhancer-stat__label">' + l('promedio por vehículo') + '</span>' +
-                '</div>' +
-            '</div>'
-        );
+        this.mileageEl.update(Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-summary__row',
+            cn: [
+                { cls: 'promatic_dashboard_enhancer-stat', cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: totalKm.toFixed(1) + ' km' },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('total flota') }
+                ] },
+                { cls: 'promatic_dashboard_enhancer-stat', cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: avgKm.toFixed(1) + ' km' },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('promedio por vehículo') }
+                ] }
+            ]
+        }));
     },
 
     // -----------------------------------------------------------------------
@@ -715,14 +716,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return;
         }
 
-        var rows = '';
+        var items = [];
         for (var i = 0; i < readings.length; i++) {
-            rows += '<div class="promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row">' +
-                '<span class="promatic_dashboard_enhancer-stat__label">' + Ext.String.htmlEncode(readings[i].vehicle) + '</span>' +
-                '<span class="promatic_dashboard_enhancer-stat__value">' + Number(readings[i].volts).toFixed(1) + ' V</span>' +
-            '</div>';
+            items.push({
+                cls: 'promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row',
+                cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: Ext.String.htmlEncode(readings[i].vehicle) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: Number(readings[i].volts).toFixed(1) + ' V' }
+                ]
+            });
         }
-        this.batteryEl.update(rows);
+        this.batteryEl.update(Ext.DomHelper.markup(items));
     },
 
     // -----------------------------------------------------------------------
@@ -803,19 +807,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
-        var rows = '';
+        var items = [];
         for (var j = 0; j < wanted.length; j++) {
             var block = byTitle[wanted[j].key];
             if (!block) {
                 continue;
             }
-            rows += '<div class="promatic_dashboard_enhancer-stat">' +
-                '<span class="promatic_dashboard_enhancer-stat__value">' + this.formatInfoblockValue(block.renderer, block.info) + '</span>' +
-                '<span class="promatic_dashboard_enhancer-stat__label">' + wanted[j].label + '</span>' +
-            '</div>';
+            items.push({
+                cls: 'promatic_dashboard_enhancer-stat',
+                cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: String(this.formatInfoblockValue(block.renderer, block.info)) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: wanted[j].label }
+                ]
+            });
         }
 
-        this.fleetSummaryEl.update(rows || l('Sin datos de resumen para el período.'));
+        this.fleetSummaryEl.update(items.length ? Ext.DomHelper.markup(items) : l('Sin datos de resumen para el período.'));
     },
 
     // -----------------------------------------------------------------------
@@ -864,7 +871,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         var nameByAgent = this.getVehicleNameById();
-        var rows = '';
+        var items = [];
 
         for (var i = 0; i < zoneNames.length; i++) {
             var zone = zoneNames[i];
@@ -873,12 +880,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             for (var j = 0; j < agentIds.length; j++) {
                 names.push(Ext.String.htmlEncode(nameByAgent[agentIds[j]] || ('#' + agentIds[j])));
             }
-            rows += '<div class="promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row">' +
-                '<span class="promatic_dashboard_enhancer-stat__label">' + Ext.String.htmlEncode(zone) + '</span>' +
-                '<span class="promatic_dashboard_enhancer-stat__value">' + names.join(', ') + '</span>' +
-            '</div>';
+            items.push({
+                cls: 'promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row',
+                cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: Ext.String.htmlEncode(zone) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: names.join(', ') }
+                ]
+            });
         }
-        this.zonesEl.update(rows);
+        this.zonesEl.update(Ext.DomHelper.markup(items));
     },
 
     // -----------------------------------------------------------------------
@@ -940,15 +950,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return;
         }
 
-        var rows = '';
+        var items = [];
         for (var i = 0; i < results.length; i++) {
             var value = results[i].total === null ? l('N/D') : results[i].total;
-            rows += '<div class="promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row">' +
-                '<span class="promatic_dashboard_enhancer-stat__label">' + results[i].label + '</span>' +
-                '<span class="promatic_dashboard_enhancer-stat__value">' + value + '</span>' +
-            '</div>';
+            items.push({
+                cls: 'promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row',
+                cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: results[i].label },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: String(value) }
+                ]
+            });
         }
-        this.eventsEl.update(rows);
+        this.eventsEl.update(Ext.DomHelper.markup(items));
     },
 
     // -----------------------------------------------------------------------
