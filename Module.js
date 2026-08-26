@@ -92,9 +92,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // (ej. "KM-TIMEOUT") — permite que el usuario reporte "vi el código X"
     // sin necesitar abrir la consola del navegador. Sin backend de logging
     // por ahora, solo trazabilidad local.
-    widgetErrorCode: function (base, err) {
+    widgetErrorCode: function (base, err, context) {
         var code = base + (err && err.name === 'AbortError' ? '-TIMEOUT' : '-FALLO');
-        console.error('[promatic_dashboard_enhancer] ' + code + ':', err);
+        console.error('[promatic_dashboard_enhancer] ' + code + ':', err, context || '');
         return code;
     },
 
@@ -480,7 +480,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me.renderMileageSummary(report, vehIds.length);
                 })
                 .catch(function (err) {
-                    var code = me.widgetErrorCode('KM', err);
+                    var code = me.widgetErrorCode('KM', err, vehIds.length + ' vehículos, rango 7 días');
                     if (me.mileageEl) {
                         me.mileageEl.update((code.indexOf('TIMEOUT') !== -1 ?
                             l('El reporte de kilometraje está tardando demasiado — intenta un rango más corto.') :
