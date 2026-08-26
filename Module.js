@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-26-1919',
+    moduleBuild: '2026-08-26-1929',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -69,11 +69,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // siguiente, no parte de este commit.
     // -----------------------------------------------------------------------
 
-    // Cada card guarda su Ext.Component de body en this.cards[id] — permite
-    // actualizar solo el contenido de datos (updateCardBody) sin tocar el
-    // título/footer, con el mismo patrón ya usado en el resto del módulo
-    // (this.mileageEl.update(), this.batteryEl.update(), etc.).
-    buildCard: function (id, opts) {
+    // BR-PILOT-0006 (segunda vuelta, 26 ago): Ext.container.Container con
+    // layout 'auto' envuelve cada nivel de hijos en divs propios
+    // (outerCt/innerCt, con table-layout:fixed) — confirmado inspeccionando
+    // el DOM real en DEMO_CLIENT (brain/files/salida-pilot-v0.5.html). Eso
+    // rompe flexbox: el hijo directo de nuestra fila deja de ser la card,
+    // pasa a ser el outerCt de Ext. Por eso todo el shell se arma acá como
+    // HTML plano (Ext.DomHelper) dentro de UN solo Ext.Component — nada de
+    // Ext.container.Container anidado, así el DOM real es exactamente el
+    // que escribimos. Actualizar contenido de una card: updateCardBody(id,
+    // html), que ubica el nodo por id con Ext.get() — no hay Ext.Component
+    // por card, así que no aplica el patrón this.mileageEl.update() del
+    // resto del módulo.
+    cardMarkup: function (id, opts) {
         opts = opts || {};
         var headCn = [
             { tag: 'h3', cls: 'promatic_dashboard_enhancer-card__title', html: opts.title || '' }
@@ -82,92 +90,80 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             headCn.push({ tag: 'span', cls: 'promatic_dashboard_enhancer-card__meta', html: opts.meta });
         }
 
-        var headCmp = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-card__head',
-            html: Ext.DomHelper.markup(headCn)
-        });
-
-        var bodyCmp = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-card__body',
-            html: opts.bodyHtml || l('Cargando...')
-        });
-
-        var footerCmp = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-card__footer',
-            html: Ext.DomHelper.markup({ tag: 'a', href: '#', html: (opts.footerLabel || l('Ver en PILOT')) + ' ›' })
-        });
-
-        this.cards = this.cards || {};
-        this.cards[id] = { body: bodyCmp };
-
-        return Ext.create('Ext.container.Container', {
-            itemId: 'promatic_dashboard_enhancer-card-' + id,
+        return {
+            id: 'promatic_dashboard_enhancer-card-' + id,
             cls: 'promatic_dashboard_enhancer-card' + (opts.grow2 ? ' promatic_dashboard_enhancer-card--grow-2' : ''),
-            layout: 'auto',
-            items: [headCmp, bodyCmp, footerCmp]
-        });
+            cn: [
+                { cls: 'promatic_dashboard_enhancer-card__head', cn: headCn },
+                {
+                    id: 'promatic_dashboard_enhancer-card-body-' + id,
+                    cls: 'promatic_dashboard_enhancer-card__body',
+                    html: opts.bodyHtml || l('Cargando...')
+                },
+                { cls: 'promatic_dashboard_enhancer-card__footer', cn: [
+                    { tag: 'a', href: '#', html: (opts.footerLabel || l('Ver en PILOT')) + ' ›' }
+                ] }
+            ]
+        };
     },
 
     updateCardBody: function (id, html) {
-        var card = this.cards && this.cards[id];
-        if (card && card.body) {
-            card.body.update(html);
+        var el = Ext.get('promatic_dashboard_enhancer-card-body-' + id);
+        if (el) {
+            el.setHtml(html);
         }
     },
 
-    buildRow: function (items) {
-        return Ext.create('Ext.container.Container', {
-            cls: 'promatic_dashboard_enhancer-row',
-            layout: 'auto',
-            items: items
-        });
+    rowMarkup: function (cardSpecs) {
+        return { cls: 'promatic_dashboard_enhancer-row', cn: cardSpecs };
     },
 
     buildLopShell: function () {
-        return Ext.create('Ext.container.Container', {
+        var rows = [
+            this.rowMarkup([
+                this.cardMarkup('reloj', { title: l('Hora exacta') }),
+                this.cardMarkup('buscador', { title: l('Buscar un reporte…'), grow2: true }),
+                this.cardMarkup('logo', { title: 'LOGO' })
+            ]),
+            this.rowMarkup([
+                this.cardMarkup('alertas', {
+                    title: l('Últimas Alertas'), meta: 'events.php + ptm',
+                    footerLabel: l('Abrir alertas')
+                }),
+                this.cardMarkup('velocidad_lop', {
+                    title: l('Velocidad de conducción'), meta: 'speeding_pie.php',
+                    footerLabel: l('Abrir reporte de velocidad')
+                }),
+                this.cardMarkup('ralenti', {
+                    title: l('Ralentí'), meta: 'type=16',
+                    footerLabel: l('Abrir reporte de ralentí')
+                })
+            ]),
+            this.rowMarkup([
+                this.cardMarkup('flota_lop', {
+                    title: l('Flota'), meta: 'online_tree.status',
+                    footerLabel: l('Abrir árbol de flota')
+                }),
+                this.cardMarkup('top5km', {
+                    title: l('Top 5 · Vehículos con más KM'), meta: 'rt=4',
+                    footerLabel: l('Abrir reporte de kilometraje')
+                })
+            ]),
+            this.rowMarkup([
+                this.cardMarkup('hotspots', {
+                    title: l('Hotspots de desconexión'), meta: 'type=15',
+                    footerLabel: l('Abrir mapa de desconexión')
+                }),
+                this.cardMarkup('disponibles', {
+                    title: l('Disponibles/ubicación'),
+                    footerLabel: l('Abrir mapa de disponibilidad')
+                })
+            ])
+        ];
+
+        return Ext.create('Ext.Component', {
             cls: 'promatic_dashboard_enhancer-lop-shell',
-            layout: 'auto',
-            items: [
-                this.buildRow([
-                    this.buildCard('reloj', { title: l('Hora exacta') }),
-                    this.buildCard('buscador', { title: l('Buscar un reporte…'), grow2: true }),
-                    this.buildCard('logo', { title: 'LOGO' })
-                ]),
-                this.buildRow([
-                    this.buildCard('alertas', {
-                        title: l('Últimas Alertas'), meta: 'events.php + ptm',
-                        footerLabel: l('Abrir alertas')
-                    }),
-                    this.buildCard('velocidad_lop', {
-                        title: l('Velocidad de conducción'), meta: 'speeding_pie.php',
-                        footerLabel: l('Abrir reporte de velocidad')
-                    }),
-                    this.buildCard('ralenti', {
-                        title: l('Ralentí'), meta: 'type=16',
-                        footerLabel: l('Abrir reporte de ralentí')
-                    })
-                ]),
-                this.buildRow([
-                    this.buildCard('flota_lop', {
-                        title: l('Flota'), meta: 'online_tree.status',
-                        footerLabel: l('Abrir árbol de flota')
-                    }),
-                    this.buildCard('top5km', {
-                        title: l('Top 5 · Vehículos con más KM'), meta: 'rt=4',
-                        footerLabel: l('Abrir reporte de kilometraje')
-                    })
-                ]),
-                this.buildRow([
-                    this.buildCard('hotspots', {
-                        title: l('Hotspots de desconexión'), meta: 'type=15',
-                        footerLabel: l('Abrir mapa de desconexión')
-                    }),
-                    this.buildCard('disponibles', {
-                        title: l('Disponibles/ubicación'),
-                        footerLabel: l('Abrir mapa de disponibilidad')
-                    })
-                ])
-            ]
+            html: Ext.DomHelper.markup(rows)
         });
     },
 
