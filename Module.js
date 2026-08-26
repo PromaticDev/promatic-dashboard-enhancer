@@ -69,6 +69,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // siguiente, no parte de este commit.
     // -----------------------------------------------------------------------
 
+    // Cada card guarda su Ext.Component de body en this.cards[id] — permite
+    // actualizar solo el contenido de datos (updateCardBody) sin tocar el
+    // título/footer, con el mismo patrón ya usado en el resto del módulo
+    // (this.mileageEl.update(), this.batteryEl.update(), etc.).
     buildCard: function (id, opts) {
         opts = opts || {};
         var headCn = [
@@ -78,19 +82,37 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             headCn.push({ tag: 'span', cls: 'promatic_dashboard_enhancer-card__meta', html: opts.meta });
         }
 
-        return Ext.create('Ext.Component', {
+        var headCmp = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-card__head',
+            html: Ext.DomHelper.markup(headCn)
+        });
+
+        var bodyCmp = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-card__body',
+            html: opts.bodyHtml || l('Cargando...')
+        });
+
+        var footerCmp = Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-card__footer',
+            html: Ext.DomHelper.markup({ tag: 'a', href: '#', html: (opts.footerLabel || l('Ver en PILOT')) + ' ›' })
+        });
+
+        this.cards = this.cards || {};
+        this.cards[id] = { body: bodyCmp };
+
+        return Ext.create('Ext.container.Container', {
             itemId: 'promatic_dashboard_enhancer-card-' + id,
             cls: 'promatic_dashboard_enhancer-card' + (opts.grow2 ? ' promatic_dashboard_enhancer-card--grow-2' : ''),
-            html: Ext.DomHelper.markup({
-                cn: [
-                    { cls: 'promatic_dashboard_enhancer-card__head', cn: headCn },
-                    { cls: 'promatic_dashboard_enhancer-card__body', html: opts.bodyHtml || l('Cargando...') },
-                    { cls: 'promatic_dashboard_enhancer-card__footer', cn: [
-                        { tag: 'a', href: '#', html: (opts.footerLabel || l('Ver en PILOT')) + ' ›' }
-                    ] }
-                ]
-            })
+            layout: 'auto',
+            items: [headCmp, bodyCmp, footerCmp]
         });
+    },
+
+    updateCardBody: function (id, html) {
+        var card = this.cards && this.cards[id];
+        if (card && card.body) {
+            card.body.update(html);
+        }
     },
 
     buildRow: function (items) {
@@ -342,14 +364,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.refreshFleetStore();
     },
 
+    // Único punto que recorre online_tree en cada 'datachanged'/'update' —
+    // alimenta la barra de resumen, la card "Flota" del shell LOP, y (si
+    // existe, sistema de grid anterior) this.fleetStore. Ya no depende de
+    // this.fleetStore para funcionar (26 ago) — ese store solo lo usa
+    // buildLegacyWidgetGrid, sin invocar por defecto.
     refreshFleetStore: function () {
         var onlineTree = this.getOnlineTree();
-        if (!onlineTree || !this.fleetStore) {
+        if (!onlineTree) {
             return;
         }
 
         var records = this.getScopedFleetRecords(onlineTree);
         var rows = [];
+        var moving = 0, parked = 0, offlineCount = 0;
 
         for (var i = 0; i < records.length; i++) {
             var r = records[i];
@@ -359,34 +387,71 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 continue; // nodo de grupo/carpeta, no un vehículo
             }
 
+            var isOnline = !!r.get('is_server_online');
+            var statusText = r.get('status') || '';
+
             rows.push({
                 agentid: agentid,
                 name: r.get('name'),
                 group: r.get('group'),
                 driver: r.get('driver'),
-                isOnline: !!r.get('is_server_online'),
-                statusText: r.get('status'),
+                isOnline: isOnline,
+                statusText: statusText,
                 lastUpdate: r.get('msg1')
             });
+
+            if (!isOnline) {
+                offlineCount++;
+            } else if (statusText.indexOf('movimiento') !== -1) {
+                // "En movimientos X km/h" vs. "Estacionamiento..." — texto
+                // real confirmado en DEMO_CLIENT, no un campo separado.
+                moving++;
+            } else {
+                parked++;
+            }
         }
 
-        this.fleetStore.loadData(rows);
-        this.updateSummary();
+        if (this.fleetStore) {
+            this.fleetStore.loadData(rows);
+        }
+
+        this.updateSummary(rows.length, rows.length - offlineCount);
+        this.updateFlotaLopCard(rows.length, moving, parked, offlineCount);
     },
 
-    updateSummary: function () {
-        if (!this.summaryBar || !this.fleetStore) {
+    updateFlotaLopCard: function (total, moving, parked, offlineCount) {
+        var pct = function (n) {
+            return total > 0 ? Math.round((n / total) * 100) : 0;
+        };
+        var activos = total - offlineCount;
+
+        this.updateCardBody('flota_lop', Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-summary__row',
+            cn: [
+                { cls: 'promatic_dashboard_enhancer-stat', cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: pct(activos) + '%' },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('activos') }
+                ] },
+                { cls: 'promatic_dashboard_enhancer-stat', cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: pct(moving) + '%' },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('en movimiento') }
+                ] },
+                { cls: 'promatic_dashboard_enhancer-stat', cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: pct(parked) + '%' },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('estacionado') }
+                ] },
+                { cls: 'promatic_dashboard_enhancer-stat', cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: pct(offlineCount) + '%' },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('sin conexión') }
+                ] }
+            ]
+        }));
+    },
+
+    updateSummary: function (total, online) {
+        if (!this.summaryBar) {
             return;
         }
-
-        var total = this.fleetStore.getCount();
-        var online = 0;
-
-        this.fleetStore.each(function (rec) {
-            if (rec.get('isOnline')) {
-                online++;
-            }
-        });
 
         var pct = total > 0 ? Math.round((online / total) * 100) : 0;
 
