@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-26-1933',
+    moduleBuild: '2026-08-26-1934',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -55,6 +55,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
 
         this.bindFleetUpdates();
+        this.loadTop5KmData();
 
         return panel;
     },
@@ -696,6 +697,80 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     }
                 });
         });
+    },
+
+    // Card "Top 5 · Vehículos con más KM" (shell LOP, 26 ago) — mismo
+    // endpoint que el widget de kilometraje (report_type=4), pero
+    // agrupado por vehículo y ordenado, en vez de sumado/promediado.
+    loadTop5KmData: function () {
+        var me = this;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            var stopDate = new Date();
+            var startDate = new Date();
+            startDate.setDate(startDate.getDate() - 7);
+
+            me.fetchReportType(4, vehIds.join(','), startDate, stopDate, 20000)
+                .then(function (report) {
+                    me.renderTop5Km(report);
+                })
+                .catch(function (err) {
+                    var code = me.widgetErrorCode('TOP5KM', err, vehIds.length + ' vehículos, rango 7 días');
+                    me.updateCardBody('top5km', (code.indexOf('TIMEOUT') !== -1 ?
+                        l('El ranking de kilometraje está tardando demasiado.') :
+                        l('No se pudo cargar el ranking de kilometraje.')) + ' (' + code + ')');
+                });
+        });
+    },
+
+    renderTop5Km: function (report) {
+        var totalsByVehicle = {};
+        var dateGroups = (report && report.data) || {};
+
+        for (var dateKey in dateGroups) {
+            if (!dateGroups.hasOwnProperty(dateKey)) {
+                continue;
+            }
+            var vehGroups = dateGroups[dateKey];
+            for (var vehKey in vehGroups) {
+                if (!vehGroups.hasOwnProperty(vehKey)) {
+                    continue;
+                }
+                var trips = vehGroups[vehKey];
+                var sum = totalsByVehicle[vehKey] || 0;
+                for (var i = 0; i < trips.length; i++) {
+                    sum += trips[i].length || 0;
+                }
+                totalsByVehicle[vehKey] = sum;
+            }
+        }
+
+        var ranked = [];
+        for (var name in totalsByVehicle) {
+            if (totalsByVehicle.hasOwnProperty(name)) {
+                ranked.push({ name: name, km: totalsByVehicle[name] });
+            }
+        }
+        ranked.sort(function (a, b) { return b.km - a.km; });
+        var top5 = ranked.slice(0, 5);
+
+        if (top5.length === 0) {
+            this.updateCardBody('top5km', l('Sin datos de kilometraje para el período.'));
+            return;
+        }
+
+        var rows = [];
+        for (var j = 0; j < top5.length; j++) {
+            rows.push({
+                cls: 'promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row',
+                cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: Ext.String.htmlEncode(top5[j].name) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: top5[j].km.toFixed(0) + ' km' }
+                ]
+            });
+        }
+
+        this.updateCardBody('top5km', Ext.DomHelper.markup(rows));
     },
 
     renderMileageSummary: function (report, vehicleCount) {
