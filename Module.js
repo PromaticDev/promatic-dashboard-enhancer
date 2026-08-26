@@ -156,8 +156,50 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             skeleton.navigation.online.online_tree) || null;
     },
 
-    getFleetVehicleIds: function (onlineTree) {
+    // Filtro opcional de alcance de flota — resuelve cuentas donde
+    // online_tree expone muchos más vehículos de los que un widget necesita
+    // consultar de una vez (ver spec/datos.md, "Filtro de alcance de
+    // flota"). Configurado vía localStorage, NUNCA hardcodeado acá: este
+    // archivo se sincroniza al repo público (dist/), y una lista de
+    // agent_ids de un cliente real es dato operativo de cuenta, no código.
+    // Ausente/vacío = sin filtro (comportamiento actual, sin cambios).
+    FLEET_SCOPE_STORAGE_KEY: 'promatic_dashboard_enhancer_fleet_scope',
+
+    getFleetScopeFilter: function () {
+        try {
+            var raw = window.localStorage && localStorage.getItem(this.FLEET_SCOPE_STORAGE_KEY);
+            var ids = raw ? JSON.parse(raw) : null;
+            return (Array.isArray(ids) && ids.length) ? ids : null;
+        } catch (err) {
+            this.widgetErrorCode('FLEET-SCOPE', err);
+            return null;
+        }
+    },
+
+    getScopedFleetRecords: function (onlineTree) {
         var records = onlineTree.getStore().getData().items;
+        var scope = this.getFleetScopeFilter();
+        if (!scope) {
+            return records;
+        }
+
+        var scopeSet = {};
+        for (var i = 0; i < scope.length; i++) {
+            scopeSet[scope[i]] = true;
+        }
+
+        var filtered = [];
+        for (var j = 0; j < records.length; j++) {
+            var agentid = records[j].get('agentid');
+            if (agentid && scopeSet[agentid]) {
+                filtered.push(records[j]);
+            }
+        }
+        return filtered;
+    },
+
+    getFleetVehicleIds: function (onlineTree) {
+        var records = this.getScopedFleetRecords(onlineTree);
         var vehIds = [];
         for (var i = 0; i < records.length; i++) {
             var agentid = records[i].get('agentid');
@@ -174,7 +216,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (!onlineTree) {
             return map;
         }
-        var records = onlineTree.getStore().getData().items;
+        var records = this.getScopedFleetRecords(onlineTree);
         for (var i = 0; i < records.length; i++) {
             var agentid = records[i].get('agentid');
             if (agentid) {
@@ -208,7 +250,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return;
         }
 
-        var records = onlineTree.getStore().getData().items;
+        var records = this.getScopedFleetRecords(onlineTree);
         var rows = [];
 
         for (var i = 0; i < records.length; i++) {
