@@ -633,7 +633,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         console.log('[promatic_dashboard_enhancer] renderSpeedingChart: ancho del contenedor = ' +
             containerEl.offsetWidth + 'px, alto = ' + containerEl.offsetHeight + 'px');
 
-        if (containerEl.offsetWidth === 0) {
+        // Guard contra medidas sin sentido durante la carrera de layout
+        // entre Ext JS y el CSS Grid externo (BR-PILOT-0006): visto en
+        // DEMO_CLIENT un contenedor de ~19996px de ancho x 0px de alto —
+        // llamar a Highcharts sobre eso puede colgar la pestaña. Ancho 0
+        // O mayor al viewport, o alto 0, se tratan igual: esperar el
+        // próximo resize real en vez de dibujar sobre una medida inválida.
+        var widthOk = containerEl.offsetWidth > 0 && containerEl.offsetWidth <= window.innerWidth;
+        var heightOk = containerEl.offsetHeight > 0;
+
+        if (!widthOk || !heightOk) {
             this.speedingChartEl.on('resize', function () {
                 me.renderSpeedingChart(data);
             }, this, { single: true });
