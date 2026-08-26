@@ -80,11 +80,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         try {
             return builderFn.call(this);
         } catch (err) {
-            console.error('[promatic_dashboard_enhancer] widget "' + id + '" falló al construir:', err);
+            var code = this.widgetErrorCode('BUILD-' + id.toUpperCase(), err);
             return this.wrapWidget(id, 'small', l('Error'), Ext.create('Ext.Component', {
-                html: l('No se pudo cargar este widget.')
+                html: l('No se pudo cargar este widget.') + ' (' + code + ')'
             }));
         }
+    },
+
+    // Diccionario de errores (catálogo completo en spec/datos.md): cada
+    // punto de falla conocido de un widget emite un código corto y estable
+    // (ej. "KM-TIMEOUT") — permite que el usuario reporte "vi el código X"
+    // sin necesitar abrir la consola del navegador. Sin backend de logging
+    // por ahora, solo trazabilidad local.
+    widgetErrorCode: function (base, err) {
+        var code = base + (err && err.name === 'AbortError' ? '-TIMEOUT' : '-FALLO');
+        console.error('[promatic_dashboard_enhancer] ' + code + ':', err);
+        return code;
     },
 
     // Contrato de widget (ADR-007 sección 1). `size` decide la clase CSS de
@@ -469,13 +480,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me.renderMileageSummary(report, vehIds.length);
                 })
                 .catch(function (err) {
-                    var timedOut = err && err.name === 'AbortError';
-                    console.error('[promatic_dashboard_enhancer] reports.php (kilometraje) falló:',
-                        timedOut ? 'timeout 20s' : err);
+                    var code = me.widgetErrorCode('KM', err);
                     if (me.mileageEl) {
-                        me.mileageEl.update(timedOut ?
+                        me.mileageEl.update((code.indexOf('TIMEOUT') !== -1 ?
                             l('El reporte de kilometraje está tardando demasiado — intenta un rango más corto.') :
-                            l('No se pudo cargar el kilometraje.'));
+                            l('No se pudo cargar el kilometraje.')) + ' (' + code + ')');
                     }
                 });
         });
@@ -554,9 +563,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 me.renderSpeedingChart(data);
             })
             .catch(function (err) {
-                console.error('[promatic_dashboard_enhancer] speeding_pie.php falló:', err);
+                var code = me.widgetErrorCode('VEL', err);
                 if (me.speedingChartEl) {
-                    me.speedingChartEl.update(l('No se pudo cargar la distribución de velocidad.'));
+                    me.speedingChartEl.update(l('No se pudo cargar la distribución de velocidad.') + ' (' + code + ')');
                 }
             });
     },
@@ -668,11 +677,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me.renderBatterySummary(report);
                 })
                 .catch(function (err) {
-                    var timedOut = err && err.name === 'AbortError';
+                    var code = me.widgetErrorCode('BAT', err);
                     if (me.batteryEl) {
-                        me.batteryEl.update(timedOut ?
+                        me.batteryEl.update((code.indexOf('TIMEOUT') !== -1 ?
                             l('El reporte de voltaje está tardando demasiado.') :
-                            l('No se pudo cargar el voltaje de batería.'));
+                            l('No se pudo cargar el voltaje de batería.')) + ' (' + code + ')');
                     }
                 });
         });
@@ -757,11 +766,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me.renderFleetSummary(data);
                 })
                 .catch(function (err) {
-                    var timedOut = err && err.name === 'AbortError';
+                    var code = me.widgetErrorCode('RES', err);
                     if (me.fleetSummaryEl) {
-                        me.fleetSummaryEl.update(timedOut ?
+                        me.fleetSummaryEl.update((code.indexOf('TIMEOUT') !== -1 ?
                             l('El resumen de flota está tardando demasiado (cuentas con flota grande pueden requerir sincronización manual).') :
-                            l('No se pudo cargar el resumen de flota.'));
+                            l('No se pudo cargar el resumen de flota.')) + ' (' + code + ')');
                     }
                 });
         });
@@ -849,11 +858,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me.renderZonesSummary(data);
                 })
                 .catch(function (err) {
-                    var timedOut = err && err.name === 'AbortError';
+                    var code = me.widgetErrorCode('ZON', err);
                     if (me.zonesEl) {
-                        me.zonesEl.update(timedOut ?
+                        me.zonesEl.update((code.indexOf('TIMEOUT') !== -1 ?
                             l('La consulta de geocercas está tardando demasiado.') :
-                            l('No se pudo cargar la ocupación de geocercas.'));
+                            l('No se pudo cargar la ocupación de geocercas.')) + ' (' + code + ')');
                     }
                 });
         });
@@ -934,7 +943,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     .then(function (total) {
                         return { label: t.label, total: total };
                     })
-                    .catch(function () {
+                    .catch(function (err) {
+                        me.widgetErrorCode('EVT-' + t.type, err);
                         return { label: t.label, total: null };
                     });
             });
