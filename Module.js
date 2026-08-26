@@ -577,13 +577,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // Widget: Distribución de velocidad — speeding_pie.php
     // -----------------------------------------------------------------------
 
+    // BR-PILOT-0006: deshabilitado temporalmente (26 ago) — dos intentos de
+    // guard/tope de reintentos no evitaron un crash real de pestaña en
+    // DEMO_CLIENT. Hasta identificar la causa de fondo (sospecha: pelea de
+    // layout entre Ext JS y el `!important` de nuestro CSS Grid, ver
+    // spec/features.md), NO llamar a Highcharts.chart() en este widget.
     buildSpeedingWidget: function () {
         this.speedingChartEl = Ext.create('Ext.Component', {
             cls: 'promatic_dashboard_enhancer-chart',
-            autoEl: { tag: 'div' }
+            html: l('Widget temporalmente deshabilitado (BR-PILOT-0006).')
         });
-
-        this.loadSpeedingData();
 
         return this.wrapWidget('velocidad', 'large', l('Distribución de velocidad'), this.speedingChartEl);
     },
@@ -612,13 +615,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
     },
 
-    renderSpeedingChart: function (data) {
+    // BR-PILOT-0006: el contenedor de este widget puede medirse con un
+    // ancho sin sentido (~19996px, no viene de scrollWidth del documento —
+    // descartado empíricamente en DEMO_CLIENT, 917px) mientras Ext JS y el
+    // CSS Grid externo siguen negociando el layout. `attempt` acota los
+    // reintentos vía evento 'resize': sin tope, cada resize dispara otra
+    // medición (y otro resize si algo reacciona a la medición), lo que en
+    // DEMO_CLIENT causó lentitud perceptible y saltos de scroll — peor que
+    // simplemente rendirse con un mensaje de error tras unos intentos.
+    RENDER_SPEEDING_MAX_ATTEMPTS: 5,
+
+    renderSpeedingChart: function (data, attempt) {
         var me = this;
+        attempt = attempt || 0;
 
         if (!this.speedingChartEl || !this.speedingChartEl.rendered) {
             console.log('[promatic_dashboard_enhancer] renderSpeedingChart: esperando evento render...');
             this.speedingChartEl.on('render', function () {
-                me.renderSpeedingChart(data);
+                me.renderSpeedingChart(data, attempt);
             }, this, { single: true });
             return;
         }
@@ -631,20 +645,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var containerEl = this.speedingChartEl.getEl().dom;
         console.log('[promatic_dashboard_enhancer] renderSpeedingChart: ancho del contenedor = ' +
-            containerEl.offsetWidth + 'px, alto = ' + containerEl.offsetHeight + 'px');
+            containerEl.offsetWidth + 'px, alto = ' + containerEl.offsetHeight + 'px (intento ' + attempt + ')');
 
-        // Guard contra medidas sin sentido durante la carrera de layout
-        // entre Ext JS y el CSS Grid externo (BR-PILOT-0006): visto en
-        // DEMO_CLIENT un contenedor de ~19996px de ancho x 0px de alto —
-        // llamar a Highcharts sobre eso puede colgar la pestaña. Ancho 0
-        // O mayor al viewport, o alto 0, se tratan igual: esperar el
-        // próximo resize real en vez de dibujar sobre una medida inválida.
         var widthOk = containerEl.offsetWidth > 0 && containerEl.offsetWidth <= window.innerWidth;
         var heightOk = containerEl.offsetHeight > 0;
 
         if (!widthOk || !heightOk) {
+            if (attempt >= this.RENDER_SPEEDING_MAX_ATTEMPTS) {
+                var code = me.widgetErrorCode('VEL-LAYOUT', null,
+                    'ancho=' + containerEl.offsetWidth + ' alto=' + containerEl.offsetHeight +
+                    ' tras ' + attempt + ' intentos');
+                this.speedingChartEl.update(l('No se pudo medir el espacio disponible para el gráfico.') + ' (' + code + ')');
+                return;
+            }
             this.speedingChartEl.on('resize', function () {
-                me.renderSpeedingChart(data);
+                me.renderSpeedingChart(data, attempt + 1);
             }, this, { single: true });
             return;
         }
