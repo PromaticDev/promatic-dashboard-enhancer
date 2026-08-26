@@ -47,7 +47,116 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             html: l('Cargando estado de flota...')
         });
 
-        var grid = Ext.create('Ext.container.Container', {
+        var panel = Ext.create('Ext.panel.Panel', {
+            cls: 'promatic_dashboard_enhancer-panel',
+            layout: { type: 'vbox', align: 'stretch' },
+            scrollable: 'y',
+            items: [this.summaryBar, this.buildLopShell()]
+        });
+
+        this.bindFleetUpdates();
+
+        return panel;
+    },
+
+    // -----------------------------------------------------------------------
+    // Shell vista LOP (26 ago) — solo estructura y placeholders todavía, sin
+    // datos ni Highcharts. Filas flex (ver style.css), NO Ext.panel.Panel
+    // con layout propio: cada card es un Ext.Component simple con HTML vía
+    // Ext.DomHelper, para que Ext no tenga layout de hijos que competir con
+    // el CSS. Building block del reemplazo de BR-PILOT-0006 — ver
+    // spec/features.md. Reconectar datos widget por widget es el paso
+    // siguiente, no parte de este commit.
+    // -----------------------------------------------------------------------
+
+    buildCard: function (id, opts) {
+        opts = opts || {};
+        var headCn = [
+            { tag: 'h3', cls: 'promatic_dashboard_enhancer-card__title', html: opts.title || '' }
+        ];
+        if (opts.meta) {
+            headCn.push({ tag: 'span', cls: 'promatic_dashboard_enhancer-card__meta', html: opts.meta });
+        }
+
+        return Ext.create('Ext.Component', {
+            itemId: 'promatic_dashboard_enhancer-card-' + id,
+            cls: 'promatic_dashboard_enhancer-card' + (opts.grow2 ? ' promatic_dashboard_enhancer-card--grow-2' : ''),
+            html: Ext.DomHelper.markup({
+                cn: [
+                    { cls: 'promatic_dashboard_enhancer-card__head', cn: headCn },
+                    { cls: 'promatic_dashboard_enhancer-card__body', html: opts.bodyHtml || l('Cargando...') },
+                    { cls: 'promatic_dashboard_enhancer-card__footer', cn: [
+                        { tag: 'a', href: '#', html: (opts.footerLabel || l('Ver en PILOT')) + ' ›' }
+                    ] }
+                ]
+            })
+        });
+    },
+
+    buildRow: function (items) {
+        return Ext.create('Ext.container.Container', {
+            cls: 'promatic_dashboard_enhancer-row',
+            layout: 'auto',
+            items: items
+        });
+    },
+
+    buildLopShell: function () {
+        return Ext.create('Ext.container.Container', {
+            cls: 'promatic_dashboard_enhancer-lop-shell',
+            layout: 'auto',
+            items: [
+                this.buildRow([
+                    this.buildCard('reloj', { title: l('Hora exacta') }),
+                    this.buildCard('buscador', { title: l('Buscar un reporte…'), grow2: true }),
+                    this.buildCard('logo', { title: 'LOGO' })
+                ]),
+                this.buildRow([
+                    this.buildCard('alertas', {
+                        title: l('Últimas Alertas'), meta: 'events.php + ptm',
+                        footerLabel: l('Abrir alertas')
+                    }),
+                    this.buildCard('velocidad_lop', {
+                        title: l('Velocidad de conducción'), meta: 'speeding_pie.php',
+                        footerLabel: l('Abrir reporte de velocidad')
+                    }),
+                    this.buildCard('ralenti', {
+                        title: l('Ralentí'), meta: 'type=16',
+                        footerLabel: l('Abrir reporte de ralentí')
+                    })
+                ]),
+                this.buildRow([
+                    this.buildCard('flota_lop', {
+                        title: l('Flota'), meta: 'online_tree.status',
+                        footerLabel: l('Abrir árbol de flota')
+                    }),
+                    this.buildCard('top5km', {
+                        title: l('Top 5 · Vehículos con más KM'), meta: 'rt=4',
+                        footerLabel: l('Abrir reporte de kilometraje')
+                    })
+                ]),
+                this.buildRow([
+                    this.buildCard('hotspots', {
+                        title: l('Hotspots de desconexión'), meta: 'type=15',
+                        footerLabel: l('Abrir mapa de desconexión')
+                    }),
+                    this.buildCard('disponibles', {
+                        title: l('Disponibles/ubicación'),
+                        footerLabel: l('Abrir mapa de disponibilidad')
+                    })
+                ])
+            ]
+        });
+    },
+
+    // Sistema de grid anterior (ADR-007) — ya NO se llama desde
+    // buildMainPanel (reemplazado por buildLopShell, 26 ago) tras el
+    // memory leak de BR-PILOT-0006. Se deja intacto, sin invocar, como
+    // rollback rápido si el shell nuevo tuviera un problema imprevisto —
+    // retirar formalmente (DEP-NNN) una vez el shell nuevo esté verificado
+    // estable en DEMO_CLIENT por un par de sesiones.
+    buildLegacyWidgetGrid: function () {
+        return Ext.create('Ext.container.Container', {
             cls: 'promatic_dashboard_enhancer-grid',
             layout: 'auto',
             items: [
@@ -60,17 +169,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 this.safeBuildWidget('eventos', this.buildEventsWidget)
             ]
         });
-
-        var panel = Ext.create('Ext.panel.Panel', {
-            cls: 'promatic_dashboard_enhancer-panel',
-            layout: { type: 'vbox', align: 'stretch' },
-            scrollable: 'y',
-            items: [this.summaryBar, grid]
-        });
-
-        this.bindFleetUpdates();
-
-        return panel;
     },
 
     // Aísla la construcción sincrónica de cada widget: si uno tira un error
