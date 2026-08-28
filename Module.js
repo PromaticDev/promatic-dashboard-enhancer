@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-28-1818',
+    moduleBuild: '2026-08-28-1822',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -304,6 +304,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 filtered.push(records[j]);
             }
         }
+
+        // El filtro no matcheó ningún vehículo del árbol Online actual —
+        // casi seguro config stale de otra cuenta/sesión (los 45 ids del
+        // demo del 26 ago ya no aplican). Se ignora y se usa la flota
+        // completa: mejor mostrar de más que un dashboard en 0.
+        if (filtered.length === 0 && records.length > 0) {
+            if (!this._scopeMismatchLogged) {
+                this._scopeMismatchLogged = true;
+                console.warn('[promatic_dashboard_enhancer] filtro de alcance de flota (localStorage "' +
+                    this.FLEET_SCOPE_STORAGE_KEY + '") no coincide con ningún vehículo del árbol Online — ' +
+                    'se ignora, se usa la flota completa. Para limpiarlo: localStorage.removeItem("' +
+                    this.FLEET_SCOPE_STORAGE_KEY + '").');
+            }
+            return records;
+        }
+
         return filtered;
     },
 
@@ -368,16 +384,37 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // "Señal GPS" (id 'gps_signal') — mismo recorrido, sin llamada HTTP.
     // 'flota'/'gps_signal' son ids compartidos por el shell RAC y el LOP;
     // solo un shell está montado a la vez.
+    // Throttle: el árbol Online dispara 'datachanged' cientos de veces por
+    // segundo con flota grande (cada ping de cada vehículo). Coalescemos en
+    // una corrida cada 2s como mucho — leading edge (la primera pinta al
+    // toque) + trailing (una más al final de la ráfaga).
+    FLEET_REFRESH_MIN_GAP_MS: 2000,
+
     refreshFleetStore: function () {
-        try {
-            this._refreshFleetStore();
-        } catch (err) {
-            // Está bindeado a 'datachanged' (dispara seguido) — si tira, se
-            // loguea una vez y no se vuelve a spamear ni se cae el listener.
-            if (!this._fleetRefreshErrLogged) {
-                this._fleetRefreshErrLogged = true;
-                this.widgetErrorCode('FLEET-REFRESH', err);
+        var me = this;
+
+        if (this._fleetRefreshTimer) {
+            return; // ya hay una corrida agendada dentro de la ventana
+        }
+
+        var run = function () {
+            me._fleetRefreshTimer = null;
+            me._fleetRefreshLast = Date.now();
+            try {
+                me._refreshFleetStore();
+            } catch (err) {
+                if (!me._fleetRefreshErrLogged) {
+                    me._fleetRefreshErrLogged = true;
+                    me.widgetErrorCode('FLEET-REFRESH', err);
+                }
             }
+        };
+
+        var since = this._fleetRefreshLast ? (Date.now() - this._fleetRefreshLast) : Infinity;
+        if (since >= this.FLEET_REFRESH_MIN_GAP_MS) {
+            run();
+        } else {
+            this._fleetRefreshTimer = Ext.defer(run, this.FLEET_REFRESH_MIN_GAP_MS - since);
         }
     },
 
@@ -425,9 +462,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
-        console.log('[promatic_dashboard_enhancer] flota: total=' + total +
-            ' online=' + (total - offlineCount) + ' offline=' + offlineCount +
-            ' | señal GPS <24h=' + gps24 + ' 24-48h=' + gps48 + ' >48h/sin dato=' + gpsMore);
+        // Log solo cuando los números cambian — con flota estable, silencio.
+        var sig = total + '/' + offlineCount + '/' + moving + '/' + parked +
+            '/' + gps24 + '/' + gps48 + '/' + gpsMore;
+        if (sig !== this._fleetSig) {
+            this._fleetSig = sig;
+            console.log('[promatic_dashboard_enhancer] flota: total=' + total +
+                ' online=' + (total - offlineCount) + ' offline=' + offlineCount +
+                ' | señal GPS <24h=' + gps24 + ' 24-48h=' + gps48 + ' >48h/sin dato=' + gpsMore);
+        }
 
         this.updateSummary(total, total - offlineCount);
         this.updateFlotaLopCard(total, moving, parked, offlineCount);
