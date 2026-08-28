@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-28-1822',
+    moduleBuild: '2026-08-28-1829',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -62,7 +62,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.bindFleetUpdates();
         this.loadTop5KmData();
         this.loadAlertasGenerales();
-        this.loadHotspots();
+        // this.loadHotspots(); — DESACTIVADO 28 ago: new MapContainer/setHeatmap
+        // afectaba el mapa nativo de PILOT (Online) en vez de crear uno propio
+        // en el widget. El patrón de spec/api.md nunca se verificó en cuenta
+        // real. Reactivar solo tras leer MapContainer.md y probar la API de
+        // instancia con cuidado. Card queda con un mensaje, no vacío.
+        this.updateCardBody('hotspots', l('Mapa de desconexión — en integración.'));
         this.startClock();
         this.renderLogo();
 
