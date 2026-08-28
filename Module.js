@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-28-1904',
+    moduleBuild: '2026-08-28-1926',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -116,6 +116,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (opts.meta) {
             headCn.push({ tag: 'span', cls: 'promatic_dashboard_enhancer-card__meta', html: opts.meta });
         }
+        // (?) con tooltip nativo de Ext (data-qtip) — explica cómo/desde
+        // cuándo se lee el dato de la card. QuickTips está activo en el
+        // runtime de PILOT.
+        if (opts.hint) {
+            headCn.push({
+                tag: 'span',
+                cls: 'promatic_dashboard_enhancer-card__hint',
+                'data-qtip': opts.hint,
+                title: opts.hint, // fallback si QuickTips no está activo
+                html: '?'
+            });
+        }
 
         return {
             id: 'promatic_dashboard_enhancer-card-' + id,
@@ -191,19 +203,23 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ]),
             this.rowMarkup([
                 this.cardMarkup('gps_signal', {
-                    title: l('Señal GPS'), meta: 'online_tree + type=15',
+                    title: l('Señal GPS'),
+                    hint: l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal recibida. Se actualiza en vivo con el árbol Online.'),
                     footerLabel: l('Abrir alertas de señal')
                 }),
                 this.cardMarkup('alertas_generales', {
-                    title: l('Alertas Generales'), meta: 'events.php + ptm',
+                    title: l('Alertas Generales'),
+                    hint: l('Accidentes: eventos de los últimos 30 días. Requiere mantención: recordatorios por vehículo configurados en PILOT.'),
                     footerLabel: l('Abrir alertas')
                 }),
                 this.cardMarkup('flota', {
-                    title: l('Estado de Flota'), meta: 'online_tree.status',
+                    title: l('Estado de Flota'),
+                    hint: l('Porcentajes sobre el total de vehículos del árbol Online. Se actualiza en vivo.'),
                     footerLabel: l('Abrir árbol de flota')
                 }),
                 this.cardMarkup('top5km', {
-                    title: l('Top 5 · Vehículos con más KM'), meta: 'rt=4',
+                    title: l('Top 5 · Vehículos con más KM'),
+                    hint: l('Kilómetros recorridos por vehículo en los últimos 7 días (reporte de PILOT). Puede tardar con flotas grandes.'),
                     footerLabel: l('Abrir reporte de kilometraje')
                 })
             ]),

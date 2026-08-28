@@ -151,6 +151,28 @@
     color: #94A3B8;
 }
 
+/* (?) con tooltip — dato de cómo se lee la card. Va al extremo derecho del
+   head (el head es flex + space-between). */
+.promatic_dashboard_enhancer-card__hint {
+    flex-shrink: 0;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    border: 1px solid var(--g3);
+    color: var(--g5);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 13px;
+    text-align: center;
+    cursor: help;
+    align-self: center;
+}
+
+.promatic_dashboard_enhancer-card__hint:hover {
+    border-color: var(--g5);
+    color: var(--g7);
+}
+
 .promatic_dashboard_enhancer-card__body {
     padding: 8px 12px;
     flex: 1 1 auto;
