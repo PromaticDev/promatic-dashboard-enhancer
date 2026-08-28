@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-26-1934',
+    moduleBuild: '2026-08-28-1056',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -47,11 +47,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             html: l('Cargando estado de flota...')
         });
 
+        // RAC primero (27 ago, pedido del usuario) — buildLopShell() queda
+        // intacto sin invocar, mismo criterio de rollback rápido que
+        // buildLegacyWidgetGrid tras BR-PILOT-0006. LOC será una
+        // reorganización de estos mismos widgets vía configuración externa
+        // (JSON o consulta a BD) — diseño todavía pendiente, no implementado.
         var panel = Ext.create('Ext.panel.Panel', {
             cls: 'promatic_dashboard_enhancer-panel',
             layout: { type: 'vbox', align: 'stretch' },
             scrollable: 'y',
-            items: [this.summaryBar, this.buildLopShell()]
+            items: [this.summaryBar, this.buildRacShell()]
         });
 
         this.bindFleetUpdates();
@@ -126,6 +131,71 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return { cls: 'promatic_dashboard_enhancer-row', cn: cardSpecs };
     },
 
+    // Apila 2+ cards en una sola celda de la fila (ver .promatic_dashboard_enhancer-col
+    // en style.css) — usado en el shell RAC para que Señal GPS + Alertas
+    // Generales compartan el ancho de una columna en vez de tener cada una
+    // la suya. Sigue siendo HTML plano vía DomHelper, nada de
+    // Ext.container.Container anidado (BR-PILOT-0006).
+    colMarkup: function (cardSpecs) {
+        return { cls: 'promatic_dashboard_enhancer-col', cn: cardSpecs };
+    },
+
+    // -----------------------------------------------------------------------
+    // Shell vista RAC (27 ago) — vista activa por defecto ahora ("RAC
+    // primero", pedido del usuario). Mismo mecanismo que buildLopShell: HTML
+    // plano vía Ext.DomHelper dentro de un único Ext.Component. Reutiliza
+    // los ids 'flota'/'top5km'/'hotspots' del shell LOP a propósito — mismo
+    // dato exacto, y solo un shell está montado a la vez, así que no hay
+    // colisión de ids en el DOM real. Señal GPS se separó de Alertas
+    // Generales en 2 widgets (antes 1 solo "Últimas Alertas de Vehículos")
+    // porque GPS/desconexión es la única alerta que aparece igual en todo
+    // panel sin importar el tipo de negocio del cliente. Fila de 4 columnas
+    // planas (no colMarkup — el diseño final de dev/proto-dash.html las puso
+    // como 4 pares, no 2+2) — diseño visual portado desde dev/proto-styles.css
+    // (27 ago, versión final del usuario) a este CSS con selectores
+    // prefijados. gps_signal/alertas_generales quedan en "Cargando..." — su
+    // conteo (buckets GPS, events.php por categoría) no está conectado
+    // todavía, no se fabrica dato de ejemplo en el plugin real.
+    // -----------------------------------------------------------------------
+    buildRacShell: function () {
+        var rows = [
+            this.rowMarkup([
+                this.cardMarkup('reloj', { title: l('Hora exacta') }),
+                this.cardMarkup('buscador', { title: l('Buscar un reporte…'), grow2: true }),
+                this.cardMarkup('logo', { title: 'LOGO' })
+            ]),
+            this.rowMarkup([
+                this.cardMarkup('gps_signal', {
+                    title: l('Señal GPS'), meta: 'online_tree + type=15',
+                    footerLabel: l('Abrir alertas de señal')
+                }),
+                this.cardMarkup('alertas_generales', {
+                    title: l('Alertas Generales'), meta: 'events.php + ptm',
+                    footerLabel: l('Abrir alertas')
+                }),
+                this.cardMarkup('flota', {
+                    title: l('Estado de Flota'), meta: 'online_tree.status',
+                    footerLabel: l('Abrir árbol de flota')
+                }),
+                this.cardMarkup('top5km', {
+                    title: l('Top 5 · Vehículos con más KM'), meta: 'rt=4',
+                    footerLabel: l('Abrir reporte de kilometraje')
+                })
+            ]),
+            this.rowMarkup([
+                this.cardMarkup('hotspots', {
+                    title: l('Hotspots de desconexión'), meta: 'type=15',
+                    footerLabel: l('Abrir mapa de desconexión')
+                })
+            ])
+        ];
+
+        return Ext.create('Ext.Component', {
+            cls: 'promatic_dashboard_enhancer-rac-shell',
+            html: Ext.DomHelper.markup(rows)
+        });
+    },
+
     buildLopShell: function () {
         var rows = [
             this.rowMarkup([
@@ -148,7 +218,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 })
             ]),
             this.rowMarkup([
-                this.cardMarkup('flota_lop', {
+                this.cardMarkup('flota', {
                     title: l('Flota'), meta: 'online_tree.status',
                     footerLabel: l('Abrir árbol de flota')
                 }),
@@ -369,10 +439,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     // Único punto que recorre online_tree en cada 'datachanged'/'update' —
-    // alimenta la barra de resumen, la card "Flota" del shell LOP, y (si
-    // existe, sistema de grid anterior) this.fleetStore. Ya no depende de
-    // this.fleetStore para funcionar (26 ago) — ese store solo lo usa
-    // buildLegacyWidgetGrid, sin invocar por defecto.
+    // alimenta la barra de resumen, la card "Flota" (id 'flota', compartida
+    // por el shell RAC y el shell LOP — mismo dato, ambos shells nunca están
+    // montados a la vez), y (si existe, sistema de grid anterior)
+    // this.fleetStore. Ya no depende de this.fleetStore para funcionar (26
+    // ago) — ese store solo lo usa buildLegacyWidgetGrid, sin invocar por
+    // defecto.
     refreshFleetStore: function () {
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) {
@@ -429,24 +501,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         };
         var activos = total - offlineCount;
 
-        this.updateCardBody('flota_lop', Ext.DomHelper.markup({
-            cls: 'promatic_dashboard_enhancer-summary__row',
+        this.updateCardBody('flota', Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-fleet-quadrants',
             cn: [
-                { cls: 'promatic_dashboard_enhancer-stat', cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: pct(activos) + '%' },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('activos') }
+                { cls: 'promatic_dashboard_enhancer-fleet-quadrant', cn: [
+                    { tag: 'div', cls: 'promatic_dashboard_enhancer-fleet-quadrant__pct', html: pct(activos) + '%' },
+                    { tag: 'div', cls: 'promatic_dashboard_enhancer-fleet-quadrant__lbl', html: l('Activos') }
                 ] },
-                { cls: 'promatic_dashboard_enhancer-stat', cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: pct(moving) + '%' },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('en movimiento') }
+                { cls: 'promatic_dashboard_enhancer-fleet-quadrant promatic_dashboard_enhancer-fleet-quadrant--moving', cn: [
+                    { tag: 'div', cls: 'promatic_dashboard_enhancer-fleet-quadrant__pct', html: pct(moving) + '%' },
+                    { tag: 'div', cls: 'promatic_dashboard_enhancer-fleet-quadrant__lbl', html: l('En movimiento') }
                 ] },
-                { cls: 'promatic_dashboard_enhancer-stat', cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: pct(parked) + '%' },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('estacionado') }
+                { cls: 'promatic_dashboard_enhancer-fleet-quadrant promatic_dashboard_enhancer-fleet-quadrant--parked', cn: [
+                    { tag: 'div', cls: 'promatic_dashboard_enhancer-fleet-quadrant__pct', html: pct(parked) + '%' },
+                    { tag: 'div', cls: 'promatic_dashboard_enhancer-fleet-quadrant__lbl', html: l('Estacionado') }
                 ] },
-                { cls: 'promatic_dashboard_enhancer-stat', cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: pct(offlineCount) + '%' },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('sin conexión') }
+                { cls: 'promatic_dashboard_enhancer-fleet-quadrant promatic_dashboard_enhancer-fleet-quadrant--offline', cn: [
+                    { tag: 'div', cls: 'promatic_dashboard_enhancer-fleet-quadrant__pct', html: pct(offlineCount) + '%' },
+                    { tag: 'div', cls: 'promatic_dashboard_enhancer-fleet-quadrant__lbl', html: l('Sin conexión') }
                 ] }
             ]
         }));
@@ -759,18 +831,75 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return;
         }
 
-        var rows = [];
+        // Barra apilada — segmento por vehículo, alto = % del total del
+        // top 5 (no del máximo). Colores fijos g2/g1/g3/g4/g5 en orden
+        // ascendente de km, igual que el diseño aprobado en
+        // dev/proto-dash.html (27 ago) — sin gradiente calculado, mismo
+        // ramp que ya se usó ahí para mantener la lectura "oscuro = más km".
+        var segColors = ['var(--g2)', 'var(--g1)', 'var(--g3)', 'var(--g4)', 'var(--g5)'];
+        var totalTop5 = 0;
+        for (var s = 0; s < top5.length; s++) {
+            totalTop5 += top5[s].km;
+        }
+        var ascending = top5.slice().reverse();
+        var segments = [];
+        for (var a = 0; a < ascending.length; a++) {
+            var segPct = totalTop5 > 0 ? (ascending[a].km / totalTop5 * 100) : 0;
+            segments.push({
+                cls: 'promatic_dashboard_enhancer-stacked-seg',
+                style: 'height:' + segPct.toFixed(1) + '%;background:' + segColors[a % segColors.length],
+                title: Ext.String.htmlEncode(ascending[a].name) + ' — ' + ascending[a].km.toFixed(0) + 'km'
+            });
+        }
+
+        var maxKm = top5[0].km || 1;
+        var rankRows = [];
         for (var j = 0; j < top5.length; j++) {
-            rows.push({
-                cls: 'promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row',
+            var isTop = j === 0;
+            var rowCls = 'promatic_dashboard_enhancer-rank-row' + (isTop ? ' promatic_dashboard_enhancer-rank-row--emphasized' : '');
+            rankRows.push({
+                tag: 'a', href: '#', cls: rowCls,
+                title: l('Ver reporte de') + ' ' + Ext.String.htmlEncode(top5[j].name) + ' (runReport)',
                 cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: Ext.String.htmlEncode(top5[j].name) },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: top5[j].km.toFixed(0) + ' km' }
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-rank-name', html: Ext.String.htmlEncode(top5[j].name) },
+                    { cls: 'promatic_dashboard_enhancer-rank-track', cn: [
+                        { cls: 'promatic_dashboard_enhancer-rank-fill', style: 'width:' + (top5[j].km / maxKm * 100).toFixed(0) + '%' }
+                    ] },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-rank-val', html: top5[j].km.toFixed(0) + 'km' },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-chev', html: '›' }
                 ]
             });
         }
 
-        this.updateCardBody('top5km', Ext.DomHelper.markup(rows));
+        var stopDate = new Date();
+        var startDate = new Date();
+        startDate.setDate(startDate.getDate() - 7);
+        var dateFmt = function (d) {
+            var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+            return pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear();
+        };
+
+        this.updateCardBody('top5km', Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-km-widget-body',
+            cn: [
+                { cls: 'promatic_dashboard_enhancer-km-stack-wrap', cn: [
+                    { cls: 'promatic_dashboard_enhancer-stacked-track promatic_dashboard_enhancer-stacked-track--v', cn: segments },
+                    { cls: 'promatic_dashboard_enhancer-km-stack-total', cn: [
+                        { tag: 'b', html: totalTop5.toFixed(0) },
+                        { html: 'km ' + l('top 5') }
+                    ] }
+                ] },
+                { cls: 'promatic_dashboard_enhancer-km-top5', cn: [
+                    { cls: 'promatic_dashboard_enhancer-km-date-range', html: l('Semana del') + ': ' + dateFmt(startDate) + ' — ' + dateFmt(stopDate) },
+                    { cls: 'promatic_dashboard_enhancer-km-top5-label', html: l('Ranking') + ' &middot; ' + l('más recorrido') }
+                ].concat(rankRows).concat([
+                    { cls: 'promatic_dashboard_enhancer-km-color-legend', cn: [
+                        { tag: 'span', cls: 'promatic_dashboard_enhancer-km-legend-grad' },
+                        { html: l('Oscuro = más km · Claro = menos km (dentro del top 5)') }
+                    ] }
+                ]) }
+            ]
+        }));
     },
 
     renderMileageSummary: function (report, vehicleCount) {

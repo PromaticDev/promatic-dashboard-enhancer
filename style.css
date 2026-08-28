@@ -2,6 +2,32 @@
 
 .promatic_dashboard_enhancer-panel {
     padding: 12px;
+    /* Tokens de color — copia validada de dev/proto-styles.css (paleta
+       "Cálida" + colores "semáforo", ADR-009). Escalados a este contenedor
+       en vez de :root para no tocar variables globales de la página de
+       PILOT (mismo motivo que el prefijo de clases, ver SPEC.md). */
+    --g0: #f4f6f8;
+    --g1: #e6edf3;
+    --g2: #cae2de;
+    --g3: #b9d2e2;
+    --g4: #87b3cf;
+    --g5: #498db8;
+    --g6: #0a67a0;
+    --g7: #064368;
+    --accent-azure: #008be3;
+    --accent-teal: #1c9c87;
+    --status-ok: #a8d5ba;
+    --status-warn: #f0d97d;
+    --status-alert: #f0a868;
+    --status-danger: #e8938a;
+    --status-text: #04283e;
+    --status-ok-strong: #238a4c;
+    --status-warn-strong: #997a00;
+    --status-alert-strong: #a34d00;
+    --status-danger-strong: #ad1100;
+    --status-warn-bright: #ffe61e;
+    --status-alert-bright: #ff721e;
+    --status-danger-bright: #fe5252;
 }
 
 .promatic_dashboard_enhancer-summary {
@@ -227,6 +253,22 @@
     flex-grow: 2;
 }
 
+/* Columna de 2+ cards apiladas dentro de una sola celda de fila (27 ago,
+   shell RAC) — ej. Señal GPS + Alertas Generales comparten el ancho de
+   Estado de Flota en vez de tener cada una su propia columna. Es un <div>
+   plano, no un Ext.container.Container — no aplica BR-PILOT-0006. */
+.promatic_dashboard_enhancer-col {
+    flex: 1 1 0;
+    min-width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.promatic_dashboard_enhancer-col .promatic_dashboard_enhancer-card {
+    min-width: 0;
+}
+
 .promatic_dashboard_enhancer-card__head {
     display: flex;
     align-items: baseline;
@@ -264,4 +306,352 @@
     font-size: 12px;
     color: #2563EB;
     text-decoration: none;
+}
+
+/* =========================================================================
+   Señal GPS (widget-gps-signal) — portado desde dev/proto-styles.css,
+   diseño final 27 ago (RONDA 3, Variación aprobada por el usuario en
+   dev/proto-dash.html). Contraste corregido en el port: naranjo/rojo
+   "bright" + texto blanco fallan AA (2.74:1 / 3.21:1) — acá van con
+   --status-text oscuro (5.57:1 / 4.75:1), ver ADR-009.
+   ========================================================================= */
+.promatic_dashboard_enhancer-signal-card-bg {
+    position: relative;
+    width: 100%;
+    background: #fff;
+    border-radius: 8px;
+    border: 1px solid var(--g2);
+    box-shadow: 0 2px 5px rgba(6, 67, 104, 0.07);
+    overflow: hidden;
+    padding: 10px;
+}
+
+.promatic_dashboard_enhancer-signal-card-bg__icon {
+    position: absolute;
+    right: -10px;
+    bottom: -30px;
+    z-index: 1;
+    pointer-events: none;
+}
+
+.promatic_dashboard_enhancer-signal-card-bg__icon svg {
+    width: 190px;
+    height: 190px;
+    stroke: #085280;
+    opacity: 0.12;
+}
+
+.promatic_dashboard_enhancer-signal-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: relative;
+    z-index: 2;
+}
+
+.promatic_dashboard_enhancer-signal-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-radius: 8px;
+    text-decoration: none;
+    background: linear-gradient(90deg, rgba(10, 103, 160, 1) 0%, rgba(10, 103, 160, 0) 100%);
+    transition: background-color 0.15s ease;
+}
+
+.promatic_dashboard_enhancer-signal-row:hover {
+    background-color: #e2e8f0;
+}
+
+.promatic_dashboard_enhancer-signal-row__label {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--g0);
+}
+
+.promatic_dashboard_enhancer-signal-row__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.promatic_dashboard_enhancer-signal-row--yellow .promatic_dashboard_enhancer-signal-row__badge {
+    background-color: var(--status-warn-bright);
+    color: var(--status-text);
+}
+
+.promatic_dashboard_enhancer-signal-row--orange .promatic_dashboard_enhancer-signal-row__badge {
+    background-color: var(--status-alert-bright);
+    color: var(--status-text);
+}
+
+.promatic_dashboard_enhancer-signal-row--red .promatic_dashboard_enhancer-signal-row__badge {
+    background-color: var(--status-danger-bright);
+    color: var(--status-text);
+}
+
+/* =========================================================================
+   Alertas Generales (widget-alerts-general) — portado desde
+   dev/proto-styles.css, Variación A elegida (27 ago). Fondo con la rampa
+   estructural (--g6/--g7), nunca "semáforo" — no le roba protagonismo a
+   Señal GPS, que sí debe leerse como la alerta más urgente.
+   ========================================================================= */
+.promatic_dashboard_enhancer-stat-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+}
+
+.promatic_dashboard_enhancer-stat-card {
+    position: relative;
+    border-radius: 12px;
+    padding: 14px 14px 12px;
+    min-height: 70px;
+    color: #fff;
+    text-decoration: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+    transition: filter .15s ease;
+}
+
+.promatic_dashboard_enhancer-stat-card:hover {
+    filter: brightness(1.08);
+}
+
+.promatic_dashboard_enhancer-stat-card__icon {
+    position: absolute;
+    top: 20px;
+    right: -20px;
+    width: 100px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+}
+
+.promatic_dashboard_enhancer-stat-card__icon svg {
+    width: 100px;
+    height: 100px;
+    fill-opacity: 0.5;
+    stroke-opacity: 0.5;
+}
+
+.promatic_dashboard_enhancer-stat-card__title {
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.25;
+    max-width: 74%;
+    margin-bottom: 4px;
+    opacity: .96;
+}
+
+.promatic_dashboard_enhancer-stat-card__count {
+    font-size: 27px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+/* =========================================================================
+   Estado de Flota (card 'flota') — portado desde dev/proto-styles.css.
+   Colores por cuadrante = tokens "strong" ya validados AA (ADR-009).
+   ========================================================================= */
+.promatic_dashboard_enhancer-fleet-quadrants {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.promatic_dashboard_enhancer-fleet-quadrant {
+    background: var(--g0);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.promatic_dashboard_enhancer-fleet-quadrant__pct {
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 1.1;
+    color: var(--g7);
+}
+
+.promatic_dashboard_enhancer-fleet-quadrant--moving .promatic_dashboard_enhancer-fleet-quadrant__pct {
+    color: var(--status-ok-strong);
+}
+
+.promatic_dashboard_enhancer-fleet-quadrant--parked .promatic_dashboard_enhancer-fleet-quadrant__pct {
+    color: var(--status-warn-strong);
+}
+
+.promatic_dashboard_enhancer-fleet-quadrant--offline .promatic_dashboard_enhancer-fleet-quadrant__pct {
+    color: var(--status-danger-strong);
+}
+
+.promatic_dashboard_enhancer-fleet-quadrant__lbl {
+    font-size: 11px;
+    color: var(--g5);
+    text-transform: uppercase;
+    letter-spacing: .2px;
+}
+
+/* =========================================================================
+   Top 5 · Vehículos con más KM (card 'top5km') — portado desde
+   dev/proto-styles.css: barra apilada + ranking con barra de progreso.
+   ========================================================================= */
+.promatic_dashboard_enhancer-km-widget-body {
+    display: flex;
+    gap: 12px;
+    height: 100%;
+}
+
+.promatic_dashboard_enhancer-km-stack-wrap {
+    flex-shrink: 0;
+    width: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.promatic_dashboard_enhancer-km-stack-total {
+    font-size: 9px;
+    color: var(--g5);
+    text-align: center;
+}
+
+.promatic_dashboard_enhancer-km-stack-total b {
+    display: block;
+    color: var(--g6);
+    font-size: 13px;
+}
+
+.promatic_dashboard_enhancer-stacked-track--v {
+    display: flex;
+    flex-direction: column;
+    width: 28px;
+    height: 110px;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.promatic_dashboard_enhancer-stacked-seg {
+    width: 100%;
+}
+
+.promatic_dashboard_enhancer-km-top5 {
+    flex: 1;
+    min-width: 0;
+    border-left: 1px solid var(--g2);
+    padding-left: 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+}
+
+.promatic_dashboard_enhancer-km-date-range {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--g6);
+    margin-bottom: 2px;
+}
+
+.promatic_dashboard_enhancer-km-top5-label {
+    font-size: 8.5px;
+    color: var(--g4);
+    text-transform: uppercase;
+}
+
+a.promatic_dashboard_enhancer-rank-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    text-decoration: none;
+    padding: 3px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+a.promatic_dashboard_enhancer-rank-row:hover {
+    background: var(--g1);
+}
+
+.promatic_dashboard_enhancer-rank-name {
+    width: 60px;
+    flex-shrink: 0;
+    color: var(--g7);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-rank-name {
+    text-decoration: underline;
+}
+
+.promatic_dashboard_enhancer-rank-track {
+    flex: 1;
+    height: 6px;
+    background: var(--g1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.promatic_dashboard_enhancer-rank-fill {
+    height: 100%;
+    background: var(--g4);
+    border-radius: 2px;
+}
+
+.promatic_dashboard_enhancer-rank-row--emphasized .promatic_dashboard_enhancer-rank-fill {
+    background: var(--g5);
+}
+
+.promatic_dashboard_enhancer-rank-row--emphasized .promatic_dashboard_enhancer-rank-name {
+    color: var(--g6);
+    font-weight: 700;
+}
+
+.promatic_dashboard_enhancer-rank-val {
+    width: 42px;
+    text-align: right;
+    color: var(--g6);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+}
+
+.promatic_dashboard_enhancer-chev {
+    opacity: 0;
+    color: var(--g5);
+    font-size: 10px;
+}
+
+a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
+    opacity: 1;
+}
+
+.promatic_dashboard_enhancer-km-color-legend {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 8.5px;
+    color: var(--g5);
+}
+
+.promatic_dashboard_enhancer-km-legend-grad {
+    width: 36px;
+    height: 8px;
+    border-radius: 2px;
+    background: linear-gradient(to right, var(--g5), var(--g1));
 }
