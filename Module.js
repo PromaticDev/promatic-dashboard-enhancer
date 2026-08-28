@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-28-1829',
+    moduleBuild: '2026-08-28-1844',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -122,17 +122,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         };
     },
 
-    // Reintento acotado (300ms x 10 = 3s): el shell puede no estar
-    // renderizado en el DOM todavía la primera vez que un widget intenta
-    // actualizar su card (ej. refreshFleetStore corriendo antes de que
-    // Ext termine de montar el panel). Tope fijo, nunca reintento infinito.
+    // Reintento acotado (300ms x 60 = 18s): el shell puede no estar
+    // renderizado en el DOM todavía cuando un widget intenta actualizar su
+    // card — pasa sobre todo con los que se pintan de una desde
+    // buildMainPanel (reloj, logo), antes de que Ext termine de montar el
+    // panel y agregarlo a skeleton.navigation. Tope fijo, nunca infinito.
     updateCardBody: function (id, html, attempt) {
         attempt = attempt || 0;
         var el = Ext.get('promatic_dashboard_enhancer-card-body-' + id);
         if (el) {
             el.setHtml(html);
-        } else if (attempt < 10) {
+        } else if (attempt < 60) {
             Ext.defer(this.updateCardBody, 300, this, [id, html, attempt + 1]);
+        } else {
+            console.warn('[promatic_dashboard_enhancer] updateCardBody("' + id +
+                '"): la card no apareció en el DOM tras 18s.');
         }
     },
 
