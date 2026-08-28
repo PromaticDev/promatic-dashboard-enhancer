@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-28-1926',
+    moduleBuild: '2026-08-28-1944',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -370,6 +370,29 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
         return vehIds;
+    },
+
+    // Vehículos del alcance que se movieron en los últimos `days` días —
+    // filtro por `last_event.last_move` (timestamp del último movimiento),
+    // client-side, sin llamada. Un vehículo sin movimiento en la ventana
+    // tiene 0 km, así que dejarlo fuera de la consulta a reports.php no
+    // cambia el ranking pero corta el payload (crítico cuando online_tree
+    // tiene la flota LOC completa — ver NOC-007 y la exploración del 28 ago:
+    // no hay endpoint de km por vehículo pre-calculado).
+    getRecentlyActiveIds: function (onlineTree, days) {
+        var cutoff = Math.floor(Date.now() / 1000) - (days || 7) * 86400;
+        var records = this.getScopedFleetRecords(onlineTree);
+        var ids = [];
+        for (var i = 0; i < records.length; i++) {
+            var r = records[i];
+            if (!r.get('agentid')) { continue; }
+            var le = r.get('last_event') || (r.data && r.data.last_event) || {};
+            var moved = Number(le.last_move) || Number(le.unixtimestamp) || 0;
+            if (moved >= cutoff) {
+                ids.push(r.get('agentid'));
+            }
+        }
+        return ids;
     },
 
     // Poll acotado (40 x 500ms = 20s) hasta que el store de online_tree tenga
@@ -1042,16 +1065,31 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 'Sin filtro de alcance — el árbol Online no cargó vehículos.'));
     },
 
-    // Card "Top 5 · Vehículos con más KM" (shell LOP, 26 ago) — mismo
-    // endpoint que el widget de kilometraje (report_type=4), pero
-    // agrupado por vehículo y ordenado, en vez de sumado/promediado.
+    // Card "Top 5 · Vehículos con más KM" — reports.php report_type=4,
+    // agrupado por vehículo y ordenado. Solo se consultan los vehículos que
+    // se movieron en la ventana (getRecentlyActiveIds) — el resto tiene 0 km
+    // y solo infla el payload (NOC-007: con la flota LOC completa reports.php
+    // se cuelga). Si nadie se movió, ni se llama al endpoint.
     loadTop5KmData: function () {
         var me = this;
+        var DAYS = 7;
 
-        this.withFleetVehicleIds(function (vehIds) {
+        this.withFleetVehicleIds(function () {
+            var onlineTree = me.getOnlineTree();
+            var vehIds = me.getRecentlyActiveIds(onlineTree, DAYS);
+            var scopeTotal = me.getFleetVehicleIds(onlineTree).length;
+
+            console.log('[promatic_dashboard_enhancer] Top 5 KM: ' + vehIds.length +
+                ' vehículos con movimiento en ' + DAYS + 'd (de ' + scopeTotal + ' en alcance)');
+
+            if (vehIds.length === 0) {
+                me.updateCardBody('top5km', l('Ningún vehículo con recorrido en los últimos 7 días.'));
+                return;
+            }
+
             var stopDate = new Date();
             var startDate = new Date();
-            startDate.setDate(startDate.getDate() - 7);
+            startDate.setDate(startDate.getDate() - DAYS);
 
             me.fetchReportType(4, vehIds.join(','), startDate, stopDate, 20000)
                 .then(function (report) {
