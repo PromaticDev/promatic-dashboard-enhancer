@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-28-1745',
+    moduleBuild: '2026-08-28-1818',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -62,6 +62,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.bindFleetUpdates();
         this.loadTop5KmData();
         this.loadAlertasGenerales();
+        this.loadHotspots();
         this.startClock();
         this.renderLogo();
 
@@ -318,22 +319,32 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return vehIds;
     },
 
-    bindFleetUpdates: function () {
-        var me = this;
+    // Poll acotado (40 x 500ms = 20s) hasta que el store de online_tree tenga
+    // filas, después bindea los listeners UNA sola vez (guard _fleetBound) y
+    // hace el primer refresh. NO usa withFleetVehicleIds: su rama de "lista
+    // vacía" se re-suscribe a 'datachanged' en cada disparo, y con el árbol
+    // Online actualizándose seguido eso se volvía un loop caliente.
+    bindFleetUpdates: function (attempt) {
+        attempt = attempt || 0;
+        var onlineTree = this.getOnlineTree();
+        var store = onlineTree && onlineTree.getStore && onlineTree.getStore();
+        var count = store && store.getData ? store.getData().items.length : 0;
 
-        // El store de online_tree puede existir vacío en el primer render del
-        // panel — si bindeamos y hacemos refreshFleetStore() en ese momento,
-        // conteo=0 y nos quedábamos pegados en 0 porque el 'datachanged' de la
-        // carga inicial ya había pasado. withFleetVehicleIds ya resuelve esto
-        // (reintento acotado + suscripción single a 'datachanged') y está
-        // probado en este runtime — lo reutilizamos para esperar a tener flota
-        // antes de bindear los listeners de actualización continua.
-        this.withFleetVehicleIds(function () {
-            var store = me.getOnlineTree().getStore();
-            store.on('datachanged', me.refreshFleetStore, me);
-            store.on('update', me.refreshFleetStore, me);
-            me.refreshFleetStore();
-        });
+        if (count === 0) {
+            if (attempt < 40) {
+                Ext.defer(this.bindFleetUpdates, 500, this, [attempt + 1]);
+            } else if (this.summaryBar) {
+                this.summaryBar.update(l('No se pudo cargar el árbol de vehículos de PILOT.'));
+            }
+            return;
+        }
+
+        if (!this._fleetBound) {
+            store.on('datachanged', this.refreshFleetStore, this);
+            store.on('update', this.refreshFleetStore, this);
+            this._fleetBound = true;
+        }
+        this.refreshFleetStore();
     },
 
     // Segundos desde el último event recibido de un vehículo — proxy de
@@ -358,6 +369,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // 'flota'/'gps_signal' son ids compartidos por el shell RAC y el LOP;
     // solo un shell está montado a la vez.
     refreshFleetStore: function () {
+        try {
+            this._refreshFleetStore();
+        } catch (err) {
+            // Está bindeado a 'datachanged' (dispara seguido) — si tira, se
+            // loguea una vez y no se vuelve a spamear ni se cae el listener.
+            if (!this._fleetRefreshErrLogged) {
+                this._fleetRefreshErrLogged = true;
+                this.widgetErrorCode('FLEET-REFRESH', err);
+            }
+        }
+    },
+
+    _refreshFleetStore: function () {
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) {
             return;
@@ -549,6 +573,120 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     l('Recordatorios de mantención de vehículo (ptm)'))
             ]
         }));
+    },
+
+    // Hotspots de desconexión (card 'hotspots') — heatmap sobre un
+    // MapContainer PROPIO (instancia nueva, NO se reusa window.mapContainer:
+    // esa es solo para features dentro de los tabs Online/History — ver
+    // spec/api.md "Crear un mapa propio dentro de un panel de la extensión").
+    // Datos: events.php type=15 ("No connection"), ventana 30 días, cada item
+    // trae lat/lon. Se agrega por celda de ~0.01° y se pasa a setHeatmap.
+    getMapContainerClass: function () {
+        return window.MapContainer ||
+            (window.Pilot && Pilot.utils && Pilot.utils.MapContainer) || null;
+    },
+
+    loadHotspots: function () {
+        var me = this;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            if (!me.getMapContainerClass()) {
+                me.updateCardBody('hotspots', l('El mapa no está disponible en este runtime.'));
+                return;
+            }
+
+            var csv = vehIds.join(',');
+            var stop = new Date();
+            var start = new Date();
+            start.setDate(start.getDate() - 30);
+            var fmt = function (d) { return d.toISOString().slice(0, 10); };
+
+            var qs = 'cmd=search&veh=' + encodeURIComponent(csv) +
+                '&type=15&date_start=' + fmt(start) + '&date_stop=' + fmt(stop) +
+                '&limit=500&page=1&start=0';
+
+            fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include' })
+                .then(function (resp) {
+                    if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                    return resp.json();
+                })
+                .then(function (data) {
+                    me.renderHotspots((data && data.items) || []);
+                })
+                .catch(function (err) {
+                    var code = me.widgetErrorCode('HOTSPOTS', err);
+                    me.updateCardBody('hotspots',
+                        l('No se pudo cargar el mapa de desconexión.') + ' (' + code + ')');
+                });
+        });
+    },
+
+    renderHotspots: function (items) {
+        var buckets = {};
+        var withCoords = 0;
+
+        for (var i = 0; i < items.length; i++) {
+            var lat = Number(items[i].lat);
+            var lon = Number(items[i].lon);
+            if (!lat || !lon || !isFinite(lat) || !isFinite(lon)) {
+                continue; // event sin ubicación
+            }
+            withCoords++;
+            var key = lat.toFixed(2) + ',' + lon.toFixed(2);
+            if (!buckets[key]) {
+                buckets[key] = { lat: lat, lng: lon, count: 0 };
+            }
+            buckets[key].count++;
+        }
+
+        var points = [];
+        for (var k in buckets) {
+            if (buckets.hasOwnProperty(k)) {
+                points.push(buckets[k]);
+            }
+        }
+
+        console.log('[promatic_dashboard_enhancer] hotspots: ' + items.length +
+            ' eventos type=15, ' + withCoords + ' con coords, ' + points.length + ' celdas');
+
+        if (points.length === 0) {
+            this.updateCardBody('hotspots',
+                l('Sin desconexiones con ubicación en los últimos 30 días.'));
+            return;
+        }
+
+        this.updateCardBody('hotspots', Ext.DomHelper.markup({
+            id: 'promatic_dashboard_enhancer-hotspots-map',
+            cls: 'promatic_dashboard_enhancer-map-el'
+        }));
+
+        var me = this;
+        var MC = this.getMapContainerClass();
+
+        // defer: el div del mapa tiene que estar en el DOM con dimensiones
+        // antes de que Leaflet lo tome (si no, mide 0x0 y no dibuja).
+        Ext.defer(function () {
+            try {
+                var mc = new MC('promatic_dashboard_enhancer_hotspots');
+                mc.init(points[0].lat, points[0].lng, 6,
+                    'promatic_dashboard_enhancer-hotspots-map', { withControls: true });
+
+                if (typeof mc.setHeatmap === 'function') {
+                    mc.setHeatmap(points, true, l('Desconexiones'));
+                }
+                // Leaflet a veces necesita recalcular tamaño tras montarse
+                // dentro de un contenedor flex que terminó de dimensionar.
+                Ext.defer(function () {
+                    var map = mc.getMap ? mc.getMap() : mc.map;
+                    if (map && map.invalidateSize) { map.invalidateSize(); }
+                }, 400);
+
+                me._hotspotsMap = mc;
+            } catch (err) {
+                me.widgetErrorCode('HOTSPOTS-MAP', err);
+                me.updateCardBody('hotspots', l('No se pudo inicializar el mapa de desconexión.'));
+            }
+        }, 300, this);
     },
 
     updateGpsSignalCard: function (b24, b48, bMore) {
@@ -794,26 +932,34 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
     },
 
-    // Espera a que online_tree tenga datos y devuelve la lista de agent_ids —
-    // patrón compartido por todos los widgets que dependen de la flota.
-    withFleetVehicleIds: function (callback) {
+    // Espera (poll acotado, 40 x 500ms = 20s) a que online_tree tenga
+    // vehículos y devuelve la lista de agent_ids — patrón compartido por
+    // todos los widgets que dependen de la flota. Poll, NO re-suscripción a
+    // 'datachanged': el árbol Online se actualiza seguido y re-suscribir en
+    // cada disparo se volvía un loop caliente (28 ago).
+    withFleetVehicleIds: function (callback, attempt) {
         var me = this;
+        attempt = attempt || 0;
         var onlineTree = this.getOnlineTree();
+        var vehIds = onlineTree ? this.getFleetVehicleIds(onlineTree) : [];
 
-        if (!onlineTree) {
-            Ext.defer(function () { me.withFleetVehicleIds(callback); }, 500, this);
+        if (vehIds.length > 0) {
+            callback.call(this, vehIds);
             return;
         }
 
-        var vehIds = this.getFleetVehicleIds(onlineTree);
-        if (vehIds.length === 0) {
-            onlineTree.getStore().on('datachanged', function () {
-                me.withFleetVehicleIds(callback);
-            }, this, { single: true });
+        if (attempt < 40) {
+            Ext.defer(function () { me.withFleetVehicleIds(callback, attempt + 1); }, 500, this);
             return;
         }
 
-        callback.call(this, vehIds);
+        var scope = this.getFleetScopeFilter();
+        console.warn('[promatic_dashboard_enhancer] withFleetVehicleIds: 0 vehículos tras 20s. ' +
+            (scope ?
+                'Filtro de alcance de flota activo con ' + scope.length + ' ids (localStorage "' +
+                this.FLEET_SCOPE_STORAGE_KEY + '") — probablemente no coincide con el árbol Online actual. ' +
+                'Para limpiarlo: localStorage.removeItem("' + this.FLEET_SCOPE_STORAGE_KEY + '") y recargar.' :
+                'Sin filtro de alcance — el árbol Online no cargó vehículos.'));
     },
 
     // Card "Top 5 · Vehículos con más KM" (shell LOP, 26 ago) — mismo
