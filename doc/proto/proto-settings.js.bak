@@ -21,6 +21,34 @@ document.querySelectorAll('.tab-btn').forEach(function (btn) {
   });
 });
 
+// -------- Gauge (Golden Score) — SVG arco, color por umbral --------
+// >=80 cumple los parámetros establecidos (verde), 60-79 en revisión (ámbar),
+// <60 fuera de norma (rojo). Umbrales dummy — a confirmar con el gerente/negocio.
+function goldenScoreColor(value) {
+  if (value >= 80) { return cssVar('--status-ok-strong'); }
+  if (value >= 60) { return cssVar('--status-warn-strong'); }
+  return cssVar('--status-danger-strong');
+}
+
+function buildGauge(elId, value) {
+  var el = document.getElementById(elId);
+  if (!el) { return; }
+  var r = 46, cx = 60, cy = 60, stroke = 10;
+  var circ = 2 * Math.PI * r;
+  var offset = circ * (1 - value / 100);
+  var trackColor = cssVar('--g1');
+  var fillColor = goldenScoreColor(value);
+  el.innerHTML =
+    '<svg width="120" height="120" viewBox="0 0 120 120">' +
+    '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + trackColor + '" stroke-width="' + stroke + '"/>' +
+    '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + fillColor + '" stroke-width="' + stroke + '" ' +
+    'stroke-dasharray="' + circ + '" stroke-dashoffset="' + offset + '" stroke-linecap="round" ' +
+    'transform="rotate(-90 ' + cx + ' ' + cy + ')"/>' +
+    '<text x="' + cx + '" y="' + (cy + 2) + '" text-anchor="middle" class="gauge-num" style="fill:' + fillColor + '">' + value + '</text>' +
+    '<text x="' + cx + '" y="' + (cy + 18) + '" text-anchor="middle" class="gauge-lbl">de 100</text>' +
+    '</svg>';
+}
+
 // -------- Semi-donut de velocidad (4 categorías) — SVG arco 180°, con
 // números sobre el gráfico. Agrupa los 13 buckets ya confirmados de
 // speeding_pie.php en 4 franjas semánticas (despacio/normal/al límite/exceso).
@@ -70,6 +98,7 @@ var zonesSample = [
   { lat: -33.45, lon: -70.66, name: 'Sucursal Las Condes', count: 2 },
   { lat: -33.36, lon: -70.72, name: 'Sucursal Maipú', count: 1 }
 ];
+var fueraZonaSample = [{ lat: -33.30, lon: -70.55, veh: 'PRKP58' }];
 
 window.__pdMaps = {};
 
@@ -102,11 +131,29 @@ function buildDisponibilidad(elId) {
   });
 }
 
+function buildFueraZona(elId) {
+  var map = buildGrayMap(elId, [-33.35, -70.55], 8);
+  if (!map) { return; }
+  fueraZonaSample.forEach(function (p) {
+    L.circleMarker([p.lat, p.lon], {
+      radius: 6, color: cssVar('--g7'), weight: 1.5, fillColor: cssVar('--g7'), fillOpacity: 0.85
+    }).bindTooltip(p.veh + ' — fuera de zona permitida').addTo(map);
+  });
+}
+
+buildGauge('gauge-rac', 82);
+buildGauge('gauge-lop', 73);
+buildSemiDonut('donut-rac', [
+  { pct: 18, color: '--status-ok' }, { pct: 55, color: '--status-warn' },
+  { pct: 19, color: '--status-alert' }, { pct: 8, color: '--status-danger' }
+]);
 buildSemiDonut('donut-lop', [
   { pct: 24, color: '--status-ok' }, { pct: 51, color: '--status-warn' },
   { pct: 17, color: '--status-alert' }, { pct: 8, color: '--status-danger' }
 ]);
 buildHotspots('map-hotspots');
+buildDisponibilidad('map-disponibilidad');
+buildFueraZona('map-fuerazona');
 buildHotspots('map-hotspots-lop');
 buildDisponibilidad('map-disponibilidad-lop');
 

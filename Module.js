@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-28-1056',
+    moduleBuild: '2026-08-28-1745',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -36,9 +36,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     // -----------------------------------------------------------------------
-    // Layout principal — grid de widgets (ADR-007, simplificado esta fase:
-    // sin requiere_flags/requiere_modules ni skeleton/timeout multi-etapa,
-    // solo el grid CSS + contrato de metadata por widget).
+    // Layout principal — shell de filas flex (HTML plano vía Ext.DomHelper,
+    // sin Ext.container.Container anidado). El sistema de grid CSS de ADR-007
+    // (buildLegacyWidgetGrid + wrapWidget + los widgets Ext.panel.Panel) se
+    // retiró el 28 ago — ver DEP-003 y BR-PILOT-0006.
     // -----------------------------------------------------------------------
 
     buildMainPanel: function () {
@@ -48,8 +49,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
 
         // RAC primero (27 ago, pedido del usuario) — buildLopShell() queda
-        // intacto sin invocar, mismo criterio de rollback rápido que
-        // buildLegacyWidgetGrid tras BR-PILOT-0006. LOC será una
+        // intacto sin invocar como rollback rápido. LOC será una
         // reorganización de estos mismos widgets vía configuración externa
         // (JSON o consulta a BD) — diseño todavía pendiente, no implementado.
         var panel = Ext.create('Ext.panel.Panel', {
@@ -61,6 +61,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         this.bindFleetUpdates();
         this.loadTop5KmData();
+        this.loadAlertasGenerales();
+        this.startClock();
+        this.renderLogo();
 
         return panel;
     },
@@ -245,42 +248,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Sistema de grid anterior (ADR-007) — ya NO se llama desde
-    // buildMainPanel (reemplazado por buildLopShell, 26 ago) tras el
-    // memory leak de BR-PILOT-0006. Se deja intacto, sin invocar, como
-    // rollback rápido si el shell nuevo tuviera un problema imprevisto —
-    // retirar formalmente (DEP-NNN) una vez el shell nuevo esté verificado
-    // estable en DEMO_CLIENT por un par de sesiones.
-    buildLegacyWidgetGrid: function () {
-        return Ext.create('Ext.container.Container', {
-            cls: 'promatic_dashboard_enhancer-grid',
-            layout: 'auto',
-            items: [
-                this.safeBuildWidget('estado_flota', this.buildFleetWidget),
-                this.safeBuildWidget('velocidad', this.buildSpeedingWidget),
-                this.safeBuildWidget('resumen_flota', this.buildFleetSummaryWidget),
-                this.safeBuildWidget('kilometraje', this.buildMileageWidget),
-                this.safeBuildWidget('bateria', this.buildBatteryWidget),
-                this.safeBuildWidget('zonas', this.buildZonesWidget),
-                this.safeBuildWidget('eventos', this.buildEventsWidget)
-            ]
-        });
-    },
-
-    // Aísla la construcción sincrónica de cada widget: si uno tira un error
-    // (config de Ext inválida, referencia rota, etc.), el resto del grid
-    // sigue renderizando en vez de que un solo widget roto tumbe todo el panel.
-    safeBuildWidget: function (id, builderFn) {
-        try {
-            return builderFn.call(this);
-        } catch (err) {
-            var code = this.widgetErrorCode('BUILD-' + id.toUpperCase(), err);
-            return this.wrapWidget(id, 'small', l('Error'), Ext.create('Ext.Component', {
-                html: l('No se pudo cargar este widget.') + ' (' + code + ')'
-            }));
-        }
-    },
-
     // Diccionario de errores (catálogo completo en spec/datos.md): cada
     // punto de falla conocido de un widget emite un código corto y estable
     // (ej. "KM-TIMEOUT") — permite que el usuario reporte "vi el código X"
@@ -290,59 +257,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var code = base + (err && err.name === 'AbortError' ? '-TIMEOUT' : '-FALLO');
         console.error('[promatic_dashboard_enhancer] ' + code + ':', err, context || '');
         return code;
-    },
-
-    // Contrato de widget (ADR-007 sección 1). `size` decide la clase CSS de
-    // tamaño (small/medium/large) y la altura fija asociada — el grid es
-    // CSS puro (grid-template-columns + grid-column: span), sin librería de
-    // layout externa, tal como decidió el ADR.
-    wrapWidget: function (id, size, title, contentCmp) {
-        var heights = { small: 140, medium: 220, large: 360 };
-
-        return Ext.create('Ext.panel.Panel', {
-            itemId: 'promatic_dashboard_enhancer-widget-' + id,
-            cls: 'promatic_dashboard_enhancer-widget promatic_dashboard_enhancer-widget--' + size,
-            title: title,
-            height: heights[size] || heights.medium,
-            layout: 'fit',
-            items: [contentCmp]
-        });
-    },
-
-    // -----------------------------------------------------------------------
-    // Widget: Estado de Flota — online_tree (ya en memoria, sin llamada HTTP)
-    // -----------------------------------------------------------------------
-
-    buildFleetWidget: function () {
-        return this.wrapWidget('estado_flota', 'large', l('Estado de Flota'), this.buildFleetGrid());
-    },
-
-    buildFleetGrid: function () {
-        this.fleetStore = Ext.create('Ext.data.Store', {
-            fields: ['agentid', 'name', 'group', 'driver', 'isOnline', 'statusText', 'lastUpdate']
-        });
-
-        return Ext.create('Ext.grid.Panel', {
-            store: this.fleetStore,
-            columns: [
-                { text: l('Vehículo'), dataIndex: 'name', flex: 2 },
-                { text: l('Grupo'), dataIndex: 'group', flex: 1 },
-                { text: l('Conductor'), dataIndex: 'driver', flex: 1 },
-                {
-                    text: l('Estado'),
-                    dataIndex: 'isOnline',
-                    flex: 1,
-                    renderer: function (value) {
-                        return Ext.DomHelper.markup([
-                            { tag: 'span', cls: 'promatic_dashboard_enhancer-dot promatic_dashboard_enhancer-dot-' + (value ? 'online' : 'offline') },
-                            { tag: 'span', html: ' ' + (value ? l('En línea') : l('Desconectado')) }
-                        ]);
-                    }
-                },
-                { text: l('Último estado'), dataIndex: 'statusText', flex: 2 },
-                { text: l('Última actualización'), dataIndex: 'lastUpdate', flex: 1 }
-            ]
-        });
     },
 
     getOnlineTree: function () {
@@ -404,47 +318,45 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return vehIds;
     },
 
-    getVehicleNameById: function () {
-        var onlineTree = this.getOnlineTree();
-        var map = {};
-        if (!onlineTree) {
-            return map;
-        }
-        var records = this.getScopedFleetRecords(onlineTree);
-        for (var i = 0; i < records.length; i++) {
-            var agentid = records[i].get('agentid');
-            if (agentid) {
-                map[agentid] = records[i].get('name');
-            }
-        }
-        return map;
+    bindFleetUpdates: function () {
+        var me = this;
+
+        // El store de online_tree puede existir vacío en el primer render del
+        // panel — si bindeamos y hacemos refreshFleetStore() en ese momento,
+        // conteo=0 y nos quedábamos pegados en 0 porque el 'datachanged' de la
+        // carga inicial ya había pasado. withFleetVehicleIds ya resuelve esto
+        // (reintento acotado + suscripción single a 'datachanged') y está
+        // probado en este runtime — lo reutilizamos para esperar a tener flota
+        // antes de bindear los listeners de actualización continua.
+        this.withFleetVehicleIds(function () {
+            var store = me.getOnlineTree().getStore();
+            store.on('datachanged', me.refreshFleetStore, me);
+            store.on('update', me.refreshFleetStore, me);
+            me.refreshFleetStore();
+        });
     },
 
-    bindFleetUpdates: function (attempt) {
-        attempt = attempt || 0;
-        var onlineTree = this.getOnlineTree();
-
-        if (!onlineTree) {
-            if (attempt < 20) {
-                Ext.defer(this.bindFleetUpdates, 500, this, [attempt + 1]);
-            } else if (this.summaryBar) {
-                this.summaryBar.update(l('No se pudo conectar al árbol de vehículos de PILOT.'));
-            }
-            return;
+    // Segundos desde el último event recibido de un vehículo — proxy de
+    // "hace cuánto está sin señal". last_event.unixtimestamp es la marca más
+    // reciente que el device mandó (posición/velocidad); para un vehículo
+    // is_server_online=false equivale a "cuándo se quedó mudo". Aproximación
+    // razonable para buckets de 24h; la fuente exacta por evento de
+    // desconexión sería events.php type=15 (llamada HTTP aparte). Devuelve
+    // null si no hay timestamp usable.
+    secondsSinceLastEvent: function (record) {
+        var le = record.get('last_event') || (record.data && record.data.last_event);
+        var ts = le && Number(le.unixtimestamp);
+        if (!ts || !isFinite(ts)) {
+            return null;
         }
-
-        onlineTree.getStore().on('datachanged', this.refreshFleetStore, this);
-        onlineTree.getStore().on('update', this.refreshFleetStore, this);
-        this.refreshFleetStore();
+        return Math.max(0, Math.floor(Date.now() / 1000) - ts);
     },
 
     // Único punto que recorre online_tree en cada 'datachanged'/'update' —
-    // alimenta la barra de resumen, la card "Flota" (id 'flota', compartida
-    // por el shell RAC y el shell LOP — mismo dato, ambos shells nunca están
-    // montados a la vez), y (si existe, sistema de grid anterior)
-    // this.fleetStore. Ya no depende de this.fleetStore para funcionar (26
-    // ago) — ese store solo lo usa buildLegacyWidgetGrid, sin invocar por
-    // defecto.
+    // alimenta la barra de resumen, la card "Flota" (id 'flota') y la card
+    // "Señal GPS" (id 'gps_signal') — mismo recorrido, sin llamada HTTP.
+    // 'flota'/'gps_signal' son ids compartidos por el shell RAC y el LOP;
+    // solo un shell está montado a la vez.
     refreshFleetStore: function () {
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) {
@@ -452,32 +364,34 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         var records = this.getScopedFleetRecords(onlineTree);
-        var rows = [];
+        var total = 0;
         var moving = 0, parked = 0, offlineCount = 0;
+        var gps24 = 0, gps48 = 0, gpsMore = 0;
+        var DAY = 86400;
 
         for (var i = 0; i < records.length; i++) {
             var r = records[i];
-            var agentid = r.get('agentid');
 
-            if (!agentid) {
+            if (!r.get('agentid')) {
                 continue; // nodo de grupo/carpeta, no un vehículo
             }
 
             var isOnline = !!r.get('is_server_online');
             var statusText = r.get('status') || '';
-
-            rows.push({
-                agentid: agentid,
-                name: r.get('name'),
-                group: r.get('group'),
-                driver: r.get('driver'),
-                isOnline: isOnline,
-                statusText: statusText,
-                lastUpdate: r.get('msg1')
-            });
+            total++;
 
             if (!isOnline) {
                 offlineCount++;
+                var age = this.secondsSinceLastEvent(r);
+                if (age !== null && age < DAY) {
+                    gps24++;
+                } else if (age !== null && age < 2 * DAY) {
+                    gps48++;
+                } else {
+                    // age >= 48h, o sin timestamp usable — al bucket más
+                    // severo (llevamos ≥48h sin saber nada del device).
+                    gpsMore++;
+                }
             } else if (statusText.indexOf('movimiento') !== -1) {
                 // "En movimientos X km/h" vs. "Estacionamiento..." — texto
                 // real confirmado en DEMO_CLIENT, no un campo separado.
@@ -487,12 +401,186 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
-        if (this.fleetStore) {
-            this.fleetStore.loadData(rows);
-        }
+        console.log('[promatic_dashboard_enhancer] flota: total=' + total +
+            ' online=' + (total - offlineCount) + ' offline=' + offlineCount +
+            ' | señal GPS <24h=' + gps24 + ' 24-48h=' + gps48 + ' >48h/sin dato=' + gpsMore);
 
-        this.updateSummary(rows.length, rows.length - offlineCount);
-        this.updateFlotaLopCard(rows.length, moving, parked, offlineCount);
+        this.updateSummary(total, total - offlineCount);
+        this.updateFlotaLopCard(total, moving, parked, offlineCount);
+        this.updateGpsSignalCard(gps24, gps48, gpsMore);
+    },
+
+    // Reloj "Hora exacta Chile" — puro cliente, sin API. Se pinta la card una
+    // vez y después se actualiza solo el nodo de la hora cada segundo (no
+    // updateCardBody, que re-parsea el HTML completo). El setInterval no se
+    // limpia: el módulo vive toda la sesión (es un nav tab), igual que el
+    // resto del módulo no tiene teardown.
+    chileTime: function () {
+        try {
+            var parts = new Intl.DateTimeFormat('es-CL', {
+                timeZone: 'America/Santiago',
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+            }).formatToParts(new Date());
+            var m = {};
+            parts.forEach(function (p) { m[p.type] = p.value; });
+            return m.hour + ':' + m.minute + ':' + m.second;
+        } catch (err) {
+            return Ext.Date.format(new Date(), 'H:i:s');
+        }
+    },
+
+    startClock: function () {
+        var me = this;
+        var tick = function () {
+            var el = Ext.get('promatic_dashboard_enhancer-clock-time');
+            if (el) {
+                el.dom.textContent = me.chileTime();
+            }
+        };
+
+        this.updateCardBody('reloj', Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-clock',
+            cn: [
+                { cls: 'promatic_dashboard_enhancer-clock__label', html: l('Hora exacta Chile') },
+                {
+                    id: 'promatic_dashboard_enhancer-clock-time',
+                    cls: 'promatic_dashboard_enhancer-clock__time',
+                    html: me.chileTime()
+                }
+            ]
+        }));
+
+        setInterval(tick, 1000);
+    },
+
+    renderLogo: function () {
+        this.updateCardBody('logo', Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-logo',
+            cn: [
+                { tag: 'img', src: this.getModuleBaseUrl() + 'img/logo-promatic.png', alt: 'Promatic' }
+            ]
+        }));
+    },
+
+    // Alertas Generales (card 'alertas_generales') — 2 categorías:
+    //  - Accidentes: events.php type=29, ventana de 30 días (REF-001 §11.3).
+    //  - Requiere mantención: dashboard.php cmd=ptm — recordatorios; contamos
+    //    los ligados a vehículo (link_type != 'drivers'). El shape de ptm no
+    //    está confirmado en DEMO_CLIENT (en la cuenta de pruebas solo había un
+    //    recordatorio de licencia de conductor) — el console.log del raw es
+    //    para verificar. Cualquier categoría que falle muestra "N/D", no
+    //    tumba la otra.
+    // "En taller" se retiró (chip decorativo sin fuente, pedido del Dev de
+    // Pilot 25 ago).
+    loadAlertasGenerales: function () {
+        var me = this;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            var csv = vehIds.join(',');
+            var stop = new Date();
+            var start = new Date();
+            start.setDate(start.getDate() - 30);
+            var fmt = function (d) { return d.toISOString().slice(0, 10); };
+
+            var accidentes = me.fetchEventCount(csv, 29, fmt(start), fmt(stop))
+                .catch(function (err) { me.widgetErrorCode('ALERT-ACC', err); return null; });
+
+            var mantencion = me.fetchDashboardCmd('ptm', csv, 8000)
+                .then(function (data) {
+                    console.log('[promatic_dashboard_enhancer] ptm raw:', data);
+                    var items = (data && (data.data || data.items || data.list)) || [];
+                    if (!Array.isArray(items)) { items = []; }
+                    var n = 0;
+                    for (var i = 0; i < items.length; i++) {
+                        if (items[i] && items[i].link_type !== 'drivers') { n++; }
+                    }
+                    return n;
+                })
+                .catch(function (err) { me.widgetErrorCode('ALERT-PTM', err); return null; });
+
+            Promise.all([accidentes, mantencion]).then(function (r) {
+                console.log('[promatic_dashboard_enhancer] alertas generales: accidentes=' +
+                    r[0] + ' requiere_mantencion=' + r[1]);
+                me.renderAlertasGenerales(r[0], r[1]);
+            });
+        });
+    },
+
+    renderAlertasGenerales: function (accidentes, mantencion) {
+        var svgAccidente =
+            '<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" ' +
+            'stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M9 2 L16.5 15.5 H1.5 Z" /><line x1="9" y1="7" x2="9" y2="11" />' +
+            '<circle cx="9" cy="13.2" r="0.9" fill="currentColor" stroke="none" /></svg>';
+        var svgMantencion =
+            '<svg viewBox="0 0 26 26" fill="currentColor"><path d="M1.313 0L0 1.313l2.313 4l1.5-.22' +
+            'l9.156 9.157l-.781.75c-.4.4-.4 1.006 0 1.406l.406.407c.4.4 1.012.4 1.312 0L15.094 18' +
+            'c-.1.6 0 1.313.5 1.813L21 25.188c1.1 1.1 2.9 1.1 4 0c1.3-1.2 1.288-2.994.188-4.094' +
+            'l-5.375-5.407c-.5-.5-1.213-.7-1.813-.5L16.687 14c.3-.4.3-1.012 0-1.313l-.375-.374' +
+            'a.974.974 0 0 0-1.406 0l-.656.656l-9.156-9.156l.218-1.5l-4-2.313zm19.5.031C18.84-.133 ' +
+            '16.224 1.175 15 2.312c-1.506 1.506-1.26 3.475-.063 5.376l-2.124 2.125l1.5 1.687c.8-.7 ' +
+            '1.98-.7 2.78 0l.407.406l.094.094l.875-.875c1.808 1.063 3.69 1.216 5.125-.219c1.4-1.3 ' +
+            '2.918-4.506 2.218-6.406L23 7.406c-.4.4-1.006.4-1.406 0L18.687 4.5a.974.974 0 0 1 0-1.406' +
+            'L21.595.188c-.25-.088-.5-.133-.782-.157m-11 12.469l-3.626 3.625A5.3 5.3 0 0 0 5 16' +
+            'c-2.8 0-5 2.2-5 5s2.2 5 5 5s5-2.2 5-5c0-.513-.081-1.006-.219-1.469l2.125-2.125l-.312-.406' +
+            'c-.8-.8-.794-2.012-.094-2.813L9.812 12.5z" /></svg>';
+
+        var card = function (bg, title, count, iconSvg, titleAttr) {
+            return {
+                tag: 'a', href: '#', style: 'background:' + bg, title: titleAttr,
+                cls: 'promatic_dashboard_enhancer-stat-card',
+                cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat-card__icon', html: iconSvg },
+                    { cls: 'promatic_dashboard_enhancer-stat-card__title', html: title },
+                    {
+                        cls: 'promatic_dashboard_enhancer-stat-card__count',
+                        html: (count === null || count === undefined) ? l('N/D') : String(count)
+                    }
+                ]
+            };
+        };
+
+        this.updateCardBody('alertas_generales', Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-stat-card-grid',
+            cn: [
+                card('var(--g6)', l('Accidentes'), accidentes, svgAccidente,
+                    l('Accidentes — events.php type=29, últimos 30 días')),
+                card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
+                    l('Recordatorios de mantención de vehículo (ptm)'))
+            ]
+        }));
+    },
+
+    updateGpsSignalCard: function (b24, b48, bMore) {
+        var row = function (mod, label, count, title) {
+            return {
+                tag: 'a', href: '#',
+                cls: 'promatic_dashboard_enhancer-signal-row promatic_dashboard_enhancer-signal-row--' + mod,
+                title: title,
+                cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-signal-row__label', html: label },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-signal-row__badge', html: String(count) }
+                ]
+            };
+        };
+
+        this.updateCardBody('gps_signal', Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-signal-card-bg',
+            cn: [
+                { cls: 'promatic_dashboard_enhancer-signal-card__body', cn: [
+                    row('yellow', l('Menos de 24h'), b24, l('Vehículos desconectados hace menos de 24h')),
+                    row('orange', l('Entre 24 y 48h'), b48, l('Vehículos desconectados entre 24 y 48h')),
+                    row('red', l('Más de 48h'), bMore, l('Vehículos desconectados hace más de 48h o sin dato reciente'))
+                ] },
+                { tag: 'span', cls: 'promatic_dashboard_enhancer-signal-card-bg__icon', 'aria-hidden': 'true', html:
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
+                    '<path stroke-linecap="round" d="m22 8l-3-3m0 0l-3-3m3 3l-3 3m3-3l3-3" />' +
+                    '<path d="M9 10.03A3.515 3.515 0 0 1 13.97 15" />' +
+                    '<path stroke-linejoin="round" d="M4.853 19.147c3.196 3.196 8.06 3.707 11.789 1.533c.886-.517 1.33-.776 1.357-1.302s-.471-.89-1.468-1.618c-1.848-1.35-3.667-3-5.48-4.812C9.24 11.136 7.59 9.317 6.24 7.47c-.728-.997-1.092-1.495-1.618-1.468s-.785.47-1.302 1.357c-2.174 3.73-1.663 8.593 1.533 11.79Z" />' +
+                    '</svg>'
+                }
+            ]
+        }));
     },
 
     updateFlotaLopCard: function (total, moving, parked, offlineCount) {
@@ -728,49 +816,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         callback.call(this, vehIds);
     },
 
-    // -----------------------------------------------------------------------
-    // Widget: Kilometraje (últimos 7 días) — reports.php report_type=4
-    // -----------------------------------------------------------------------
-
-    buildMileageWidget: function () {
-        this.mileageEl = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-mileage',
-            html: l('Cargando kilometraje...')
-        });
-
-        this.loadMileageData();
-
-        return this.wrapWidget('kilometraje', 'medium', l('Kilometraje (últimos 7 días)'), this.mileageEl);
-    },
-
-    loadMileageData: function () {
-        var me = this;
-
-        this.withFleetVehicleIds(function (vehIds) {
-            console.log('[promatic_dashboard_enhancer] loadMileageData: ' + vehIds.length + ' vehículos encontrados', vehIds);
-
-            var stopDate = new Date();
-            var startDate = new Date();
-            startDate.setDate(startDate.getDate() - 7);
-            var startedAt = performance.now();
-
-            me.fetchReportType(4, vehIds.join(','), startDate, stopDate, 20000)
-                .then(function (report) {
-                    console.log('[promatic_dashboard_enhancer] reports.php (kilometraje) tardó ' +
-                        ((performance.now() - startedAt) / 1000).toFixed(1) + 's');
-                    me.renderMileageSummary(report, vehIds.length);
-                })
-                .catch(function (err) {
-                    var code = me.widgetErrorCode('KM', err, vehIds.length + ' vehículos, rango 7 días');
-                    if (me.mileageEl) {
-                        me.mileageEl.update((code.indexOf('TIMEOUT') !== -1 ?
-                            l('El reporte de kilometraje está tardando demasiado — intenta un rango más corto.') :
-                            l('No se pudo cargar el kilometraje.')) + ' (' + code + ')');
-                    }
-                });
-        });
-    },
-
     // Card "Top 5 · Vehículos con más KM" (shell LOP, 26 ago) — mismo
     // endpoint que el widget de kilometraje (report_type=4), pero
     // agrupado por vehículo y ordenado, en vez de sumado/promediado.
@@ -900,514 +945,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 ]) }
             ]
         }));
-    },
-
-    renderMileageSummary: function (report, vehicleCount) {
-        if (!this.mileageEl) {
-            return;
-        }
-
-        var totalKm = 0;
-        var dateGroups = (report && report.data) || {};
-
-        for (var dateKey in dateGroups) {
-            if (!dateGroups.hasOwnProperty(dateKey)) {
-                continue;
-            }
-            var vehGroups = dateGroups[dateKey];
-            for (var vehKey in vehGroups) {
-                if (!vehGroups.hasOwnProperty(vehKey)) {
-                    continue;
-                }
-                var trips = vehGroups[vehKey];
-                for (var i = 0; i < trips.length; i++) {
-                    totalKm += trips[i].length || 0;
-                }
-            }
-        }
-
-        var avgKm = vehicleCount > 0 ? (totalKm / vehicleCount) : 0;
-
-        this.mileageEl.update(Ext.DomHelper.markup({
-            cls: 'promatic_dashboard_enhancer-summary__row',
-            cn: [
-                { cls: 'promatic_dashboard_enhancer-stat', cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: totalKm.toFixed(1) + ' km' },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('total flota') }
-                ] },
-                { cls: 'promatic_dashboard_enhancer-stat', cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: avgKm.toFixed(1) + ' km' },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('promedio por vehículo') }
-                ] }
-            ]
-        }));
-    },
-
-    // -----------------------------------------------------------------------
-    // Widget: Distribución de velocidad — speeding_pie.php
-    // -----------------------------------------------------------------------
-
-    // BR-PILOT-0006: deshabilitado temporalmente (26 ago) — dos intentos de
-    // guard/tope de reintentos no evitaron un crash real de pestaña en
-    // DEMO_CLIENT. Hasta identificar la causa de fondo (sospecha: pelea de
-    // layout entre Ext JS y el `!important` de nuestro CSS Grid, ver
-    // spec/features.md), NO llamar a Highcharts.chart() en este widget.
-    buildSpeedingWidget: function () {
-        this.speedingChartEl = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-chart',
-            html: l('Widget temporalmente deshabilitado (BR-PILOT-0006).')
-        });
-
-        return this.wrapWidget('velocidad', 'large', l('Distribución de velocidad'), this.speedingChartEl);
-    },
-
-    loadSpeedingData: function () {
-        var me = this;
-        console.log('[promatic_dashboard_enhancer] loadSpeedingData: disparando fetch a speeding_pie.php');
-
-        fetch('/backend/ax/dashboard/speeding_pie.php', { credentials: 'include' })
-            .then(function (resp) {
-                console.log('[promatic_dashboard_enhancer] speeding_pie.php respondió HTTP ' + resp.status);
-                if (!resp.ok) {
-                    throw new Error('HTTP ' + resp.status);
-                }
-                return resp.json();
-            })
-            .then(function (data) {
-                console.log('[promatic_dashboard_enhancer] speeding_pie.php data:', data);
-                me.renderSpeedingChart(data);
-            })
-            .catch(function (err) {
-                var code = me.widgetErrorCode('VEL', err);
-                if (me.speedingChartEl) {
-                    me.speedingChartEl.update(l('No se pudo cargar la distribución de velocidad.') + ' (' + code + ')');
-                }
-            });
-    },
-
-    // BR-PILOT-0006: el contenedor de este widget puede medirse con un
-    // ancho sin sentido (~19996px, no viene de scrollWidth del documento —
-    // descartado empíricamente en DEMO_CLIENT, 917px) mientras Ext JS y el
-    // CSS Grid externo siguen negociando el layout. `attempt` acota los
-    // reintentos vía evento 'resize': sin tope, cada resize dispara otra
-    // medición (y otro resize si algo reacciona a la medición), lo que en
-    // DEMO_CLIENT causó lentitud perceptible y saltos de scroll — peor que
-    // simplemente rendirse con un mensaje de error tras unos intentos.
-    RENDER_SPEEDING_MAX_ATTEMPTS: 5,
-
-    renderSpeedingChart: function (data, attempt) {
-        var me = this;
-        attempt = attempt || 0;
-
-        if (!this.speedingChartEl || !this.speedingChartEl.rendered) {
-            console.log('[promatic_dashboard_enhancer] renderSpeedingChart: esperando evento render...');
-            this.speedingChartEl.on('render', function () {
-                me.renderSpeedingChart(data, attempt);
-            }, this, { single: true });
-            return;
-        }
-
-        if (!window.Highcharts) {
-            console.log('[promatic_dashboard_enhancer] renderSpeedingChart: window.Highcharts NO disponible');
-            this.speedingChartEl.update(l('Highcharts no está disponible en este runtime.'));
-            return;
-        }
-
-        var containerEl = this.speedingChartEl.getEl().dom;
-        console.log('[promatic_dashboard_enhancer] renderSpeedingChart: ancho del contenedor = ' +
-            containerEl.offsetWidth + 'px, alto = ' + containerEl.offsetHeight + 'px (intento ' + attempt + ')');
-
-        var widthOk = containerEl.offsetWidth > 0 && containerEl.offsetWidth <= window.innerWidth;
-        var heightOk = containerEl.offsetHeight > 0;
-
-        if (!widthOk || !heightOk) {
-            if (attempt >= this.RENDER_SPEEDING_MAX_ATTEMPTS) {
-                var code = me.widgetErrorCode('VEL-LAYOUT', null,
-                    'ancho=' + containerEl.offsetWidth + ' alto=' + containerEl.offsetHeight +
-                    ' tras ' + attempt + ' intentos');
-                this.speedingChartEl.update(l('No se pudo medir el espacio disponible para el gráfico.') + ' (' + code + ')');
-                return;
-            }
-            this.speedingChartEl.on('resize', function () {
-                me.renderSpeedingChart(data, attempt + 1);
-            }, this, { single: true });
-            return;
-        }
-
-        // dist/dur pueden llegar como array denso o como objeto disperso
-        // ({2: 0.1, 5: 0.2}) cuando algún rango de velocidad no tiene ningún
-        // evento en el período — normalizar a array denso de 13 buckets.
-        var bucketCount = 13;
-        var distValues = [];
-        var durValues = [];
-        for (var i = 0; i < bucketCount; i++) {
-            distValues.push(Number(data.dist && data.dist[i]) || 0);
-            durValues.push(Number(data.dur && data.dur[i]) || 0);
-        }
-
-        var categories = [];
-        for (var c = 0; c < bucketCount; c++) {
-            categories.push(l('Rango') + ' ' + (c + 1));
-        }
-
-        var durations = durValues;
-
-        Highcharts.chart(this.speedingChartEl.getEl().dom, {
-            chart: { type: 'column', spacingTop: 4, spacingBottom: 4 },
-            title: { text: null },
-            xAxis: { categories: categories },
-            yAxis: { title: { text: l('Distancia (km)') }, gridLineColor: '#F1F5F9' },
-            plotOptions: {
-                column: { borderRadius: 4, pointPadding: 0.05, groupPadding: 0.08 }
-            },
-            tooltip: {
-                formatter: function () {
-                    var seconds = durations[this.point.index] || 0;
-                    var hours = Math.floor(seconds / 3600);
-                    var minutes = Math.round((seconds % 3600) / 60);
-                    var durationText = hours > 0 ?
-                        (hours + 'h ' + minutes + 'min') :
-                        (minutes + 'min');
-                    var avgSpeed = seconds > 0 ? Math.round((this.y / seconds) * 3600) : 0;
-
-                    return '<strong>' + this.key + '</strong><br/>' +
-                        l('Distancia') + ': ' + this.y.toFixed(1) + ' km<br/>' +
-                        l('Duración') + ': ' + durationText + '<br/>' +
-                        l('Velocidad promedio') + ': ' + avgSpeed + ' km/h';
-                }
-            },
-            series: [{ name: l('Distancia'), data: distValues, color: '#2563EB' }],
-            credits: { enabled: false },
-            legend: { enabled: false }
-        });
-    },
-
-    // -----------------------------------------------------------------------
-    // Widget: Voltaje de batería — reports.php report_type=15 (sensores
-    // especiales). El nombre exacto del sensor puede variar por dispositivo
-    // ("External Voltage:V:196350::1" en la cuenta de pruebas) — se busca por
-    // coincidencia de substring "voltage", no por el string exacto.
-    // -----------------------------------------------------------------------
-
-    buildBatteryWidget: function () {
-        this.batteryEl = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-battery',
-            html: l('Cargando voltaje de batería...')
-        });
-
-        this.loadBatteryData();
-
-        return this.wrapWidget('bateria', 'medium', l('Voltaje de batería'), this.batteryEl);
-    },
-
-    loadBatteryData: function () {
-        var me = this;
-
-        this.withFleetVehicleIds(function (vehIds) {
-            var stopDate = new Date();
-            var startDate = new Date();
-            startDate.setDate(startDate.getDate() - 7);
-
-            me.fetchReportType(15, vehIds.join(','), startDate, stopDate, 20000)
-                .then(function (report) {
-                    me.renderBatterySummary(report);
-                })
-                .catch(function (err) {
-                    var code = me.widgetErrorCode('BAT', err);
-                    if (me.batteryEl) {
-                        me.batteryEl.update((code.indexOf('TIMEOUT') !== -1 ?
-                            l('El reporte de voltaje está tardando demasiado.') :
-                            l('No se pudo cargar el voltaje de batería.')) + ' (' + code + ')');
-                    }
-                });
-        });
-    },
-
-    renderBatterySummary: function (report) {
-        if (!this.batteryEl) {
-            return;
-        }
-
-        var readings = [];
-        var dateGroups = (report && report.data) || {};
-
-        for (var dateKey in dateGroups) {
-            if (!dateGroups.hasOwnProperty(dateKey)) {
-                continue;
-            }
-            var vehGroups = dateGroups[dateKey];
-            for (var vehName in vehGroups) {
-                if (!vehGroups.hasOwnProperty(vehName)) {
-                    continue;
-                }
-                var sensors = vehGroups[vehName] && vehGroups[vehName].sensors;
-                if (!sensors) {
-                    continue;
-                }
-                for (var sensorName in sensors) {
-                    if (!sensors.hasOwnProperty(sensorName) || sensorName.toLowerCase().indexOf('voltage') === -1) {
-                        continue;
-                    }
-                    var series = sensors[sensorName];
-                    if (series && series.length) {
-                        readings.push({ vehicle: vehName, volts: series[series.length - 1][1] });
-                    }
-                }
-            }
-        }
-
-        if (readings.length === 0) {
-            this.batteryEl.update(l('Sin sensor de voltaje habilitado en esta flota.'));
-            return;
-        }
-
-        var items = [];
-        for (var i = 0; i < readings.length; i++) {
-            items.push({
-                cls: 'promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row',
-                cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: Ext.String.htmlEncode(readings[i].vehicle) },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: Number(readings[i].volts).toFixed(1) + ' V' }
-                ]
-            });
-        }
-        this.batteryEl.update(Ext.DomHelper.markup(items));
-    },
-
-    // -----------------------------------------------------------------------
-    // Widget: Resumen de flota (hoy) — analytics/vehicles.php get_main_data
-    // Guardrail NOC-003: en flotas grandes este endpoint puede caer a un job
-    // asíncrono + WebSocket en vez de responder directo — timeout corto
-    // (8s) y fallback acotado a este widget, sin bloquear el resto del
-    // dashboard.
-    // -----------------------------------------------------------------------
-
-    buildFleetSummaryWidget: function () {
-        this.fleetSummaryEl = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-fleet-summary',
-            html: l('Cargando resumen de flota...')
-        });
-
-        this.loadFleetSummaryData();
-
-        return this.wrapWidget('resumen_flota', 'large', l('Resumen de flota (hoy)'), this.fleetSummaryEl);
-    },
-
-    loadFleetSummaryData: function () {
-        var me = this;
-
-        this.withFleetVehicleIds(function (vehIds) {
-            me.fetchAnalyticsMainData(vehIds.join(','), 8000)
-                .then(function (data) {
-                    me.renderFleetSummary(data);
-                })
-                .catch(function (err) {
-                    var code = me.widgetErrorCode('RES', err);
-                    if (me.fleetSummaryEl) {
-                        me.fleetSummaryEl.update((code.indexOf('TIMEOUT') !== -1 ?
-                            l('El resumen de flota está tardando demasiado (cuentas con flota grande pueden requerir sincronización manual).') :
-                            l('No se pudo cargar el resumen de flota.')) + ' (' + code + ')');
-                    }
-                });
-        });
-    },
-
-    formatInfoblockValue: function (renderer, value) {
-        if (renderer === 'secondsToHumanTime' && typeof secondsToHumanTime === 'function') {
-            return secondsToHumanTime(value);
-        }
-        if ((renderer === 'volumeSSS' || renderer === 'volumeSS') && typeof volumeSS === 'function') {
-            return volumeSS(value);
-        }
-        if ((renderer === 'mileageSSS' || renderer === 'mileageSS') && typeof mileageSS === 'function') {
-            return mileageSS(value);
-        }
-        return value;
-    },
-
-    renderFleetSummary: function (data) {
-        if (!this.fleetSummaryEl) {
-            return;
-        }
-
-        // Se muestran solo los infoblocks que no se solapan con otro widget
-        // ya construido (ej. "Driving distance"/"Average mileage in period"
-        // quedan fuera porque el widget de Kilometraje ya cubre esa métrica
-        // con la fuente preferente, report_type=4 — ver anomalía documentada
-        // en spec/api.md).
-        var wanted = [
-            { key: 'Trips count', label: l('Viajes') },
-            { key: 'Driving time', label: l('Tiempo conduciendo') },
-            { key: 'Parking time', label: l('Tiempo estacionado') },
-            { key: 'Fuel consumed', label: l('Combustible consumido') },
-            { key: 'Average cars on line', label: l('Autos promedio en línea') },
-            { key: 'Idle time', label: l('Tiempo en ralentí') }
-        ];
-
-        var infoblocks = (data && data.infoblocks) || [];
-        var byTitle = {};
-        for (var i = 0; i < infoblocks.length; i++) {
-            if (infoblocks[i] && infoblocks[i].title) {
-                byTitle[infoblocks[i].title] = infoblocks[i];
-            }
-        }
-
-        var items = [];
-        for (var j = 0; j < wanted.length; j++) {
-            var block = byTitle[wanted[j].key];
-            if (!block) {
-                continue;
-            }
-            items.push({
-                cls: 'promatic_dashboard_enhancer-stat',
-                cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: String(this.formatInfoblockValue(block.renderer, block.info)) },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: wanted[j].label }
-                ]
-            });
-        }
-
-        this.fleetSummaryEl.update(items.length ? Ext.DomHelper.markup(items) : l('Sin datos de resumen para el período.'));
-    },
-
-    // -----------------------------------------------------------------------
-    // Widget: Zonas ocupadas ahora — analytics/dashboard.php cmd=zones
-    // -----------------------------------------------------------------------
-
-    buildZonesWidget: function () {
-        this.zonesEl = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-zones',
-            html: l('Cargando geocercas ocupadas...')
-        });
-
-        this.loadZonesData();
-
-        return this.wrapWidget('zonas', 'medium', l('Zonas ocupadas ahora'), this.zonesEl);
-    },
-
-    loadZonesData: function () {
-        var me = this;
-
-        this.withFleetVehicleIds(function (vehIds) {
-            me.fetchDashboardCmd('zones', vehIds.join(','), 8000)
-                .then(function (data) {
-                    me.renderZonesSummary(data);
-                })
-                .catch(function (err) {
-                    var code = me.widgetErrorCode('ZON', err);
-                    if (me.zonesEl) {
-                        me.zonesEl.update((code.indexOf('TIMEOUT') !== -1 ?
-                            l('La consulta de geocercas está tardando demasiado.') :
-                            l('No se pudo cargar la ocupación de geocercas.')) + ' (' + code + ')');
-                    }
-                });
-        });
-    },
-
-    renderZonesSummary: function (data) {
-        if (!this.zonesEl) {
-            return;
-        }
-
-        var zoneNames = data ? Object.keys(data) : [];
-        if (zoneNames.length === 0) {
-            this.zonesEl.update(l('Ningún vehículo en geocerca ahora mismo.'));
-            return;
-        }
-
-        var nameByAgent = this.getVehicleNameById();
-        var items = [];
-
-        for (var i = 0; i < zoneNames.length; i++) {
-            var zone = zoneNames[i];
-            var agentIds = data[zone] || [];
-            var names = [];
-            for (var j = 0; j < agentIds.length; j++) {
-                names.push(Ext.String.htmlEncode(nameByAgent[agentIds[j]] || ('#' + agentIds[j])));
-            }
-            items.push({
-                cls: 'promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row',
-                cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: Ext.String.htmlEncode(zone) },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: names.join(', ') }
-                ]
-            });
-        }
-        this.zonesEl.update(Ext.DomHelper.markup(items));
-    },
-
-    // -----------------------------------------------------------------------
-    // Widget: Eventos puntuales (últimos 7 días) — events.php por type.
-    // Catálogo confirmado en brain/REF-001 (21-22 jul): 8=GSM, 9=caída de
-    // voltaje, 10=reabastecimiento, 11=geocerca. type=1 (ignición) queda
-    // fuera — volumen demasiado alto para un contador puntual (557k
-    // eventos/7 meses en la auditoría de campo).
-    // -----------------------------------------------------------------------
-
-    buildEventsWidget: function () {
-        this.eventsEl = Ext.create('Ext.Component', {
-            cls: 'promatic_dashboard_enhancer-events',
-            html: l('Cargando eventos...')
-        });
-
-        this.loadEventsData();
-
-        return this.wrapWidget('eventos', 'medium', l('Eventos (últimos 7 días)'), this.eventsEl);
-    },
-
-    loadEventsData: function () {
-        var me = this;
-
-        this.withFleetVehicleIds(function (vehIds) {
-            var stopDate = new Date();
-            var startDate = new Date();
-            startDate.setDate(startDate.getDate() - 7);
-            var fmt = function (d) {
-                return d.toISOString().slice(0, 10);
-            };
-            var vehIdsCsv = vehIds.join(',');
-
-            var types = [
-                { type: 8, label: l('Señal GSM degradada') },
-                { type: 9, label: l('Caídas de voltaje') },
-                { type: 10, label: l('Reabastecimientos') },
-                { type: 11, label: l('Entradas/salidas de geocerca') }
-            ];
-
-            var promises = types.map(function (t) {
-                return me.fetchEventCount(vehIdsCsv, t.type, fmt(startDate), fmt(stopDate))
-                    .then(function (total) {
-                        return { label: t.label, total: total };
-                    })
-                    .catch(function (err) {
-                        me.widgetErrorCode('EVT-' + t.type, err);
-                        return { label: t.label, total: null };
-                    });
-            });
-
-            Promise.all(promises).then(function (results) {
-                me.renderEventsSummary(results);
-            });
-        });
-    },
-
-    renderEventsSummary: function (results) {
-        if (!this.eventsEl) {
-            return;
-        }
-
-        var items = [];
-        for (var i = 0; i < results.length; i++) {
-            var value = results[i].total === null ? l('N/D') : results[i].total;
-            items.push({
-                cls: 'promatic_dashboard_enhancer-stat promatic_dashboard_enhancer-stat--row',
-                cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: results[i].label },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: String(value) }
-                ]
-            });
-        }
-        this.eventsEl.update(Ext.DomHelper.markup(items));
     },
 
     // -----------------------------------------------------------------------
