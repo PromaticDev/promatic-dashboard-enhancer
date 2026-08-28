@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-28-1849',
+    moduleBuild: '2026-08-28-1904',
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -52,24 +52,36 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // intacto sin invocar como rollback rápido. LOC será una
         // reorganización de estos mismos widgets vía configuración externa
         // (JSON o consulta a BD) — diseño todavía pendiente, no implementado.
+        var me = this;
+
+        // El panel de una extensión se monta lazy: Ext no crea su DOM hasta
+        // que el usuario abre el tab. Si lanzamos los widgets acá (al
+        // construir), todos los updateCardBody fallan porque las cards
+        // todavía no existen. Se arranca todo en 'afterrender' (una vez),
+        // que es exactamente "el DOM del panel ya está".
         var panel = Ext.create('Ext.panel.Panel', {
             cls: 'promatic_dashboard_enhancer-panel',
             layout: { type: 'vbox', align: 'stretch' },
             scrollable: 'y',
-            items: [this.summaryBar, this.buildRacShell()]
+            items: [this.summaryBar, this.buildRacShell()],
+            listeners: {
+                afterrender: {
+                    single: true,
+                    fn: function () {
+                        me.bindFleetUpdates();
+                        me.loadTop5KmData();
+                        me.loadAlertasGenerales();
+                        // loadHotspots DESACTIVADO 28 ago: new MapContainer/
+                        // setHeatmap afectaba el mapa nativo de PILOT (Online)
+                        // en vez de crear uno propio. Nunca verificado en
+                        // cuenta real — reactivar tras leer MapContainer.md.
+                        me.updateCardBody('hotspots', l('Mapa de desconexión — en integración.'));
+                        me.startClock();
+                        me.renderLogo();
+                    }
+                }
+            }
         });
-
-        this.bindFleetUpdates();
-        this.loadTop5KmData();
-        this.loadAlertasGenerales();
-        // this.loadHotspots(); — DESACTIVADO 28 ago: new MapContainer/setHeatmap
-        // afectaba el mapa nativo de PILOT (Online) en vez de crear uno propio
-        // en el widget. El patrón de spec/api.md nunca se verificó en cuenta
-        // real. Reactivar solo tras leer MapContainer.md y probar la API de
-        // instancia con cuidado. Card queda con un mensaje, no vacío.
-        this.updateCardBody('hotspots', l('Mapa de desconexión — en integración.'));
-        this.startClock();
-        this.renderLogo();
 
         return panel;
     },
