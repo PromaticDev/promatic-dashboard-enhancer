@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-31-1237',
+    moduleBuild: '2026-08-31-1307',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1148,7 +1148,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var runReports = function () {
                 return me.fetchReportType(4, csv, startDate, stopDate, 20000)
                     .then(function (report) {
-                        me.renderTop5Km(me.parseReportType4(report, count, nameToId), days, startDate, stopDate);
+                        me.renderTop5Km(me.parseReportType4(report, nameToId), days, startDate, stopDate, count);
                         console.log('[promatic_dashboard_enhancer] Top KM servido por: reports-fallback');
                     });
             };
@@ -1163,7 +1163,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             me.fetchAnalyticsMainData(csv, 15000,
                 startDate.toISOString().slice(0, 19), stopDate.toISOString().slice(0, 19))
                 .then(function (mainData) {
-                    me.renderTop5Km(me.parseRatingsTop5(mainData, count), days, startDate, stopDate);
+                    me.renderTop5Km(me.parseRatingsTop5(mainData), days, startDate, stopDate, count);
                     console.log('[promatic_dashboard_enhancer] Top KM servido por: ratings');
                 })
                 .catch(function (err) {
@@ -1188,7 +1188,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // vehículo i, alineado 1:1 con keys. Ver spec/api.md. Lanza si el shape
     // no está, está desalineado, o no hay ningún km > 0 — eso dispara el
     // fallback a reports.php (p. ej. cuentas donde ratings viene deshabilitado).
-    parseRatingsTop5: function (mainData, count) {
+    // Devuelve el ranking COMPLETO ordenado desc (todos los vehículos con
+    // km > 0). renderTop5Km corta a `count` para mostrar; el link "ver todos"
+    // del pie usa la lista entera.
+    parseRatingsTop5: function (mainData) {
         var rd = mainData && mainData.ratings && mainData.ratings.data;
         var keys = rd && rd.keys;
         var dist = rd && rd.veh_driving_dist;
@@ -1206,13 +1209,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             throw new Error('ratings.data sin km > 0');
         }
         ranked.sort(function (a, b) { return b.km - a.km; });
-        return ranked.slice(0, count || 5);
+        return ranked;
     },
 
     // reports.php report_type=4: report.data[fecha][vehículo] = array de
     // tramos, cada tramo con .length = km del tramo. Suma por vehículo.
     // nameToId: mapa opcional nombre→agentid para el link a Informes.
-    parseReportType4: function (report, count, nameToId) {
+    // Devuelve el ranking completo ordenado desc (ver parseRatingsTop5).
+    parseReportType4: function (report, nameToId) {
         nameToId = nameToId || {};
         var totalsByVehicle = {};
         var dateGroups = (report && report.data) || {};
@@ -1242,25 +1246,28 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
         ranked.sort(function (a, b) { return b.km - a.km; });
-        return ranked.slice(0, count || 5);
+        return ranked;
     },
 
-    // top5 = [{ name, km, id? }] ya ordenado desc (lo arma parseRatingsTop5 o
-    // parseReportType4). days = ventana en días; startDate/stopDate = rango
-    // real usado en la consulta (para la etiqueta y el link a Informes).
-    renderTop5Km: function (top5, days, startDate, stopDate) {
-        top5 = top5 || [];
+    // ranked = [{ name, km, id? }] COMPLETO ordenado desc. days = ventana en
+    // días; startDate/stopDate = rango real de la consulta; count = cuántas
+    // filas muestra la card. El link "ver todos" del pie usa todo `ranked`.
+    renderTop5Km: function (ranked, days, startDate, stopDate, count) {
+        ranked = ranked || [];
         days = days || 7;
+        count = count || 5;
         stopDate = stopDate || new Date();
         if (!startDate) {
             startDate = new Date();
             startDate.setDate(startDate.getDate() - days);
         }
 
-        if (top5.length === 0) {
+        if (ranked.length === 0) {
             this.updateCardBody('top5km', l('Sin datos de kilometraje para el período.'));
             return;
         }
+
+        var top5 = ranked.slice(0, count);
 
         var startMs = startDate.getTime();
         var stopMs = stopDate.getTime();
@@ -1288,12 +1295,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         var maxKm = top5[0].km || 1;
-        var idsShown = [];
         var rankRows = [];
         for (var j = 0; j < top5.length; j++) {
             var item = top5[j];
             var hasId = item.id !== undefined && item.id !== null && item.id !== '';
-            if (hasId) { idsShown.push(item.id); }
             var rowCls = 'promatic_dashboard_enhancer-rank-row' +
                 (j === 0 ? ' promatic_dashboard_enhancer-rank-row--emphasized' : '') +
                 (hasId ? '' : ' promatic_dashboard_enhancer-rank-row--nolink');
@@ -1346,14 +1351,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }));
 
         // Link del pie de la card → informe de kilómetros de TODOS los
-        // vehículos mostrados, con el mismo rango. El pie se crea con la
-        // card (cardMarkup), antes de tener datos — se completa acá.
+        // vehículos del ranking (no solo los `count` que muestra la card),
+        // con el mismo rango. El pie se crea con la card (cardMarkup), antes
+        // de tener datos — se completa acá.
+        var allIds = [];
+        for (var k = 0; k < ranked.length; k++) {
+            var rid = ranked[k].id;
+            if (rid !== undefined && rid !== null && rid !== '') { allIds.push(rid); }
+        }
         var cardEl = Ext.get('promatic_dashboard_enhancer-card-top5km');
         var footA = cardEl && cardEl.down('.promatic_dashboard_enhancer-card__footer a');
         if (footA) {
-            if (idsShown.length) {
+            if (allIds.length) {
                 footA.set({
-                    'data-km-report': idsShown.join(','),
+                    'data-km-report': allIds.join(','),
                     'data-km-start': String(startMs),
                     'data-km-stop': String(stopMs)
                 });
@@ -1459,6 +1470,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             reports.selectReport(reportCombo, rec);
             reports.down('#report_date1').setValue(startDate);
             reports.down('#report_date2').setValue(stopDate);
+            // "Dividir" (explode_combo) = 0 → un solo bloque por vehículo, sin
+            // separar por día. Va después de selectReport (que reconfigura el
+            // form). Defensivo: el combo puede no existir en otra cuenta.
+            var explodeCombo = reports.down('#explode_combo');
+            if (explodeCombo && explodeCombo.setValue) { explodeCombo.setValue(0); }
             objectsStore.getRoot().cascadeBy(function (node) {
                 if (node.get('vehid')) {
                     node.set('checked', ids.indexOf(Number(node.get('vehid'))) !== -1);
