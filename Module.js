@@ -1,10 +1,22 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-28-1944',
+    moduleBuild: '2026-08-31-1222',
+
+    // Config runtime — fallback si dist/config.json no carga. loadConfig()
+    // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
+    // un backend puede servir el mismo shape y sobrescribir en caliente
+    // (ver stub en loadConfig). Cambiar acá = requiere re-publicar; cambiar
+    // en config.json = igual requiere re-publicar hoy, pero deja el punto
+    // de extensión listo para el override remoto.
+    DEFAULT_CONFIG: {
+        top5km: { windowDays: 7, activeVehicleCap: 300, source: 'ratings', count: 5 }
+    },
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
+        this.config = this.DEFAULT_CONFIG;
+        this.loadConfig();
         this.loadStyles();
 
         var mainPanel = this.buildMainPanel();
@@ -68,6 +80,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 afterrender: {
                     single: true,
                     fn: function () {
+                        me.bindKmReportLinks(panel);
                         me.bindFleetUpdates();
                         me.loadTop5KmData();
                         me.loadAlertasGenerales();
@@ -218,8 +231,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     footerLabel: l('Abrir árbol de flota')
                 }),
                 this.cardMarkup('top5km', {
-                    title: l('Top 5 · Vehículos con más KM'),
-                    hint: l('Kilómetros recorridos por vehículo en los últimos 7 días (reporte de PILOT). Puede tardar con flotas grandes.'),
+                    title: l('Vehículos con más KM'),
+                    hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: panel de analítica de PILOT, con respaldo al reporte de kilometraje.'),
                     footerLabel: l('Abrir reporte de kilometraje')
                 })
             ]),
@@ -264,7 +277,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     footerLabel: l('Abrir árbol de flota')
                 }),
                 this.cardMarkup('top5km', {
-                    title: l('Top 5 · Vehículos con más KM'), meta: 'rt=4',
+                    title: l('Vehículos con más KM'), meta: 'rt=4',
                     footerLabel: l('Abrir reporte de kilometraje')
                 })
             ]),
@@ -379,18 +392,26 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambia el ranking pero corta el payload (crítico cuando online_tree
     // tiene la flota LOC completa — ver NOC-007 y la exploración del 28 ago:
     // no hay endpoint de km por vehículo pre-calculado).
+    // Devuelve los agent_ids ordenados por movimiento más reciente primero,
+    // para que el caller pueda cortar a un tope (config top5km.activeVehicleCap)
+    // quedándose con los más activos.
     getRecentlyActiveIds: function (onlineTree, days) {
         var cutoff = Math.floor(Date.now() / 1000) - (days || 7) * 86400;
         var records = this.getScopedFleetRecords(onlineTree);
-        var ids = [];
+        var rows = [];
         for (var i = 0; i < records.length; i++) {
             var r = records[i];
             if (!r.get('agentid')) { continue; }
             var le = r.get('last_event') || (r.data && r.data.last_event) || {};
             var moved = Number(le.last_move) || Number(le.unixtimestamp) || 0;
             if (moved >= cutoff) {
-                ids.push(r.get('agentid'));
+                rows.push({ id: r.get('agentid'), moved: moved });
             }
+        }
+        rows.sort(function (a, b) { return b.moved - a.moved; });
+        var ids = [];
+        for (var j = 0; j < rows.length; j++) {
+            ids.push(rows[j].id);
         }
         return ids;
     },
@@ -954,11 +975,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    fetchAnalyticsMainData: function (vehIdsCsv, timeoutMs) {
+    // startIso/stopIso opcionales (formato "YYYY-MM-DDTHH:MM:SS"). Sin ellos:
+    // día actual con today=true (comportamiento original). Con ellos: ventana
+    // real, today='' — necesario para el Top 5 KM (ventana de N días).
+    fetchAnalyticsMainData: function (vehIdsCsv, timeoutMs, startIso, stopIso) {
         var isoDay = new Date().toISOString().slice(0, 10) + 'T00:00:00';
+        var hasRange = !!(startIso && stopIso);
         var pairs = [
             ['cmd', 'get_main_data'], ['cons_value', 'l/100km'],
-            ['ts', isoDay], ['te', isoDay], ['today', 'true'], ['sync', ''],
+            ['ts', hasRange ? startIso : isoDay],
+            ['te', hasRange ? stopIso : isoDay],
+            ['today', hasRange ? '' : 'true'], ['sync', ''],
             ['agent_ids', vehIdsCsv]
         ];
         var parts = [];
@@ -1065,46 +1092,128 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 'Sin filtro de alcance — el árbol Online no cargó vehículos.'));
     },
 
-    // Card "Top 5 · Vehículos con más KM" — reports.php report_type=4,
-    // agrupado por vehículo y ordenado. Solo se consultan los vehículos que
-    // se movieron en la ventana (getRecentlyActiveIds) — el resto tiene 0 km
-    // y solo infla el payload (NOC-007: con la flota LOC completa reports.php
-    // se cuelga). Si nadie se movió, ni se llama al endpoint.
+    // Card "Top 5 · Vehículos con más KM".
+    //
+    // Fuente primaria: analytics/vehicles.php cmd=get_main_data → ratings.data
+    // (km por vehículo en UNA llamada, sin reports.php ni riesgo de timeout —
+    // NOC-007). Fallback automático: reports.php report_type=4 (camino previo).
+    //
+    // En ambos casos se pre-filtra a los vehículos con movimiento reciente
+    // (config top5km.windowDays) y se corta a un tope (config
+    // top5km.activeVehicleCap) para no disparar el job async + WebSocket de
+    // analytics/vehicles.php en flotas grandes (NOC-003). Un vehículo sin
+    // movimiento tiene 0 km, así que el filtro no cambia el ranking.
     loadTop5KmData: function () {
         var me = this;
-        var DAYS = 7;
+        var cfg = (me.config && me.config.top5km) || me.DEFAULT_CONFIG.top5km;
+        var days = cfg.windowDays || 7;
+        var cap = cfg.activeVehicleCap || 300;
+        var count = cfg.count || 5;
 
         this.withFleetVehicleIds(function () {
             var onlineTree = me.getOnlineTree();
-            var vehIds = me.getRecentlyActiveIds(onlineTree, DAYS);
+            var vehIds = me.getRecentlyActiveIds(onlineTree, days);
             var scopeTotal = me.getFleetVehicleIds(onlineTree).length;
+            var capped = false;
+            if (vehIds.length > cap) {
+                vehIds = vehIds.slice(0, cap);
+                capped = true;
+            }
 
-            console.log('[promatic_dashboard_enhancer] Top 5 KM: ' + vehIds.length +
-                ' vehículos con movimiento en ' + DAYS + 'd (de ' + scopeTotal + ' en alcance)');
+            console.log('[promatic_dashboard_enhancer] Top KM: ' + vehIds.length +
+                ' vehículos con movimiento en ' + days + 'd (de ' + scopeTotal + ' en alcance)' +
+                (capped ? ' [cortado al tope de ' + cap + ']' : '') + ' — top ' + count);
 
             if (vehIds.length === 0) {
-                me.updateCardBody('top5km', l('Ningún vehículo con recorrido en los últimos 7 días.'));
+                me.updateCardBody('top5km', l('Ningún vehículo con recorrido reciente.'));
                 return;
+            }
+
+            // Mapa nombre→agentid del árbol Online — la rama fallback
+            // (reports.php) agrupa por nombre de vehículo y no trae el id,
+            // así se recupera para el link a Informes (best-effort).
+            var nameToId = {};
+            var records = me.getScopedFleetRecords(onlineTree);
+            for (var r = 0; r < records.length; r++) {
+                var nm = records[r].get('name');
+                if (nm) { nameToId[nm] = records[r].get('agentid'); }
             }
 
             var stopDate = new Date();
             var startDate = new Date();
-            startDate.setDate(startDate.getDate() - DAYS);
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
 
-            me.fetchReportType(4, vehIds.join(','), startDate, stopDate, 20000)
-                .then(function (report) {
-                    me.renderTop5Km(report);
+            var csv = vehIds.join(',');
+            var runReports = function () {
+                return me.fetchReportType(4, csv, startDate, stopDate, 20000)
+                    .then(function (report) {
+                        me.renderTop5Km(me.parseReportType4(report, count, nameToId), days, startDate, stopDate);
+                        console.log('[promatic_dashboard_enhancer] Top KM servido por: reports-fallback');
+                    });
+            };
+
+            if (cfg.source === 'reports') {
+                runReports().catch(function (err) {
+                    me.reportTop5Error(err, vehIds.length, days);
+                });
+                return;
+            }
+
+            me.fetchAnalyticsMainData(csv, 15000,
+                startDate.toISOString().slice(0, 19), stopDate.toISOString().slice(0, 19))
+                .then(function (mainData) {
+                    me.renderTop5Km(me.parseRatingsTop5(mainData, count), days, startDate, stopDate);
+                    console.log('[promatic_dashboard_enhancer] Top KM servido por: ratings');
                 })
                 .catch(function (err) {
-                    var code = me.widgetErrorCode('TOP5KM', err, vehIds.length + ' vehículos, rango 7 días');
-                    me.updateCardBody('top5km', (code.indexOf('TIMEOUT') !== -1 ?
-                        l('El ranking de kilometraje está tardando demasiado.') :
-                        l('No se pudo cargar el ranking de kilometraje.')) + ' (' + code + ')');
+                    console.warn('[promatic_dashboard_enhancer] Top KM: ratings.data no sirvió (' +
+                        (err && err.message ? err.message : err) + ') — fallback a reports.php');
+                    runReports().catch(function (err2) {
+                        me.reportTop5Error(err2, vehIds.length, days);
+                    });
                 });
         });
     },
 
-    renderTop5Km: function (report) {
+    reportTop5Error: function (err, vehCount, days) {
+        var code = this.widgetErrorCode('TOP5KM', err, vehCount + ' vehículos, rango ' + days + ' días');
+        this.updateCardBody('top5km', (code.indexOf('TIMEOUT') !== -1 ?
+            l('El ranking de kilometraje está tardando demasiado.') :
+            l('No se pudo cargar el ranking de kilometraje.')) + ' (' + code + ')');
+    },
+
+    // ratings.data (analytics/vehicles.php): keys[i] = [agent_id,
+    // "placa - conductor - serie", modelo], veh_driving_dist[i] = km del
+    // vehículo i, alineado 1:1 con keys. Ver spec/api.md. Lanza si el shape
+    // no está, está desalineado, o no hay ningún km > 0 — eso dispara el
+    // fallback a reports.php (p. ej. cuentas donde ratings viene deshabilitado).
+    parseRatingsTop5: function (mainData, count) {
+        var rd = mainData && mainData.ratings && mainData.ratings.data;
+        var keys = rd && rd.keys;
+        var dist = rd && rd.veh_driving_dist;
+        if (!keys || !dist || !keys.length || keys.length !== dist.length) {
+            throw new Error('ratings.data ausente o desalineado');
+        }
+        var ranked = [];
+        for (var i = 0; i < keys.length; i++) {
+            var km = Number(dist[i]) || 0;
+            if (km <= 0) { continue; }
+            var label = (keys[i] && keys[i][1]) || String(keys[i] && keys[i][0]) || '—';
+            ranked.push({ name: label, km: km, id: keys[i] && keys[i][0] });
+        }
+        if (ranked.length === 0) {
+            throw new Error('ratings.data sin km > 0');
+        }
+        ranked.sort(function (a, b) { return b.km - a.km; });
+        return ranked.slice(0, count || 5);
+    },
+
+    // reports.php report_type=4: report.data[fecha][vehículo] = array de
+    // tramos, cada tramo con .length = km del tramo. Suma por vehículo.
+    // nameToId: mapa opcional nombre→agentid para el link a Informes.
+    parseReportType4: function (report, count, nameToId) {
+        nameToId = nameToId || {};
         var totalsByVehicle = {};
         var dateGroups = (report && report.data) || {};
 
@@ -1129,60 +1238,86 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var ranked = [];
         for (var name in totalsByVehicle) {
             if (totalsByVehicle.hasOwnProperty(name)) {
-                ranked.push({ name: name, km: totalsByVehicle[name] });
+                ranked.push({ name: name, km: totalsByVehicle[name], id: nameToId[name] });
             }
         }
         ranked.sort(function (a, b) { return b.km - a.km; });
-        var top5 = ranked.slice(0, 5);
+        return ranked.slice(0, count || 5);
+    },
+
+    // top5 = [{ name, km, id? }] ya ordenado desc (lo arma parseRatingsTop5 o
+    // parseReportType4). days = ventana en días; startDate/stopDate = rango
+    // real usado en la consulta (para la etiqueta y el link a Informes).
+    renderTop5Km: function (top5, days, startDate, stopDate) {
+        top5 = top5 || [];
+        days = days || 7;
+        stopDate = stopDate || new Date();
+        if (!startDate) {
+            startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+        }
 
         if (top5.length === 0) {
             this.updateCardBody('top5km', l('Sin datos de kilometraje para el período.'));
             return;
         }
 
-        // Barra apilada — segmento por vehículo, alto = % del total del
-        // top 5 (no del máximo). Colores fijos g2/g1/g3/g4/g5 en orden
-        // ascendente de km, igual que el diseño aprobado en
-        // dev/proto-dash.html (27 ago) — sin gradiente calculado, mismo
-        // ramp que ya se usó ahí para mantener la lectura "oscuro = más km".
+        var startMs = startDate.getTime();
+        var stopMs = stopDate.getTime();
+
+        // Barra apilada — segmento por vehículo, alto = % del total mostrado.
+        // Colores fijos g2/g1/g3/g4/g5 en orden ascendente de km (diseño de
+        // dev/proto-dash.html, 27 ago). Con más de 5 vehículos el ramp no da
+        // — se cae a un tono único (var --g4) para no repetir colores.
         var segColors = ['var(--g2)', 'var(--g1)', 'var(--g3)', 'var(--g4)', 'var(--g5)'];
-        var totalTop5 = 0;
+        var flatColor = top5.length > segColors.length;
+        var total = 0;
         for (var s = 0; s < top5.length; s++) {
-            totalTop5 += top5[s].km;
+            total += top5[s].km;
         }
         var ascending = top5.slice().reverse();
         var segments = [];
         for (var a = 0; a < ascending.length; a++) {
-            var segPct = totalTop5 > 0 ? (ascending[a].km / totalTop5 * 100) : 0;
+            var segPct = total > 0 ? (ascending[a].km / total * 100) : 0;
             segments.push({
                 cls: 'promatic_dashboard_enhancer-stacked-seg',
-                style: 'height:' + segPct.toFixed(1) + '%;background:' + segColors[a % segColors.length],
+                style: 'height:' + segPct.toFixed(1) + '%;background:' +
+                    (flatColor ? 'var(--g4)' : segColors[a % segColors.length]),
                 title: Ext.String.htmlEncode(ascending[a].name) + ' — ' + ascending[a].km.toFixed(0) + 'km'
             });
         }
 
         var maxKm = top5[0].km || 1;
+        var idsShown = [];
         var rankRows = [];
         for (var j = 0; j < top5.length; j++) {
-            var isTop = j === 0;
-            var rowCls = 'promatic_dashboard_enhancer-rank-row' + (isTop ? ' promatic_dashboard_enhancer-rank-row--emphasized' : '');
-            rankRows.push({
-                tag: 'a', href: '#', cls: rowCls,
-                title: l('Ver reporte de') + ' ' + Ext.String.htmlEncode(top5[j].name) + ' (runReport)',
+            var item = top5[j];
+            var hasId = item.id !== undefined && item.id !== null && item.id !== '';
+            if (hasId) { idsShown.push(item.id); }
+            var rowCls = 'promatic_dashboard_enhancer-rank-row' +
+                (j === 0 ? ' promatic_dashboard_enhancer-rank-row--emphasized' : '') +
+                (hasId ? '' : ' promatic_dashboard_enhancer-rank-row--nolink');
+            var row = {
+                tag: hasId ? 'a' : 'div', cls: rowCls,
                 cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-rank-name', html: Ext.String.htmlEncode(top5[j].name) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-rank-name', html: Ext.String.htmlEncode(item.name) },
                     { cls: 'promatic_dashboard_enhancer-rank-track', cn: [
-                        { cls: 'promatic_dashboard_enhancer-rank-fill', style: 'width:' + (top5[j].km / maxKm * 100).toFixed(0) + '%' }
+                        { cls: 'promatic_dashboard_enhancer-rank-fill', style: 'width:' + (item.km / maxKm * 100).toFixed(0) + '%' }
                     ] },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-rank-val', html: top5[j].km.toFixed(0) + 'km' },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-rank-val', html: item.km.toFixed(0) + 'km' },
                     { tag: 'span', cls: 'promatic_dashboard_enhancer-chev', html: '›' }
                 ]
-            });
+            };
+            if (hasId) {
+                row.href = '#';
+                row.title = l('Ver informe de kilómetros de') + ' ' + Ext.String.htmlEncode(item.name);
+                row['data-km-report'] = String(item.id);
+                row['data-km-start'] = String(startMs);
+                row['data-km-stop'] = String(stopMs);
+            }
+            rankRows.push(row);
         }
 
-        var stopDate = new Date();
-        var startDate = new Date();
-        startDate.setDate(startDate.getDate() - 7);
         var dateFmt = function (d) {
             var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
             return pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear();
@@ -1194,21 +1329,154 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 { cls: 'promatic_dashboard_enhancer-km-stack-wrap', cn: [
                     { cls: 'promatic_dashboard_enhancer-stacked-track promatic_dashboard_enhancer-stacked-track--v', cn: segments },
                     { cls: 'promatic_dashboard_enhancer-km-stack-total', cn: [
-                        { tag: 'b', html: totalTop5.toFixed(0) },
-                        { html: 'km ' + l('top 5') }
+                        { tag: 'b', html: total.toFixed(0) },
+                        { html: 'km &middot; ' + l('top') + ' ' + top5.length }
                     ] }
                 ] },
                 { cls: 'promatic_dashboard_enhancer-km-top5', cn: [
-                    { cls: 'promatic_dashboard_enhancer-km-date-range', html: l('Semana del') + ': ' + dateFmt(startDate) + ' — ' + dateFmt(stopDate) },
+                    { cls: 'promatic_dashboard_enhancer-km-date-range', html: dateFmt(startDate) + ' — ' + dateFmt(stopDate) },
                     { cls: 'promatic_dashboard_enhancer-km-top5-label', html: l('Ranking') + ' &middot; ' + l('más recorrido') }
                 ].concat(rankRows).concat([
                     { cls: 'promatic_dashboard_enhancer-km-color-legend', cn: [
                         { tag: 'span', cls: 'promatic_dashboard_enhancer-km-legend-grad' },
-                        { html: l('Oscuro = más km · Claro = menos km (dentro del top 5)') }
+                        { html: l('Oscuro = más km · Claro = menos km') }
                     ] }
                 ]) }
             ]
         }));
+
+        // Link del pie de la card → informe de kilómetros de TODOS los
+        // vehículos mostrados, con el mismo rango. El pie se crea con la
+        // card (cardMarkup), antes de tener datos — se completa acá.
+        var cardEl = Ext.get('promatic_dashboard_enhancer-card-top5km');
+        var footA = cardEl && cardEl.down('.promatic_dashboard_enhancer-card__footer a');
+        if (footA) {
+            if (idsShown.length) {
+                footA.set({
+                    'data-km-report': idsShown.join(','),
+                    'data-km-start': String(startMs),
+                    'data-km-stop': String(stopMs)
+                });
+            } else {
+                footA.dom.removeAttribute('data-km-report');
+            }
+        }
+    },
+
+    // Delegado de clicks para los links a Informes (filas del ranking + pie
+    // de la card Top KM). Se bindea una vez sobre el elemento del panel.
+    bindKmReportLinks: function (panel) {
+        var me = this;
+        var el = panel && panel.getEl && panel.getEl();
+        if (!el || el._kmReportBound) { return; }
+        el._kmReportBound = true;
+        el.on('click', function (e) {
+            var a = e.getTarget('[data-km-report]', 10, true);
+            if (!a) { return; }
+            e.preventDefault();
+            var raw = a.getAttribute('data-km-report');
+            if (!raw) { return; }
+            var ids = raw.split(',').map(Number).filter(function (n) { return !isNaN(n); });
+            var start = new Date(Number(a.getAttribute('data-km-start')));
+            var stop = new Date(Number(a.getAttribute('data-km-stop')));
+            me.openKmReport(ids, start, stop);
+        });
+    },
+
+    // Abre el panel nativo de Informes con el reporte de kilómetros
+    // (report_type=4) para los vehículos y el rango dados.
+    openKmReport: function (vehicleIds, startDate, stopDate) {
+        if (!vehicleIds || !vehicleIds.length) { return; }
+        var me = this;
+        try {
+            if (!this.activateReportsTab()) {
+                console.warn('[promatic_dashboard_enhancer] openKmReport: no se pudo activar el tab de Informes');
+                return;
+            }
+            Ext.defer(function () {
+                try {
+                    me.runNativeReport(4, vehicleIds, startDate, stopDate);
+                } catch (e) {
+                    console.warn('[promatic_dashboard_enhancer] runNativeReport falló:', e);
+                }
+            }, 200);
+        } catch (err) {
+            console.warn('[promatic_dashboard_enhancer] openKmReport falló:', err);
+        }
+    },
+
+    // Activa el tab de Informes en la navegación de PILOT. El índice varía
+    // por cuenta — se busca por identidad/título/xtype y se cae al 2 (el
+    // valor del ejemplo oficial de Pilot) si no se encuentra.
+    activateReportsTab: function () {
+        var nav = window.skeleton && skeleton.navigation;
+        if (!nav || typeof nav.setActiveTab !== 'function') { return false; }
+        var tabs = (nav.items && nav.items.items) || [];
+        var i;
+        for (i = 0; i < tabs.length; i++) {
+            if (nav.reports && tabs[i] === nav.reports) { nav.setActiveTab(i); return true; }
+        }
+        for (i = 0; i < tabs.length; i++) {
+            var t = tabs[i];
+            var xt = ((t.xtype || (t.getXType && t.getXType()) || '') + '').toLowerCase();
+            var ti = ((t.title || (t.tabConfig && t.tabConfig.title) || '') + '').toLowerCase();
+            if (xt.indexOf('report') !== -1 || ti.indexOf('report') !== -1 || ti.indexOf('informe') !== -1) {
+                nav.setActiveTab(i);
+                return true;
+            }
+        }
+        nav.setActiveTab(2);
+        return true;
+    },
+
+    // Función entregada por Pilot (2026-07-17, confirmada 22 jul) para
+    // disparar un reporte nativo desde código — adaptada a método. Requiere
+    // que el panel de Informes ya esté activo (ver activateReportsTab).
+    runNativeReport: function (reportType, vehicleIds, startDate, stopDate) {
+        var reports = window.skeleton && skeleton.navigation && skeleton.navigation.reports;
+        if (!reports || !reports.down) {
+            console.warn('[promatic_dashboard_enhancer] runNativeReport: panel de Informes no disponible');
+            return;
+        }
+        var reportCombo = reports.down('#report_type');
+        var objectsTree = reports.down('#reports_objects_tree');
+        if (!reportCombo || !objectsTree) {
+            console.warn('[promatic_dashboard_enhancer] runNativeReport: controles del panel de Informes no encontrados');
+            return;
+        }
+        var reportStore = reportCombo.getStore();
+        var objectsStore = objectsTree.getStore();
+        var ids = vehicleIds.map(Number);
+
+        function submitWhenReady() {
+            var rec = reportStore.findRecord('id', Number(reportType), 0, false, false, true);
+            if (!rec) {
+                console.error('[promatic_dashboard_enhancer] runNativeReport: report type no encontrado:', reportType);
+                return;
+            }
+            reportCombo.setValue(rec.get('id'));
+            reportCombo.setSelection(rec);
+            reports.selectReport(reportCombo, rec);
+            reports.down('#report_date1').setValue(startDate);
+            reports.down('#report_date2').setValue(stopDate);
+            objectsStore.getRoot().cascadeBy(function (node) {
+                if (node.get('vehid')) {
+                    node.set('checked', ids.indexOf(Number(node.get('vehid'))) !== -1);
+                }
+            });
+            reports.reportFormSubmit();
+        }
+
+        if (!reportStore.isLoaded()) {
+            reportStore.load({ callback: function () {
+                if (!objectsStore.isLoaded()) { objectsStore.load({ callback: submitWhenReady }); }
+                else { submitWhenReady(); }
+            } });
+        } else if (!objectsStore.isLoaded()) {
+            objectsStore.load({ callback: submitWhenReady });
+        } else {
+            submitWhenReady();
+        }
     },
 
     // -----------------------------------------------------------------------
@@ -1224,6 +1492,45 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
         return '/store/promatic_dashboard_enhancer/';
+    },
+
+    // Carga dist/config.json y lo mergea (por sección, un nivel) sobre
+    // DEFAULT_CONFIG. No bloquea el arranque: los widgets corren en el
+    // 'afterrender' del panel (bastante después de initModule), para
+    // entonces esto normalmente ya resolvió; si no, usan el default.
+    // FUTURO (backend): agregar acá un segundo fetch a la URL del backend
+    // y mergear su respuesta encima de la de config.json.
+    loadConfig: function () {
+        var me = this;
+        var url = this.getModuleBaseUrl() + 'config.json?v=' + this.moduleBuild;
+
+        return fetch(url, { credentials: 'same-origin' })
+            .then(function (resp) {
+                if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                return resp.json();
+            })
+            .then(function (json) {
+                var merged = {};
+                var section;
+                for (section in me.DEFAULT_CONFIG) {
+                    if (me.DEFAULT_CONFIG.hasOwnProperty(section)) {
+                        merged[section] = Ext.apply({}, me.DEFAULT_CONFIG[section]);
+                    }
+                }
+                for (section in json) {
+                    if (json.hasOwnProperty(section) && section.charAt(0) !== '_' &&
+                        json[section] && typeof json[section] === 'object') {
+                        merged[section] = Ext.apply(merged[section] || {}, json[section]);
+                    }
+                }
+                me.config = merged;
+                console.log('[promatic_dashboard_enhancer] config.json cargado', merged);
+            })
+            .catch(function (err) {
+                me.config = me.DEFAULT_CONFIG;
+                console.warn('[promatic_dashboard_enhancer] config.json no cargó (' +
+                    (err && err.message ? err.message : err) + ') — usando DEFAULT_CONFIG');
+            });
     },
 
     loadStyles: function () {

@@ -1,0 +1,9 @@
+{
+  "_comment": "Config runtime del dashboard. Editable sin tocar Module.js; cambios requieren re-publicar (publish-plugin.sh). Module.js tiene los mismos valores como DEFAULT_CONFIG (fallback si este archivo no carga). A futuro un backend puede servir este mismo shape y sobrescribirlo en caliente.",
+  "top5km": {
+    "windowDays": 7,
+    "activeVehicleCap": 300,
+    "source": "ratings",
+    "count": 5
+  }
+}

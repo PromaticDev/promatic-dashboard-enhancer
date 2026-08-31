@@ -501,7 +501,7 @@
     text-transform: uppercase;
 }
 
-a.promatic_dashboard_enhancer-rank-row {
+.promatic_dashboard_enhancer-rank-row {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -510,6 +510,10 @@ a.promatic_dashboard_enhancer-rank-row {
     padding: 3px;
     border-radius: 4px;
     cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-rank-row--nolink {
+    cursor: default;
 }
 
 a.promatic_dashboard_enhancer-rank-row:hover {
