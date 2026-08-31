@@ -2,10 +2,7 @@
 
 .promatic_dashboard_enhancer-panel {
     padding: 12px;
-    /* Tokens de color — copia validada de dev/proto-styles.css (paleta
-       "Cálida" + colores "semáforo", ADR-009). Escalados a este contenedor
-       en vez de :root para no tocar variables globales de la página de
-       PILOT (mismo motivo que el prefijo de clases, ver SPEC.md). */
+    /* Tokens de color — en el contenedor, no en :root (ver spec/api.md). */
     --g0: #f4f6f8;
     --g1: #e6edf3;
     --g2: #cae2de;
@@ -33,7 +30,7 @@
 .promatic_dashboard_enhancer-summary {
     padding: 8px 12px;
     margin-bottom: 16px;
-    background-color: #F8FAFC; /* segunda capa neutra, distinta de la superficie de contenido */
+    background-color: #F8FAFC;
     border-radius: 4px;
 }
 
@@ -46,7 +43,7 @@
 .promatic_dashboard_enhancer-summary__updated {
     margin-left: auto;
     font-size: 12px;
-    color: #64748B; /* texto muted — nunca color de acento en texto informativo */
+    color: #64748B;
 }
 
 .promatic_dashboard_enhancer-stat {
@@ -62,8 +59,8 @@
 
 .promatic_dashboard_enhancer-stat__label {
     font-size: 13px;
-    color: #64748B !important; /* !important: el CSS global de PILOT pisa esta clase
-        por especificidad y la muestra azul/subrayada como link — ver spec/features.md */
+    /* !important obligatorio: el CSS global de PILOT pisa esta clase (link azul/subrayado). Ver spec/api.md */
+    color: #64748B !important;
     text-decoration: none !important;
 }
 
@@ -82,15 +79,8 @@
     background-color: #DC2626;
 }
 
-/* -----------------------------------------------------------------------
-   Filas flex — shell de las vistas RAC/LOP (26-27 ago). Reemplazó al CSS
-   Grid + !important del sistema anterior (ADR-007), que llegó a competir
-   con el layout propio de Ext JS hasta saturar toda la RAM del equipo en
-   DEMO_CLIENT (ver BR-PILOT-0006). Ese grid se retiró por completo el
-   28 ago (DEP-003). Acá NO hay !important ni display:grid — cada fila es
-   un flexbox simple, y el tamaño relativo de cada card se controla con
-   flex-grow (equivalente a "fr" de grid), nunca con un width fijo.
-   ----------------------------------------------------------------------- */
+/* Shell de filas flex — vistas RAC/LOP. Sin display:grid ni !important;
+   el tamaño relativo de cada card es flex-grow, nunca width fijo. */
 
 .promatic_dashboard_enhancer-row {
     display: flex;
@@ -115,10 +105,7 @@
     flex-grow: 2;
 }
 
-/* Columna de 2+ cards apiladas dentro de una sola celda de fila (27 ago,
-   shell RAC) — ej. Señal GPS + Alertas Generales comparten el ancho de
-   Estado de Flota en vez de tener cada una su propia columna. Es un <div>
-   plano, no un Ext.container.Container — no aplica BR-PILOT-0006. */
+/* Columna de 2+ cards apiladas en una celda de fila (ej. Señal GPS + Alertas Generales). */
 .promatic_dashboard_enhancer-col {
     flex: 1 1 0;
     min-width: 220px;
@@ -151,8 +138,7 @@
     color: #94A3B8;
 }
 
-/* (?) con tooltip — dato de cómo se lee la card. Va al extremo derecho del
-   head (el head es flex + space-between). */
+/* (?) con tooltip — al extremo derecho del head. */
 .promatic_dashboard_enhancer-card__hint {
     flex-shrink: 0;
     width: 15px;
@@ -192,8 +178,7 @@
     text-decoration: none;
 }
 
-/* Reloj "Hora exacta Chile" + logo — placeholders del ai-strip, portados
-   desde dev/proto-styles.css. */
+/* Reloj + logo. */
 .promatic_dashboard_enhancer-clock {
     display: flex;
     flex-direction: column;
@@ -227,13 +212,7 @@
     max-width: 150px;
 }
 
-/* =========================================================================
-   Señal GPS (widget-gps-signal) — portado desde dev/proto-styles.css,
-   diseño final 27 ago (RONDA 3, Variación aprobada por el usuario en
-   dev/proto-dash.html). Contraste corregido en el port: naranjo/rojo
-   "bright" + texto blanco fallan AA (2.74:1 / 3.21:1) — acá van con
-   --status-text oscuro (5.57:1 / 4.75:1), ver ADR-009.
-   ========================================================================= */
+/* ===== Señal GPS (card 'gps_signal') ===== */
 .promatic_dashboard_enhancer-signal-card-bg {
     position: relative;
     width: 100%;
@@ -245,10 +224,7 @@
     padding: 10px;
 }
 
-/* En el plugin, signal-card-bg vive dentro de .card__body (que ya aporta
-   borde/sombra/padding de card) — a diferencia del prototipo, donde es hijo
-   directo de .widget. Se neutraliza el chrome redundante y queda solo como
-   contexto de posicionamiento para el ícono de fondo + contenedor flex. */
+/* Dentro de .card__body (que ya da borde/sombra/padding) se neutraliza el chrome redundante. */
 .promatic_dashboard_enhancer-card__body > .promatic_dashboard_enhancer-signal-card-bg {
     border: 0;
     box-shadow: none;
@@ -326,12 +302,7 @@
     color: var(--status-text);
 }
 
-/* =========================================================================
-   Alertas Generales (widget-alerts-general) — portado desde
-   dev/proto-styles.css, Variación A elegida (27 ago). Fondo con la rampa
-   estructural (--g6/--g7), nunca "semáforo" — no le roba protagonismo a
-   Señal GPS, que sí debe leerse como la alerta más urgente.
-   ========================================================================= */
+/* ===== Alertas Generales (card 'alertas_generales') ===== */
 .promatic_dashboard_enhancer-stat-card-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -390,10 +361,7 @@
     line-height: 1;
 }
 
-/* =========================================================================
-   Estado de Flota (card 'flota') — portado desde dev/proto-styles.css.
-   Colores por cuadrante = tokens "strong" ya validados AA (ADR-009).
-   ========================================================================= */
+/* ===== Estado de Flota (card 'flota') ===== */
 .promatic_dashboard_enhancer-fleet-quadrants {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -432,10 +400,7 @@
     letter-spacing: .2px;
 }
 
-/* =========================================================================
-   Top 5 · Vehículos con más KM (card 'top5km') — portado desde
-   dev/proto-styles.css: barra apilada + ranking con barra de progreso.
-   ========================================================================= */
+/* ===== Vehículos con más KM (card 'top5km') — barra apilada + ranking ===== */
 .promatic_dashboard_enhancer-km-widget-body {
     display: flex;
     gap: 12px;
