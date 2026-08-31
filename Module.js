@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-31-1307',
+    moduleBuild: '2026-08-31-1826',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1470,11 +1470,29 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             reports.selectReport(reportCombo, rec);
             reports.down('#report_date1').setValue(startDate);
             reports.down('#report_date2').setValue(stopDate);
-            // "Dividir" (explode_combo) = 0 → un solo bloque por vehículo, sin
-            // separar por día. Va después de selectReport (que reconfigura el
-            // form). Defensivo: el combo puede no existir en otra cuenta.
+            // "Dividir" (explode_combo): buscar la opción "No dividir" en el
+            // store por su etiqueta y setear su valueField real — NO un literal.
+            // El valueField es "abbr" y "No dividir" = 3 en la cuenta de
+            // pruebas, pero varía por cuenta/idioma; un setValue(0) fijo deja el
+            // combo en estado inválido → explode="" en el submit → el job del
+            // reporte nunca termina ("El informe está siendo creado" colgado).
+            // Va después de selectReport (que reconfigura el form). Defensivo:
+            // el combo puede no existir en otra cuenta.
             var explodeCombo = reports.down('#explode_combo');
-            if (explodeCombo && explodeCombo.setValue) { explodeCombo.setValue(0); }
+            if (explodeCombo && explodeCombo.getStore) {
+                var explodeStore = explodeCombo.getStore();
+                var noSplit = explodeStore && explodeStore.findRecord(
+                    'name', /no dividir|don't split|do not split|не разбивать/i, 0, false, false, false);
+                // Fallback: "No dividir" es la última opción del store (abbr más
+                // alto) en todas las cuentas vistas.
+                if (!noSplit && explodeStore && explodeStore.getCount()) {
+                    noSplit = explodeStore.getAt(explodeStore.getCount() - 1);
+                }
+                if (noSplit) {
+                    explodeCombo.setValue(noSplit.get(explodeCombo.valueField || 'abbr'));
+                    if (explodeCombo.setSelection) { explodeCombo.setSelection(noSplit); }
+                }
+            }
             objectsStore.getRoot().cascadeBy(function (node) {
                 if (node.get('vehid')) {
                     node.set('checked', ids.indexOf(Number(node.get('vehid'))) !== -1);
