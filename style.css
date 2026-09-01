@@ -579,9 +579,56 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     border-color: var(--g5);
 }
 
-.promatic_dashboard_enhancer-ctrl-btn--active {
-    background: var(--g1);
-    border-color: var(--g5);
+/* Slider de alcance (2 posiciones explícitas) */
+.promatic_dashboard_enhancer-scope {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.promatic_dashboard_enhancer-scope__opt {
+    color: var(--g5);
+    transition: color 0.15s;
+}
+
+.promatic_dashboard_enhancer-scope:not(.is-all) .promatic_dashboard_enhancer-scope__opt--sel,
+.promatic_dashboard_enhancer-scope.is-all .promatic_dashboard_enhancer-scope__opt--all {
+    color: var(--g7);
+    font-weight: 600;
+}
+
+.promatic_dashboard_enhancer-scope__track {
+    position: relative;
+    display: inline-block;
+    width: 38px;
+    height: 20px;
+    border-radius: 10px;
+    background: var(--g3);
+    transition: background 0.15s;
+    flex: 0 0 auto;
+}
+
+.promatic_dashboard_enhancer-scope.is-all .promatic_dashboard_enhancer-scope__track {
+    background: var(--g6);
+}
+
+.promatic_dashboard_enhancer-scope__thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: left 0.15s;
+}
+
+.promatic_dashboard_enhancer-scope.is-all .promatic_dashboard_enhancer-scope__thumb {
+    left: 20px;
 }
 
 .promatic_dashboard_enhancer-ctrl-btn--primary {

@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-09-01-1432',
+    moduleBuild: '2026-09-01-1701',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -86,6 +86,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 afterrender: {
                     single: true,
                     fn: function () {
+                        me._lastManualRefresh = new Date();
                         me.bindKmReportLinks(panel);
                         me.bindControlsBar(panel);
                         me.bindFleetUpdates();
@@ -258,21 +259,40 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Barra de controles del pie del dashboard — 2 botones:
-    //  - Alcance: alterna entre seguir la selección del panel "Principal" de
-    //    PILOT y usar toda la flota (override en localStorage, sin re-publicar).
-    //  - Actualizar: re-dispara todos los widgets sin recargar la página.
-    // El label del botón de alcance se sincroniza en bindControlsBar / al
-    // hacer click (refleja el estado efectivo).
+    // Barra de controles del pie del dashboard:
+    //  - Slider de alcance: 2 posiciones explícitas — "Selección Principal"
+    //    (izquierda) sigue los checkboxes del panel "Principal" de PILOT;
+    //    "Toda la flota" (derecha) ignora la selección. Es un slider y no un
+    //    botón toggle a propósito: el estado se lee de la posición del thumb,
+    //    no hay ambigüedad de "¿avanza o retrocede al hacer click?". Override
+    //    en localStorage, sin re-publicar.
+    //  - Actualizar widgets: re-dispara todos los widgets sin recargar y
+    //    sella la hora en la barra de resumen ("actualizado HH:MM:SS").
     controlsBarMarkup: function () {
+        var isSelection = this.effectiveFleetScope() === 'pilot-selection';
         return {
             cls: 'promatic_dashboard_enhancer-controls',
             cn: [
                 {
-                    tag: 'button', type: 'button',
-                    id: 'promatic_dashboard_enhancer-btn-scope',
-                    cls: 'promatic_dashboard_enhancer-ctrl-btn',
-                    html: l('Alcance') + ': …'
+                    id: 'promatic_dashboard_enhancer-scope-slider',
+                    cls: 'promatic_dashboard_enhancer-scope' +
+                        (isSelection ? '' : ' is-all'),
+                    role: 'switch',
+                    cn: [
+                        {
+                            tag: 'span',
+                            cls: 'promatic_dashboard_enhancer-scope__opt promatic_dashboard_enhancer-scope__opt--sel',
+                            html: l('Selección Principal')
+                        },
+                        { tag: 'span', cls: 'promatic_dashboard_enhancer-scope__track', cn: [
+                            { tag: 'span', cls: 'promatic_dashboard_enhancer-scope__thumb' }
+                        ] },
+                        {
+                            tag: 'span',
+                            cls: 'promatic_dashboard_enhancer-scope__opt promatic_dashboard_enhancer-scope__opt--all',
+                            html: l('Toda la flota')
+                        }
+                    ]
                 },
                 {
                     tag: 'button', type: 'button',
@@ -284,23 +304,30 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         };
     },
 
-    scopeBtnLabel: function () {
-        return this.effectiveFleetScope() === 'pilot-selection' ?
-            l('Alcance') + ': ' + l('selección de PILOT') :
-            l('Alcance') + ': ' + l('toda la flota');
-    },
-
-    syncScopeBtn: function () {
-        var btn = Ext.get('promatic_dashboard_enhancer-btn-scope');
-        if (btn) {
-            btn.dom.textContent = this.scopeBtnLabel();
-            btn[this.effectiveFleetScope() === 'pilot-selection' ? 'removeCls' : 'addCls'](
-                'promatic_dashboard_enhancer-ctrl-btn--active');
+    // Refleja el estado efectivo en la posición del slider.
+    syncScopeSlider: function () {
+        var sl = Ext.get('promatic_dashboard_enhancer-scope-slider');
+        if (sl) {
+            sl[this.effectiveFleetScope() === 'pilot-selection' ? 'removeCls' : 'addCls']('is-all');
         }
     },
 
+    // Fija el alcance a un modo explícito ('pilot-selection' | 'all') según
+    // el lado del slider elegido. 'pilot-selection' limpia el override (es el
+    // default de config); 'all' lo escribe.
+    setScopeMode: function (mode) {
+        if (mode === this.effectiveFleetScope()) { return; }
+        this.setScopeOverride(mode === 'all' ? 'all' : null);
+        this.syncScopeSlider();
+        this.refreshAllWidgets();
+    },
+
     // Re-corre todos los widgets con datos en vivo — no toca reloj/logo.
+    // Sella la hora del último refresco manual (la muestra la barra de
+    // resumen); antes ese texto se re-pintaba en cada datachanged del árbol
+    // y parecía un reloj.
     refreshAllWidgets: function () {
+        this._lastManualRefresh = new Date();
         this.refreshFleetStore();
         this.loadTop5KmData();
         this.loadAlertasGenerales();
@@ -313,19 +340,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         el._controlsBound = true;
 
         el.on('click', function (e) {
-            var scopeBtn = e.getTarget('#promatic_dashboard_enhancer-btn-scope', 5, true);
-            if (scopeBtn) {
+            var slider = e.getTarget('#promatic_dashboard_enhancer-scope-slider', 5, true);
+            if (slider) {
                 e.preventDefault();
-                // Toggle: si el alcance efectivo es 'pilot-selection', pasar a
-                // 'all' (override); si no, limpiar el override (vuelve al
-                // default de config, que es 'pilot-selection').
-                if (me.effectiveFleetScope() === 'pilot-selection') {
-                    me.setScopeOverride('all');
+                // El lado clickeado decide el modo (no un toggle ciego).
+                var allOpt = e.getTarget('.promatic_dashboard_enhancer-scope__opt--all', 3, true);
+                var selOpt = e.getTarget('.promatic_dashboard_enhancer-scope__opt--sel', 3, true);
+                if (allOpt) {
+                    me.setScopeMode('all');
+                } else if (selOpt) {
+                    me.setScopeMode('pilot-selection');
                 } else {
-                    me.setScopeOverride(null);
+                    // click en el track/thumb: alterna al otro lado
+                    me.setScopeMode(me.effectiveFleetScope() === 'pilot-selection' ? 'all' : 'pilot-selection');
                 }
-                me.syncScopeBtn();
-                me.refreshAllWidgets();
                 return;
             }
             var refreshBtn = e.getTarget('#promatic_dashboard_enhancer-btn-refresh', 5, true);
@@ -340,7 +368,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         });
 
-        this.syncScopeBtn();
+        this.syncScopeSlider();
     },
 
     buildLopShell: function () {
@@ -516,6 +544,47 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return found;
     },
 
+    // FR-0004: expandir las carpetas marcadas pero colapsadas del árbol
+    // "Principal". El checkbox de una carpeta solo propaga checked=true a los
+    // vehículos hijos al EXPANDIR la carpeta, así que forzamos la expansión de
+    // esas ramas. expand() es async y dispara 'checkchange' en cada hijo al
+    // materializarse el checked → el listener con debounce re-renderiza solo.
+    // Se dejan expandidas a propósito (el usuario ve qué entró al dashboard);
+    // los checkboxes no se tocan. Devuelve true si expandió al menos una.
+    expandCheckedFolders: function (onlineTree) {
+        var store = onlineTree && onlineTree.getStore && onlineTree.getStore();
+        var root = store && store.getRoot && store.getRoot();
+        if (!root) { return false; }
+        var toExpand = [];
+        root.cascadeBy(function (node) {
+            if (node.get('checked') && !node.get('agentid') &&
+                node.isExpandable && node.isExpandable() && !node.isExpanded()) {
+                toExpand.push(node);
+            }
+        });
+        var me = this;
+        for (var i = 0; i < toExpand.length; i++) {
+            try {
+                toExpand[i].expand();
+            } catch (err) {
+                this.widgetErrorCode('FLEET-EXPAND', err);
+            }
+        }
+        // Red de seguridad: si expand() no acaba disparando 'checkchange'
+        // (hijos ya checked en el modelo, solo la carpeta estaba colapsada),
+        // el listener con debounce no re-renderiza. Un re-render diferido
+        // único cubre ese caso. _selectionExpandRetry evita un bucle.
+        if (toExpand.length > 0 && !this._selectionExpandRetry) {
+            this._selectionExpandRetry = true;
+            Ext.defer(function () {
+                me._selectionExpandRetry = false;
+                me.refreshFleetStore();
+                me.loadTop5KmData();
+            }, 900);
+        }
+        return toExpand.length > 0;
+    },
+
     getScopedFleetRecords: function (onlineTree) {
         var records = onlineTree.getStore().getData().items;
 
@@ -537,7 +606,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 // expandir). Distinguir para dar el mensaje correcto.
                 if (!scope) {
                     this._selectionEmpty = true;
-                    this._selectionCollapsed = this.hasCollapsedCheckedFolders(onlineTree);
+                    // FR-0004: si hay carpetas marcadas pero colapsadas, PILOT
+                    // no materializó sus vehículos como checked. Forzar la
+                    // expansión de esas ramas; expand() dispara 'checkchange'
+                    // en los hijos → el listener con debounce re-renderiza. En
+                    // esta pasada mostramos un mensaje transitorio.
+                    if (this.hasCollapsedCheckedFolders(onlineTree)) {
+                        this._selectionCollapsed = true;
+                        this._selectionExpanding = this.expandCheckedFolders(onlineTree);
+                    } else {
+                        this._selectionCollapsed = false;
+                        this._selectionExpanding = false;
+                    }
                     return [];
                 }
             }
@@ -737,9 +817,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // fleet.scope 'pilot-selection' sin hojas marcadas en el panel
         // "Principal": estado vacío explícito en vez de números en 0.
         if (this._selectionEmpty) {
-            var msgSel = this._selectionCollapsed ?
-                l('Expande en el panel "Principal" las carpetas que marcaste para incluir sus vehículos.') :
-                l('Selecciona vehículos en el panel "Principal" para ver el resumen.');
+            var msgSel;
+            if (this._selectionExpanding) {
+                msgSel = l('Cargando vehículos de las carpetas seleccionadas…');
+            } else if (this._selectionCollapsed) {
+                msgSel = l('Expande en el panel "Principal" las carpetas que marcaste para incluir sus vehículos.');
+            } else {
+                msgSel = l('Selecciona vehículos en el panel "Principal" para ver el resumen.');
+            }
             if (this.summaryBar) { this.summaryBar.update(msgSel); }
             this.updateCardBody('flota', msgSel);
             this.updateCardBody('gps_signal', msgSel);
@@ -1138,7 +1223,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__value', html: String(total - online) },
                     { tag: 'span', cls: 'promatic_dashboard_enhancer-stat__label', html: l('desconectados') }
                 ] },
-                { cls: 'promatic_dashboard_enhancer-summary__updated', html: l('actualizado') + ' ' + Ext.Date.format(new Date(), 'H:i:s') }
+                { cls: 'promatic_dashboard_enhancer-summary__updated', html: l('actualizado') + ' ' + Ext.Date.format(this._lastManualRefresh || new Date(), 'H:i:s') }
             ]
         }));
     },
@@ -1374,7 +1459,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
             if (vehIds.length === 0) {
                 var msg = l('Ningún vehículo con recorrido reciente.');
-                if (me._selectionCollapsed) {
+                if (me._selectionExpanding) {
+                    msg = l('Cargando vehículos de las carpetas seleccionadas…');
+                } else if (me._selectionCollapsed) {
                     msg = l('Expande en el panel "Principal" las carpetas que marcaste para incluir sus vehículos.');
                 } else if (me._selectionEmpty) {
                     msg = l('Selecciona vehículos en el panel "Principal" para ver el ranking.');
