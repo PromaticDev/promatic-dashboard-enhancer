@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-09-01-1701',
+    moduleBuild: '2026-09-01-1737',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -736,8 +736,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var me = this;
         var onlineTree = this.getOnlineTree();
         if (!this._selectionBound && onlineTree && typeof onlineTree.on === 'function') {
-            onlineTree.on('checkchange', function () {
+            onlineTree.on('checkchange', function (node) {
                 if (me.effectiveFleetScope() !== 'pilot-selection') { return; }
+                // FR-0004: si marcaron una carpeta colapsada, PILOT no
+                // propaga checked a los vehículos hijos hasta expandirla.
+                // Forzar la expansión acá mismo — checkchange SÍ llega para
+                // el nodo carpeta aunque no cascadee a los hijos ocultos.
+                if (node && node.get && node.get('checked') && !node.get('agentid') &&
+                    node.isExpandable && node.isExpandable() && !node.isExpanded()) {
+                    try { node.expand(); } catch (err) { me.widgetErrorCode('FLEET-EXPAND', err); }
+                }
                 if (me._selectionTimer) { return; }
                 me._selectionTimer = Ext.defer(function () {
                     me._selectionTimer = null;
@@ -1412,17 +1420,33 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         if (attempt < 40) {
+            // FR-0004: si estamos siguiendo la selección de PILOT y hay
+            // carpetas marcadas pero colapsadas, intentar expandirlas en
+            // cada reintento (barato, con guard interno) — así si el usuario
+            // marca la carpeta mientras el waiter gira, se abre sola.
+            if (onlineTree && !this.getFleetScopeFilter() &&
+                this.effectiveFleetScope() === 'pilot-selection') {
+                this._selectionExpandRetry = false;
+                this.expandCheckedFolders(onlineTree);
+            }
             Ext.defer(function () { me.withFleetVehicleIds(callback, attempt + 1); }, 500, this);
             return;
         }
 
         var scope = this.getFleetScopeFilter();
-        console.warn('[promatic_dashboard_enhancer] withFleetVehicleIds: 0 vehículos tras 20s. ' +
-            (scope ?
-                'Filtro de alcance de flota activo con ' + scope.length + ' ids (localStorage "' +
+        var msg;
+        if (scope) {
+            msg = 'Filtro de alcance de flota activo con ' + scope.length + ' ids (localStorage "' +
                 this.FLEET_SCOPE_STORAGE_KEY + '") — probablemente no coincide con el árbol Online actual. ' +
-                'Para limpiarlo: localStorage.removeItem("' + this.FLEET_SCOPE_STORAGE_KEY + '") y recargar.' :
-                'Sin filtro de alcance — el árbol Online no cargó vehículos.'));
+                'Para limpiarlo: localStorage.removeItem("' + this.FLEET_SCOPE_STORAGE_KEY + '") y recargar.';
+        } else if (this.effectiveFleetScope() === 'pilot-selection') {
+            msg = 'Alcance "selección de PILOT": no hay vehículos marcados en el panel "Principal" ' +
+                '(o solo carpetas colapsadas, cuyos hijos PILOT no materializa hasta expandir). ' +
+                'Marca vehículos o mueve el slider a "Toda la flota".';
+        } else {
+            msg = 'Sin filtro de alcance — el árbol Online no cargó vehículos.';
+        }
+        console.warn('[promatic_dashboard_enhancer] withFleetVehicleIds: 0 vehículos tras 20s. ' + msg);
     },
 
     // Card "Top 5 · Vehículos con más KM".
