@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-09-01-0954',
+    moduleBuild: '2026-09-01-1432',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -493,6 +493,29 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return ids.length ? ids : null;
     },
 
+    // ¿Hay carpetas marcadas (checked) en el árbol pero colapsadas, de modo
+    // que sus vehículos hijos NO están materializados como checked en el
+    // store? El checkbox de una carpeta en el árbol de PILOT solo propaga
+    // checked=true a los registros hijos al EXPANDIR la carpeta — con la
+    // carpeta cerrada, getChecked()/cascadeBy ven la carpeta marcada pero
+    // ninguna hoja. Confirmado en DEMO_CLIENT (1 sep). Ver ADR-014 y FR-0004.
+    hasCollapsedCheckedFolders: function (onlineTree) {
+        var store = onlineTree && onlineTree.getStore && onlineTree.getStore();
+        var root = store && store.getRoot && store.getRoot();
+        if (!root) { return false; }
+        var found = false;
+        root.cascadeBy(function (node) {
+            if (found) { return false; }
+            // nodo marcado, sin agentid (= carpeta/grupo), colapsado
+            if (node.get('checked') && !node.get('agentid') &&
+                node.isExpandable && node.isExpandable() && !node.isExpanded()) {
+                found = true;
+                return false;
+            }
+        });
+        return found;
+    },
+
     getScopedFleetRecords: function (onlineTree) {
         var records = onlineTree.getStore().getData().items;
 
@@ -500,6 +523,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // completa. La selección de PILOT solo aplica con fleet.scope
         // 'pilot-selection' y si hay algo marcado.
         this._selectionEmpty = false;
+        this._selectionCollapsed = false;
         var scope = this.getFleetScopeFilter();
         var scopeSource = 'localStorage';
         if (!scope) {
@@ -507,11 +531,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 typeof onlineTree.getChecked === 'function') {
                 scope = this.getPilotSelectionIds(onlineTree);
                 scopeSource = 'pilot-selection';
-                // getChecked() disponible pero nada marcado: es una elección
-                // explícita del usuario, no un fallback — devolver vacío y
-                // que los widgets muestren su estado "sin selección".
+                // getChecked() disponible pero ninguna hoja marcada: puede ser
+                // (a) el usuario no seleccionó nada, o (b) marcó carpetas pero
+                // las tiene colapsadas (PILOT no materializa los hijos hasta
+                // expandir). Distinguir para dar el mensaje correcto.
                 if (!scope) {
                     this._selectionEmpty = true;
+                    this._selectionCollapsed = this.hasCollapsedCheckedFolders(onlineTree);
                     return [];
                 }
             }
@@ -708,10 +734,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var records = this.getScopedFleetRecords(onlineTree);
 
-        // fleet.scope 'pilot-selection' sin nada marcado en el panel
+        // fleet.scope 'pilot-selection' sin hojas marcadas en el panel
         // "Principal": estado vacío explícito en vez de números en 0.
         if (this._selectionEmpty) {
-            var msgSel = l('Selecciona vehículos en el panel "Principal" para ver el resumen.');
+            var msgSel = this._selectionCollapsed ?
+                l('Expande en el panel "Principal" las carpetas que marcaste para incluir sus vehículos.') :
+                l('Selecciona vehículos en el panel "Principal" para ver el resumen.');
             if (this.summaryBar) { this.summaryBar.update(msgSel); }
             this.updateCardBody('flota', msgSel);
             this.updateCardBody('gps_signal', msgSel);
@@ -1345,9 +1373,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 (capped ? ' [cortado al tope de ' + cap + ']' : '') + ' — top ' + count);
 
             if (vehIds.length === 0) {
-                me.updateCardBody('top5km', me._selectionEmpty ?
-                    l('Selecciona vehículos en el panel "Principal" para ver el ranking.') :
-                    l('Ningún vehículo con recorrido reciente.'));
+                var msg = l('Ningún vehículo con recorrido reciente.');
+                if (me._selectionCollapsed) {
+                    msg = l('Expande en el panel "Principal" las carpetas que marcaste para incluir sus vehículos.');
+                } else if (me._selectionEmpty) {
+                    msg = l('Selecciona vehículos en el panel "Principal" para ver el ranking.');
+                }
+                me.updateCardBody('top5km', msg);
                 return;
             }
 
