@@ -5,5 +5,9 @@
     "activeVehicleCap": 300,
     "source": "ratings",
     "count": 5
+  },
+  "fleet": {
+    "scope": "pilot-selection",
+    "maxVehicles": 500
   }
 }

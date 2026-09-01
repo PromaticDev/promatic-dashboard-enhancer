@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-08-31-1826',
+    moduleBuild: '2026-09-01-0948',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -10,7 +10,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // en config.json = igual requiere re-publicar hoy, pero deja el punto
     // de extensión listo para el override remoto.
     DEFAULT_CONFIG: {
-        top5km: { windowDays: 7, activeVehicleCap: 300, source: 'ratings', count: 5 }
+        top5km: { windowDays: 7, activeVehicleCap: 300, source: 'ratings', count: 5 },
+        // fleet.scope: 'pilot-selection' = los widgets siguen la selección
+        // con checkbox del panel "Principal" de PILOT (online_tree.getChecked()).
+        // 'all' = árbol Online completo (comportamiento previo). maxVehicles =
+        // tope de seguridad para no disparar jobs async en flotas enormes.
+        // El filtro de alcance por localStorage (dev override) siempre gana.
+        fleet: { scope: 'pilot-selection', maxVehicles: 500 }
     },
 
     initModule: function () {
@@ -335,9 +341,56 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
+    // agent_ids marcados con checkbox en el panel "Principal" de PILOT
+    // (online_tree.getChecked()), filtrados a hojas reales — un nodo de
+    // carpeta/modelo no tiene 'agentid'. Devuelve null si getChecked no está
+    // disponible o no hay nada marcado (→ el caller cae a la flota completa).
+    getPilotSelectionIds: function (onlineTree) {
+        if (!onlineTree || typeof onlineTree.getChecked !== 'function') {
+            return null;
+        }
+        var checked;
+        try {
+            checked = onlineTree.getChecked() || [];
+        } catch (err) {
+            this.widgetErrorCode('FLEET-SELECTION', err);
+            return null;
+        }
+        var ids = [];
+        for (var i = 0; i < checked.length; i++) {
+            var node = checked[i];
+            var agentid = node && (node.get ? node.get('agentid') : node.agentid);
+            if (agentid) {
+                ids.push(agentid);
+            }
+        }
+        return ids.length ? ids : null;
+    },
+
     getScopedFleetRecords: function (onlineTree) {
         var records = onlineTree.getStore().getData().items;
+
+        // Prioridad: dev override (localStorage) > selección de PILOT > flota
+        // completa. La selección de PILOT solo aplica con fleet.scope
+        // 'pilot-selection' y si hay algo marcado.
+        this._selectionEmpty = false;
         var scope = this.getFleetScopeFilter();
+        var scopeSource = 'localStorage';
+        if (!scope) {
+            var fleetCfg = (this.config && this.config.fleet) || this.DEFAULT_CONFIG.fleet;
+            if (fleetCfg.scope === 'pilot-selection' && onlineTree &&
+                typeof onlineTree.getChecked === 'function') {
+                scope = this.getPilotSelectionIds(onlineTree);
+                scopeSource = 'pilot-selection';
+                // getChecked() disponible pero nada marcado: es una elección
+                // explícita del usuario, no un fallback — devolver vacío y
+                // que los widgets muestren su estado "sin selección".
+                if (!scope) {
+                    this._selectionEmpty = true;
+                    return [];
+                }
+            }
+        }
         if (!scope) {
             return records;
         }
@@ -355,11 +408,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
-        // El filtro no matcheó ningún vehículo del árbol Online actual —
-        // casi seguro config stale de otra cuenta/sesión (los 45 ids del
-        // demo del 26 ago ya no aplican). Se ignora y se usa la flota
-        // completa: mejor mostrar de más que un dashboard en 0.
-        if (filtered.length === 0 && records.length > 0) {
+        // El filtro de localStorage no matcheó ningún vehículo del árbol
+        // Online actual — casi seguro config stale de otra cuenta/sesión
+        // (los 45 ids del demo del 26 ago ya no aplican). Se ignora y se usa
+        // la flota completa: mejor mostrar de más que un dashboard en 0.
+        // NO aplica a 'pilot-selection': ahí un mismatch es real (el usuario
+        // marcó vehículos que no están en el árbol Online) — se respeta.
+        if (filtered.length === 0 && records.length > 0 && scopeSource === 'localStorage') {
             if (!this._scopeMismatchLogged) {
                 this._scopeMismatchLogged = true;
                 console.warn('[promatic_dashboard_enhancer] filtro de alcance de flota (localStorage "' +
@@ -441,6 +496,27 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             store.on('update', this.refreshFleetStore, this);
             this._fleetBound = true;
         }
+
+        // fleet.scope 'pilot-selection': re-renderizar cuando el usuario
+        // marca/desmarca vehículos en el panel "Principal". checkchange se
+        // dispara una vez por hoja al cascadear una carpeta — debounce para
+        // coalescer la ráfaga en un solo refresh + recarga del Top KM.
+        var me = this;
+        var onlineTree = this.getOnlineTree();
+        var fleetCfg = (this.config && this.config.fleet) || this.DEFAULT_CONFIG.fleet;
+        if (!this._selectionBound && fleetCfg.scope === 'pilot-selection' &&
+            onlineTree && typeof onlineTree.on === 'function') {
+            onlineTree.on('checkchange', function () {
+                if (me._selectionTimer) { return; }
+                me._selectionTimer = Ext.defer(function () {
+                    me._selectionTimer = null;
+                    me.refreshFleetStore();
+                    me.loadTop5KmData();
+                }, 600);
+            });
+            this._selectionBound = true;
+        }
+
         this.refreshFleetStore();
     },
 
@@ -506,6 +582,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         var records = this.getScopedFleetRecords(onlineTree);
+
+        // fleet.scope 'pilot-selection' sin nada marcado en el panel
+        // "Principal": estado vacío explícito en vez de números en 0.
+        if (this._selectionEmpty) {
+            var msgSel = l('Selecciona vehículos en el panel "Principal" para ver el resumen.');
+            if (this.summaryBar) { this.summaryBar.update(msgSel); }
+            this.updateCardBody('flota', msgSel);
+            this.updateCardBody('gps_signal', msgSel);
+            return;
+        }
+
         var total = 0;
         var moving = 0, parked = 0, offlineCount = 0;
         var gps24 = 0, gps48 = 0, gpsMore = 0;
@@ -1074,6 +1161,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var vehIds = onlineTree ? this.getFleetVehicleIds(onlineTree) : [];
 
         if (vehIds.length > 0) {
+            var fleetCfg = (this.config && this.config.fleet) || this.DEFAULT_CONFIG.fleet;
+            var maxVeh = fleetCfg.maxVehicles || 500;
+            if (vehIds.length > maxVeh) {
+                console.warn('[promatic_dashboard_enhancer] withFleetVehicleIds: ' + vehIds.length +
+                    ' vehículos en alcance, cortando al tope de ' + maxVeh +
+                    ' (fleet.maxVehicles). Marca menos vehículos en el panel "Principal" para acotar.');
+                vehIds = vehIds.slice(0, maxVeh);
+            }
             callback.call(this, vehIds);
             return;
         }
@@ -1125,7 +1220,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 (capped ? ' [cortado al tope de ' + cap + ']' : '') + ' — top ' + count);
 
             if (vehIds.length === 0) {
-                me.updateCardBody('top5km', l('Ningún vehículo con recorrido reciente.'));
+                me.updateCardBody('top5km', me._selectionEmpty ?
+                    l('Selecciona vehículos en el panel "Principal" para ver el ranking.') :
+                    l('Ningún vehículo con recorrido reciente.'));
                 return;
             }
 
