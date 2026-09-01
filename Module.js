@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-09-01-1737',
+    moduleBuild: '2026-09-01-1748',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -13,9 +13,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         top5km: { windowDays: 7, activeVehicleCap: 300, source: 'ratings', count: 5 },
         // fleet.scope: 'pilot-selection' = los widgets siguen la selección
         // con checkbox del panel "Principal" de PILOT (online_tree.getChecked()).
-        // 'all' = árbol Online completo (comportamiento previo). maxVehicles =
+        // 'all' = árbol Online completo. El slider del pie del dashboard
+        // sobrescribe este valor por sesión (localStorage). maxVehicles =
         // tope de seguridad para no disparar jobs async en flotas enormes.
-        // El filtro de alcance por localStorage (dev override) siempre gana.
         fleet: { scope: 'pilot-selection', maxVehicles: 500 }
     },
 
@@ -437,19 +437,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     // Filtro opcional de alcance de flota — resuelve cuentas donde
-    // online_tree expone muchos más vehículos de los que un widget necesita
-    // consultar de una vez (ver spec/datos.md, "Filtro de alcance de
-    // flota"). Configurado vía localStorage, NUNCA hardcodeado acá: este
-    // archivo se sincroniza al repo público (dist/), y una lista de
-    // agent_ids de un cliente real es dato operativo de cuenta, no código.
-    // Ausente/vacío = sin filtro (comportamiento actual, sin cambios).
-    FLEET_SCOPE_STORAGE_KEY: 'promatic_dashboard_enhancer_fleet_scope',
-
-    // Override de alcance operable desde la UI (botón del pie del dashboard).
-    // 'all' = ignora la selección de PILOT y usa la flota completa;
-    // ausente/'pilot-selection' = comportamiento de config.fleet.scope.
-    // Separado de FLEET_SCOPE_STORAGE_KEY (lista de agent_ids, dev override):
-    // esto es solo un string de modo, seguro para que lo togglee el operador.
+    // Alcance del dashboard, operable desde el slider del pie:
+    // 'pilot-selection' = sigue la selección con checkbox del panel "Principal";
+    // 'all' = flota completa del árbol Online.
+    // (El filtro por lista de agent_ids en localStorage — dev override de
+    // NOC-007 — se retiró el 1 sep: el slider ya da control explícito, y la
+    // lista de 45 ids del demo pisaba el modo "toda la flota".)
     SCOPE_OVERRIDE_STORAGE_KEY: 'promatic_dashboard_enhancer_scope_override',
 
     getScopeOverride: function () {
@@ -473,8 +466,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Alcance efectivo: el override de la UI (localStorage) gana sobre
-    // config.fleet.scope.
+    // Alcance efectivo: el slider (localStorage) gana sobre config.fleet.scope.
     effectiveFleetScope: function () {
         var override = this.getScopeOverride();
         if (override === 'all' || override === 'pilot-selection') {
@@ -482,17 +474,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
         var fleetCfg = (this.config && this.config.fleet) || this.DEFAULT_CONFIG.fleet;
         return fleetCfg.scope || 'all';
-    },
-
-    getFleetScopeFilter: function () {
-        try {
-            var raw = window.localStorage && localStorage.getItem(this.FLEET_SCOPE_STORAGE_KEY);
-            var ids = raw ? JSON.parse(raw) : null;
-            return (Array.isArray(ids) && ids.length) ? ids : null;
-        } catch (err) {
-            this.widgetErrorCode('FLEET-SCOPE', err);
-            return null;
-        }
     },
 
     // agent_ids marcados con checkbox en el panel "Principal" de PILOT
@@ -588,38 +569,33 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     getScopedFleetRecords: function (onlineTree) {
         var records = onlineTree.getStore().getData().items;
 
-        // Prioridad: dev override (localStorage) > selección de PILOT > flota
-        // completa. La selección de PILOT solo aplica con fleet.scope
-        // 'pilot-selection' y si hay algo marcado.
+        // Alcance: 'pilot-selection' filtra a los vehículos marcados en el
+        // panel "Principal"; 'all' devuelve la flota completa del árbol Online.
         this._selectionEmpty = false;
         this._selectionCollapsed = false;
-        var scope = this.getFleetScopeFilter();
-        var scopeSource = 'localStorage';
-        if (!scope) {
-            if (this.effectiveFleetScope() === 'pilot-selection' && onlineTree &&
-                typeof onlineTree.getChecked === 'function') {
-                scope = this.getPilotSelectionIds(onlineTree);
-                scopeSource = 'pilot-selection';
-                // getChecked() disponible pero ninguna hoja marcada: puede ser
-                // (a) el usuario no seleccionó nada, o (b) marcó carpetas pero
-                // las tiene colapsadas (PILOT no materializa los hijos hasta
-                // expandir). Distinguir para dar el mensaje correcto.
-                if (!scope) {
-                    this._selectionEmpty = true;
-                    // FR-0004: si hay carpetas marcadas pero colapsadas, PILOT
-                    // no materializó sus vehículos como checked. Forzar la
-                    // expansión de esas ramas; expand() dispara 'checkchange'
-                    // en los hijos → el listener con debounce re-renderiza. En
-                    // esta pasada mostramos un mensaje transitorio.
-                    if (this.hasCollapsedCheckedFolders(onlineTree)) {
-                        this._selectionCollapsed = true;
-                        this._selectionExpanding = this.expandCheckedFolders(onlineTree);
-                    } else {
-                        this._selectionCollapsed = false;
-                        this._selectionExpanding = false;
-                    }
-                    return [];
+        var scope = null;
+        if (this.effectiveFleetScope() === 'pilot-selection' && onlineTree &&
+            typeof onlineTree.getChecked === 'function') {
+            scope = this.getPilotSelectionIds(onlineTree);
+            // getChecked() disponible pero ninguna hoja marcada: puede ser
+            // (a) el usuario no seleccionó nada, o (b) marcó carpetas pero
+            // las tiene colapsadas (PILOT no materializa los hijos hasta
+            // expandir). Distinguir para dar el mensaje correcto.
+            if (!scope) {
+                this._selectionEmpty = true;
+                // FR-0004: si hay carpetas marcadas pero colapsadas, PILOT
+                // no materializó sus vehículos como checked. Forzar la
+                // expansión de esas ramas; expand() dispara 'checkchange'
+                // en los hijos → el listener con debounce re-renderiza. En
+                // esta pasada mostramos un mensaje transitorio.
+                if (this.hasCollapsedCheckedFolders(onlineTree)) {
+                    this._selectionCollapsed = true;
+                    this._selectionExpanding = this.expandCheckedFolders(onlineTree);
+                } else {
+                    this._selectionCollapsed = false;
+                    this._selectionExpanding = false;
                 }
+                return [];
             }
         }
         if (!scope) {
@@ -637,23 +613,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (agentid && scopeSet[agentid]) {
                 filtered.push(records[j]);
             }
-        }
-
-        // El filtro de localStorage no matcheó ningún vehículo del árbol
-        // Online actual — casi seguro config stale de otra cuenta/sesión
-        // (los 45 ids del demo del 26 ago ya no aplican). Se ignora y se usa
-        // la flota completa: mejor mostrar de más que un dashboard en 0.
-        // NO aplica a 'pilot-selection': ahí un mismatch es real (el usuario
-        // marcó vehículos que no están en el árbol Online) — se respeta.
-        if (filtered.length === 0 && records.length > 0 && scopeSource === 'localStorage') {
-            if (!this._scopeMismatchLogged) {
-                this._scopeMismatchLogged = true;
-                console.warn('[promatic_dashboard_enhancer] filtro de alcance de flota (localStorage "' +
-                    this.FLEET_SCOPE_STORAGE_KEY + '") no coincide con ningún vehículo del árbol Online — ' +
-                    'se ignora, se usa la flota completa. Para limpiarlo: localStorage.removeItem("' +
-                    this.FLEET_SCOPE_STORAGE_KEY + '").');
-            }
-            return records;
         }
 
         return filtered;
@@ -1424,8 +1383,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // carpetas marcadas pero colapsadas, intentar expandirlas en
             // cada reintento (barato, con guard interno) — así si el usuario
             // marca la carpeta mientras el waiter gira, se abre sola.
-            if (onlineTree && !this.getFleetScopeFilter() &&
-                this.effectiveFleetScope() === 'pilot-selection') {
+            if (onlineTree && this.effectiveFleetScope() === 'pilot-selection') {
                 this._selectionExpandRetry = false;
                 this.expandCheckedFolders(onlineTree);
             }
@@ -1433,18 +1391,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return;
         }
 
-        var scope = this.getFleetScopeFilter();
         var msg;
-        if (scope) {
-            msg = 'Filtro de alcance de flota activo con ' + scope.length + ' ids (localStorage "' +
-                this.FLEET_SCOPE_STORAGE_KEY + '") — probablemente no coincide con el árbol Online actual. ' +
-                'Para limpiarlo: localStorage.removeItem("' + this.FLEET_SCOPE_STORAGE_KEY + '") y recargar.';
-        } else if (this.effectiveFleetScope() === 'pilot-selection') {
+        if (this.effectiveFleetScope() === 'pilot-selection') {
             msg = 'Alcance "selección de PILOT": no hay vehículos marcados en el panel "Principal" ' +
                 '(o solo carpetas colapsadas, cuyos hijos PILOT no materializa hasta expandir). ' +
                 'Marca vehículos o mueve el slider a "Toda la flota".';
         } else {
-            msg = 'Sin filtro de alcance — el árbol Online no cargó vehículos.';
+            msg = 'Alcance "toda la flota" — el árbol Online no cargó vehículos.';
         }
         console.warn('[promatic_dashboard_enhancer] withFleetVehicleIds: 0 vehículos tras 20s. ' + msg);
     },
