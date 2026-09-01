@@ -554,3 +554,48 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     border-radius: 2px;
     background: linear-gradient(to right, var(--g5), var(--g1));
 }
+
+/* Barra de controles del pie del dashboard (ADR-014) */
+.promatic_dashboard_enhancer-controls {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px 0 4px;
+}
+
+.promatic_dashboard_enhancer-ctrl-btn {
+    font: inherit;
+    font-size: 12px;
+    padding: 6px 12px;
+    border: 1px solid var(--g4);
+    border-radius: 4px;
+    background: #fff;
+    color: var(--g7);
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-ctrl-btn:hover {
+    background: var(--g0);
+    border-color: var(--g5);
+}
+
+.promatic_dashboard_enhancer-ctrl-btn--active {
+    background: var(--g1);
+    border-color: var(--g5);
+}
+
+.promatic_dashboard_enhancer-ctrl-btn--primary {
+    background: var(--g6);
+    border-color: var(--g6);
+    color: #fff;
+}
+
+.promatic_dashboard_enhancer-ctrl-btn--primary:hover {
+    background: var(--g7);
+    border-color: var(--g7);
+}
+
+.promatic_dashboard_enhancer-ctrl-btn--busy {
+    opacity: 0.6;
+    pointer-events: none;
+}

@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-09-01-0948',
+    moduleBuild: '2026-09-01-0954',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -87,6 +87,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     single: true,
                     fn: function () {
                         me.bindKmReportLinks(panel);
+                        me.bindControlsBar(panel);
                         me.bindFleetUpdates();
                         me.loadTop5KmData();
                         me.loadAlertasGenerales();
@@ -247,13 +248,99 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     title: l('Hotspots de desconexión'), meta: 'type=15',
                     footerLabel: l('Abrir mapa de desconexión')
                 })
-            ])
+            ]),
+            this.controlsBarMarkup()
         ];
 
         return Ext.create('Ext.Component', {
             cls: 'promatic_dashboard_enhancer-rac-shell',
             html: Ext.DomHelper.markup(rows)
         });
+    },
+
+    // Barra de controles del pie del dashboard — 2 botones:
+    //  - Alcance: alterna entre seguir la selección del panel "Principal" de
+    //    PILOT y usar toda la flota (override en localStorage, sin re-publicar).
+    //  - Actualizar: re-dispara todos los widgets sin recargar la página.
+    // El label del botón de alcance se sincroniza en bindControlsBar / al
+    // hacer click (refleja el estado efectivo).
+    controlsBarMarkup: function () {
+        return {
+            cls: 'promatic_dashboard_enhancer-controls',
+            cn: [
+                {
+                    tag: 'button', type: 'button',
+                    id: 'promatic_dashboard_enhancer-btn-scope',
+                    cls: 'promatic_dashboard_enhancer-ctrl-btn',
+                    html: l('Alcance') + ': …'
+                },
+                {
+                    tag: 'button', type: 'button',
+                    id: 'promatic_dashboard_enhancer-btn-refresh',
+                    cls: 'promatic_dashboard_enhancer-ctrl-btn promatic_dashboard_enhancer-ctrl-btn--primary',
+                    html: l('Actualizar widgets')
+                }
+            ]
+        };
+    },
+
+    scopeBtnLabel: function () {
+        return this.effectiveFleetScope() === 'pilot-selection' ?
+            l('Alcance') + ': ' + l('selección de PILOT') :
+            l('Alcance') + ': ' + l('toda la flota');
+    },
+
+    syncScopeBtn: function () {
+        var btn = Ext.get('promatic_dashboard_enhancer-btn-scope');
+        if (btn) {
+            btn.dom.textContent = this.scopeBtnLabel();
+            btn[this.effectiveFleetScope() === 'pilot-selection' ? 'removeCls' : 'addCls'](
+                'promatic_dashboard_enhancer-ctrl-btn--active');
+        }
+    },
+
+    // Re-corre todos los widgets con datos en vivo — no toca reloj/logo.
+    refreshAllWidgets: function () {
+        this.refreshFleetStore();
+        this.loadTop5KmData();
+        this.loadAlertasGenerales();
+    },
+
+    bindControlsBar: function (panel) {
+        var me = this;
+        var el = panel && panel.getEl && panel.getEl();
+        if (!el || el._controlsBound) { return; }
+        el._controlsBound = true;
+
+        el.on('click', function (e) {
+            var scopeBtn = e.getTarget('#promatic_dashboard_enhancer-btn-scope', 5, true);
+            if (scopeBtn) {
+                e.preventDefault();
+                // Toggle: si el alcance efectivo es 'pilot-selection', pasar a
+                // 'all' (override); si no, limpiar el override (vuelve al
+                // default de config, que es 'pilot-selection').
+                if (me.effectiveFleetScope() === 'pilot-selection') {
+                    me.setScopeOverride('all');
+                } else {
+                    me.setScopeOverride(null);
+                }
+                me.syncScopeBtn();
+                me.refreshAllWidgets();
+                return;
+            }
+            var refreshBtn = e.getTarget('#promatic_dashboard_enhancer-btn-refresh', 5, true);
+            if (refreshBtn) {
+                e.preventDefault();
+                refreshBtn.addCls('promatic_dashboard_enhancer-ctrl-btn--busy');
+                me.refreshAllWidgets();
+                Ext.defer(function () {
+                    var b = Ext.get('promatic_dashboard_enhancer-btn-refresh');
+                    if (b) { b.removeCls('promatic_dashboard_enhancer-ctrl-btn--busy'); }
+                }, 800);
+            }
+        });
+
+        this.syncScopeBtn();
     },
 
     buildLopShell: function () {
@@ -330,6 +417,45 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // Ausente/vacío = sin filtro (comportamiento actual, sin cambios).
     FLEET_SCOPE_STORAGE_KEY: 'promatic_dashboard_enhancer_fleet_scope',
 
+    // Override de alcance operable desde la UI (botón del pie del dashboard).
+    // 'all' = ignora la selección de PILOT y usa la flota completa;
+    // ausente/'pilot-selection' = comportamiento de config.fleet.scope.
+    // Separado de FLEET_SCOPE_STORAGE_KEY (lista de agent_ids, dev override):
+    // esto es solo un string de modo, seguro para que lo togglee el operador.
+    SCOPE_OVERRIDE_STORAGE_KEY: 'promatic_dashboard_enhancer_scope_override',
+
+    getScopeOverride: function () {
+        try {
+            return (window.localStorage && localStorage.getItem(this.SCOPE_OVERRIDE_STORAGE_KEY)) || null;
+        } catch (err) {
+            return null;
+        }
+    },
+
+    setScopeOverride: function (value) {
+        try {
+            if (!window.localStorage) { return; }
+            if (value) {
+                localStorage.setItem(this.SCOPE_OVERRIDE_STORAGE_KEY, value);
+            } else {
+                localStorage.removeItem(this.SCOPE_OVERRIDE_STORAGE_KEY);
+            }
+        } catch (err) {
+            this.widgetErrorCode('SCOPE-OVERRIDE', err);
+        }
+    },
+
+    // Alcance efectivo: el override de la UI (localStorage) gana sobre
+    // config.fleet.scope.
+    effectiveFleetScope: function () {
+        var override = this.getScopeOverride();
+        if (override === 'all' || override === 'pilot-selection') {
+            return override;
+        }
+        var fleetCfg = (this.config && this.config.fleet) || this.DEFAULT_CONFIG.fleet;
+        return fleetCfg.scope || 'all';
+    },
+
     getFleetScopeFilter: function () {
         try {
             var raw = window.localStorage && localStorage.getItem(this.FLEET_SCOPE_STORAGE_KEY);
@@ -377,8 +503,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var scope = this.getFleetScopeFilter();
         var scopeSource = 'localStorage';
         if (!scope) {
-            var fleetCfg = (this.config && this.config.fleet) || this.DEFAULT_CONFIG.fleet;
-            if (fleetCfg.scope === 'pilot-selection' && onlineTree &&
+            if (this.effectiveFleetScope() === 'pilot-selection' && onlineTree &&
                 typeof onlineTree.getChecked === 'function') {
                 scope = this.getPilotSelectionIds(onlineTree);
                 scopeSource = 'pilot-selection';
@@ -497,16 +622,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             this._fleetBound = true;
         }
 
-        // fleet.scope 'pilot-selection': re-renderizar cuando el usuario
-        // marca/desmarca vehículos en el panel "Principal". checkchange se
-        // dispara una vez por hoja al cascadear una carpeta — debounce para
-        // coalescer la ráfaga en un solo refresh + recarga del Top KM.
+        // Re-renderizar cuando el usuario marca/desmarca vehículos en el
+        // panel "Principal". checkchange se dispara una vez por hoja al
+        // cascadear una carpeta — debounce para coalescer la ráfaga. El
+        // handler chequea el scope efectivo en cada disparo, así el toggle
+        // del pie del dashboard funciona sin re-bindear.
         var me = this;
         var onlineTree = this.getOnlineTree();
-        var fleetCfg = (this.config && this.config.fleet) || this.DEFAULT_CONFIG.fleet;
-        if (!this._selectionBound && fleetCfg.scope === 'pilot-selection' &&
-            onlineTree && typeof onlineTree.on === 'function') {
+        if (!this._selectionBound && onlineTree && typeof onlineTree.on === 'function') {
             onlineTree.on('checkchange', function () {
+                if (me.effectiveFleetScope() !== 'pilot-selection') { return; }
                 if (me._selectionTimer) { return; }
                 me._selectionTimer = Ext.defer(function () {
                     me._selectionTimer = null;
