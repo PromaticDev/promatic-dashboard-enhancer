@@ -243,6 +243,21 @@ body {
   color: var(--dev-label-strong);
 }
 
+
+/* ******************************* */
+/* 
+  Estilos de HTML para tratar de revertir el Pilot de Fuerza
+
+*/
+
+.promatic_dashboard_enhancer-stat-card {
+  padding: 12px;
+}
+
+
+
+
+
 /* ==========================================================================
    Contenedor Principal (Fluid Frame)
    ========================================================================== */
@@ -380,7 +395,7 @@ body {
 
 .priority-strip-loc {
   /* Golden Score removido 24 ago — 3 widgets: alertas (chips) / velocidad / ralentí */
-  grid-template-columns: minmax(200px, 0.6fr) minmax(280px, 1fr) minmax(200px, 0.6fr);
+  grid-template-columns: 1fr 1fr 1fr;
 }
 
 .alert-subtitle {
@@ -1233,7 +1248,7 @@ a.rank-row:hover .chev {
 /* Laptop / Desktops medianos (<= 1200px) */
 @media (max-width: 1200px) {
   .eco-widget {
-    grid-column: span 2;
+    grid-column: span 1;
   }
 
   .dg-3 {
