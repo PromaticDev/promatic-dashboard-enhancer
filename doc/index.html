@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Promatic Dashboard — Documentación de la extensión</title>
+    <title>Promatic Dashboard — Documentación / Documentation</title>
     <style>
         :root {
             --bg: #f7f9fb;
@@ -16,6 +16,7 @@
             --code-bg: #f1f5f9;
         }
         * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
         body {
             margin: 0;
             padding: 2.5rem 1.25rem;
@@ -30,6 +31,26 @@
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 2.5rem 2.25rem;
+        }
+        .lang-nav {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px dashed var(--border);
+        }
+        .lang-nav a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            padding: 0.3rem 0.8rem;
+            background: var(--accent-soft);
+            border-radius: 6px;
+            transition: background 0.2s ease;
+        }
+        .lang-nav a:hover {
+            background: #d0e4f2;
         }
         header {
             border-bottom: 1px solid var(--border);
@@ -96,6 +117,11 @@
         }
         th { color: var(--muted); font-weight: 600; }
         td code { font-size: .85em; }
+        .divider {
+            margin: 3.5rem 0;
+            border: 0;
+            border-top: 2px solid var(--border);
+        }
         footer {
             margin-top: 2.25rem;
             padding-top: 1.25rem;
@@ -107,47 +133,55 @@
 </head>
 <body>
 <main>
-    <header>
-        <h1>Promatic Dashboard</h1>
-        <p class="tagline">Panel de resumen de flota en tiempo real, integrado como extensión nativa de la plataforma PILOT.</p>
-    </header>
 
-    <p>
-        <span class="badge">Full UI Extension</span>
-    </p>
+    <!-- Navegación Superior -->
+    <nav class="lang-nav">
+        <a href="#en">Skip to English &darr;</a>
+    </nav>
 
-    <h2>Qué hace</h2>
-    <p>
-        La extensión agrega una pestaña propia en el panel de navegación de PILOT con un
-        dashboard de flota. Reúne en una sola vista el estado de conectividad de los
-        vehículos, las alertas relevantes, el kilometraje y otros indicadores operativos,
-        actualizándose en vivo con el árbol de vehículos de la plataforma.
-    </p>
-    <p>
-        Está pensada para dar una lectura rápida del estado general de la flota sin tener
-        que recorrer los distintos reportes nativos, y para enlazar de vuelta a ellos
-        cuando se necesita el detalle.
-    </p>
+    <!-- SECCIÓN EN ESPAÑOL -->
+    <section id="es">
+        <header>
+            <h1>Promatic Dashboard</h1>
+            <p class="tagline">Panel de resumen de flota en tiempo real, integrado como extensión nativa de la plataforma PILOT.</p>
+        </header>
 
-    <h2>Características principales</h2>
-    <ul>
-        <li><strong>Estado de flota en vivo</strong> — vehículos activos, en movimiento y detenidos, en porcentajes sobre el total.</li>
-        <li><strong>Sin Señal GPS</strong> — vehículos sin conexión al servidor agrupados por antigüedad de la última señal (menos de 24 h, entre 24 y 48 h, más de 48 h), con realce visual para los casos críticos.</li>
-        <li><strong>Alertas Generales</strong> — conteo de accidentes recientes y vehículos que requieren mantención.</li>
-        <li><strong>Vehículos con Kilometraje en Exceso</strong> — ranking de kilómetros recorridos en el período configurado, con enlace directo al informe de kilometraje de PILOT.</li>
-        <li><strong>Hora Oficial</strong> — reloj con zona horaria configurable.</li>
-        <li><strong>Alcance ajustable</strong> — el dashboard puede seguir la selección de vehículos del panel "Principal" de PILOT o considerar la flota completa, desde un control en el propio panel.</li>
-        <li><strong>Actualización manual</strong> — botón para refrescar todos los indicadores sin recargar la página.</li>
-        <li><strong>Solo lectura</strong> — la extensión únicamente consulta datos; nunca crea, modifica ni elimina información en PILOT.</li>
-    </ul>
+        <p>
+            <span class="badge">Full UI Extension</span>
+        </p>
 
-    <h2>Configuración — <code>config.json</code></h2>
-    <p>
-        El comportamiento del dashboard se ajusta desde el archivo <code>config.json</code>
-        incluido en la extensión, sin necesidad de tocar el código. Si el archivo no está
-        disponible, la extensión usa valores por defecto equivalentes.
-    </p>
-    <pre><code>{
+        <h2>Qué hace</h2>
+        <p>
+            La extensión agrega una pestaña propia en el panel de navegación de PILOT con un
+            dashboard de flota. Reúne en una sola vista el estado de conectividad de los
+            vehículos, las alertas relevantes, el kilometraje y otros indicadores operativos,
+            actualizándose en vivo con el árbol de vehículos de la plataforma.
+        </p>
+        <p>
+            Está pensada para dar una lectura rápida del estado general de la flota sin tener
+            que recorrer los distintos reportes nativos, y para enlazar de vuelta a ellos
+            cuando se necesita el detalle.
+        </p>
+
+        <h2>Características principales</h2>
+        <ul>
+            <li><strong>Estado de flota en vivo</strong> — vehículos activos, en movimiento y detenidos, en porcentajes sobre el total.</li>
+            <li><strong>Sin Señal GPS</strong> — vehículos sin conexión al servidor agrupados por antigüedad de la última señal (menos de 24 h, entre 24 y 48 h, más de 48 h), con realce visual para los casos críticos.</li>
+            <li><strong>Alertas Generales</strong> — conteo de accidentes recientes y vehículos que requieren mantención.</li>
+            <li><strong>Vehículos con Kilometraje en Exceso</strong> — ranking de kilómetros recorridos en el período configurado, con enlace directo al informe de kilometraje de PILOT.</li>
+            <li><strong>Hora Oficial</strong> — reloj con zona horaria configurable.</li>
+            <li><strong>Alcance ajustable</strong> — el dashboard puede seguir la selección de vehículos del panel "Principal" de PILOT o considerar la flota completa, desde un control en el propio panel.</li>
+            <li><strong>Actualización manual</strong> — botón para refrescar todos los indicadores sin recargar la página.</li>
+            <li><strong>Solo lectura</strong> — la extensión únicamente consulta datos; nunca crea, modifica ni elimina información en PILOT.</li>
+        </ul>
+
+        <h2>Configuración — <code>config.json</code></h2>
+        <p>
+            El comportamiento del dashboard se ajusta desde el archivo <code>config.json</code>
+            incluido en la extensión, sin necesidad de tocar el código. Si el archivo no está
+            disponible, la extensión usa valores por defecto equivalentes.
+        </p>
+        <pre><code>{
   "top5km": {
     "windowDays": 7,          // días hacia atrás para el ranking de kilometraje
     "activeVehicleCap": 300,  // tope de vehículos a consultar
@@ -160,39 +194,136 @@
   },
   "clock": {
     "timeZone": "America/Santiago", // identificador de zona horaria IANA
-    "locale": "es-CL",             // formato de hora
+    "locale": "es-CL",              // formato de hora
     "label": "Hora Oficial"        // rótulo del widget
   }
 }</code></pre>
-    <table>
-        <tr><th>Sección</th><th>Para qué sirve</th></tr>
-        <tr><td><code>top5km</code></td><td>Ventana de tiempo, límites y fuente del ranking de kilometraje.</td></tr>
-        <tr><td><code>fleet</code></td><td>Qué vehículos considera el dashboard y tope de seguridad de consultas.</td></tr>
-        <tr><td><code>clock</code></td><td>Zona horaria, idioma y rótulo del reloj.</td></tr>
-    </table>
-    <p>
-        Los cambios en <code>config.json</code> se aplican al volver a publicar la extensión.
-        La estructura está preparada para que, más adelante, un servicio externo pueda
-        entregar la misma configuración de forma dinámica.
-    </p>
+        <table>
+            <tr><th>Sección</th><th>Para qué sirve</th></tr>
+            <tr><td><code>top5km</code></td><td>Ventana de tiempo, límites y fuente del ranking de kilometraje.</td></tr>
+            <tr><td><code>fleet</code></td><td>Qué vehículos considera el dashboard y tope de seguridad de consultas.</td></tr>
+            <tr><td><code>clock</code></td><td>Zona horaria, idioma y rótulo del reloj.</td></tr>
+        </table>
+        <p>
+            Los cambios en <code>config.json</code> se aplican al volver a publicar la extensión.
+            La estructura está preparada para que, más adelante, un servicio externo pueda
+            entregar la misma configuración de forma dinámica.
+        </p>
 
-    <h2>Instalación</h2>
-    <p>
-        Registrar la URL base de esta extensión en la administración de PILOT. Una vez
-        cargada, aparece una nueva pestaña <strong>"Promatic Dashboard"</strong> en el panel
-        de navegación izquierdo.
-    </p>
+        <h2>Instalación</h2>
+        <p>
+            Registrar la URL base de esta extensión en la administración de PILOT. Una vez
+            cargada, aparece una nueva pestaña <strong>"Promatic Dashboard"</strong> en el panel
+            de navegación izquierdo.
+        </p>
 
-    <h2>Estado</h2>
-    <p>Versión <strong>0.3.0</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
+        <h2>Estado</h2>
+        <p>Versión <strong>0.3.0</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
 
-    <footer>
-        Documentación de la extensión · Promatic Dashboard
-        <br>
-        Versión 0.3.0
-        <br>
-        <p>Version 2026-09-02-1347</p>
-    </footer>
+        <footer>
+            Documentación de la extensión · Promatic Dashboard
+            <br>
+            Versión 0.3.0
+            <br>
+            <p>Version 2026-09-02-1347</p>
+        </footer>
+    </section>
+
+    <hr class="divider">
+
+    <!-- ENGLISH SECTION -->
+    <section id="en" lang="en">
+        <div class="lang-nav">
+            <a href="#es">Saltar a Español &uarr;</a>
+        </div>
+
+        <header>
+            <h1>Promatic Dashboard</h1>
+            <p class="tagline">Real-time fleet overview dashboard, integrated as a native extension of the PILOT platform.</p>
+        </header>
+
+        <p>
+            <span class="badge">Full UI Extension</span>
+        </p>
+
+        <h2>What it does</h2>
+        <p>
+            The extension adds its own tab to the PILOT navigation panel with a fleet dashboard.
+            It gathers vehicle connectivity status, relevant alerts, mileage, and other operational
+            indicators into a single view, updating live with the platform's vehicle tree.
+        </p>
+        <p>
+            It is designed to provide a quick read of the overall fleet status without having to
+            navigate through various native reports, while offering direct links back to them
+            when detailed information is needed.
+        </p>
+
+        <h2>Key Features</h2>
+        <ul>
+            <li><strong>Live Fleet Status</strong> — active, moving, and stopped vehicles, displayed as percentages of the total.</li>
+            <li><strong>No GPS Signal</strong> — vehicles disconnected from the server grouped by age of the last signal (less than 24h, between 24 and 48h, over 48h), featuring visual highlighting for critical cases.</li>
+            <li><strong>General Alerts</strong> — count of recent accidents and vehicles requiring maintenance.</li>
+            <li><strong>Excess Mileage Vehicles</strong> — ranking of distance driven during the configured timeframe, with a direct link to the PILOT mileage report.</li>
+            <li><strong>Official Time</strong> — clock with configurable timezone.</li>
+            <li><strong>Adjustable Scope</strong> — the dashboard can follow the vehicle selection from the PILOT "Main" panel or evaluate the entire fleet, toggled via a control directly on the dashboard.</li>
+            <li><strong>Manual Refresh</strong> — button to refresh all indicators without reloading the page.</li>
+            <li><strong>Read-Only</strong> — the extension only queries data; it never creates, modifies, or deletes information in PILOT.</li>
+        </ul>
+
+        <h2>Configuration — <code>config.json</code></h2>
+        <p>
+            Dashboard behavior is adjusted via the <code>config.json</code> file included
+            in the extension, without touching any code. If the file is not available,
+            the extension falls back to equivalent default values.
+        </p>
+        <pre><code>{
+  "top5km": {
+    "windowDays": 7,          // days back for mileage ranking
+    "activeVehicleCap": 300,  // maximum vehicles to query
+    "source": "ratings",      // data source: "ratings" or "reports"
+    "count": 5                // visible rows in card
+  },
+  "fleet": {
+    "scope": "pilot-selection", // "pilot-selection" (follows selection) or "all"
+    "maxVehicles": 500          // safety cap for API calls
+  },
+  "clock": {
+    "timeZone": "America/Santiago", // IANA time zone identifier
+    "locale": "es-CL",              // time format locale
+    "label": "Official Time"        // widget label
+  }
+}</code></pre>
+        <table>
+            <tr><th>Section</th><th>Description</th></tr>
+            <tr><td><code>top5km</code></td><td>Time window, limits, and data source for the mileage ranking.</td></tr>
+            <tr><td><code>fleet</code></td><td>Which vehicles the dashboard considers and safety query cap.</td></tr>
+            <tr><td><code>clock</code></td><td>Time zone, language locale, and clock label.</td></tr>
+        </table>
+        <p>
+            Changes to <code>config.json</code> take effect upon re-publishing the extension.
+            The structure is prepared so that an external service can dynamically deliver
+            the same configuration in the future.
+        </p>
+
+        <h2>Installation</h2>
+        <p>
+            Register the base URL of this extension in the PILOT administration panel.
+            Once loaded, a new tab named <strong>"Promatic Dashboard"</strong> will appear
+            in the left navigation panel.
+        </p>
+
+        <h2>Status</h2>
+        <p>Version <strong>0.3.0</strong> — under active development, verified and running on a live PILOT instance.</p>
+
+        <footer>
+            Extension Documentation · Promatic Dashboard
+            <br>
+            Version 0.3.0
+            <br>
+            <p>Version 2026-09-02-1347</p>
+        </footer>
+    </section>
+
 </main>
 </body>
 </html>
