@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.3.0',
-    moduleBuild: '2026-09-02-1455',
+    moduleBuild: '2026-09-02-1617',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -922,7 +922,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.updateCardBody('logo', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-logo',
             cn: [
-                { tag: 'img', src: this.getModuleBaseUrl() + 'img/logo-promatic.png', alt: 'Promatic' }
+                { tag: 'img', src: this.getModuleBaseUrl() + 'img/dashboard-enhancer-resized-small.jpg', alt: 'Dashboard Enhancer' }
             ]
         }));
     },
