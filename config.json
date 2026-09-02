@@ -9,5 +9,10 @@
   "fleet": {
     "scope": "pilot-selection",
     "maxVehicles": 500
+  },
+  "clock": {
+    "timeZone": "America/Santiago",
+    "locale": "es-CL",
+    "label": "Hora Oficial"
   }
 }

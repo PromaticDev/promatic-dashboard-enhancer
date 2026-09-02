@@ -1,7 +1,7 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-09-01-1748',
+    moduleBuild: '2026-09-02-1328',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -16,7 +16,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // 'all' = árbol Online completo. El slider del pie del dashboard
         // sobrescribe este valor por sesión (localStorage). maxVehicles =
         // tope de seguridad para no disparar jobs async en flotas enormes.
-        fleet: { scope: 'pilot-selection', maxVehicles: 500 }
+        fleet: { scope: 'pilot-selection', maxVehicles: 500 },
+        // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
+        clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' }
     },
 
     initModule: function () {
@@ -150,20 +152,26 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
         }
 
+        var cn = [
+            { cls: 'promatic_dashboard_enhancer-card__head', cn: headCn },
+            {
+                id: 'promatic_dashboard_enhancer-card-body-' + id,
+                cls: 'promatic_dashboard_enhancer-card__body',
+                html: opts.bodyHtml || l('Cargando...')
+            }
+        ];
+        // Cards puramente informativas (reloj, buscador, logo) no llevan pie
+        // "Ver en PILOT" — no hay nada nativo a lo que enlazar.
+        if (!opts.noFooter) {
+            cn.push({ cls: 'promatic_dashboard_enhancer-card__footer', cn: [
+                { tag: 'a', href: '#', html: (opts.footerLabel || l('Ver en PILOT')) + ' ›' }
+            ] });
+        }
+
         return {
             id: 'promatic_dashboard_enhancer-card-' + id,
             cls: 'promatic_dashboard_enhancer-card' + (opts.grow2 ? ' promatic_dashboard_enhancer-card--grow-2' : ''),
-            cn: [
-                { cls: 'promatic_dashboard_enhancer-card__head', cn: headCn },
-                {
-                    id: 'promatic_dashboard_enhancer-card-body-' + id,
-                    cls: 'promatic_dashboard_enhancer-card__body',
-                    html: opts.bodyHtml || l('Cargando...')
-                },
-                { cls: 'promatic_dashboard_enhancer-card__footer', cn: [
-                    { tag: 'a', href: '#', html: (opts.footerLabel || l('Ver en PILOT')) + ' ›' }
-                ] }
-            ]
+            cn: cn
         };
     },
 
@@ -218,13 +226,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     buildRacShell: function () {
         var rows = [
             this.rowMarkup([
-                this.cardMarkup('reloj', { title: l('Hora exacta') }),
-                this.cardMarkup('buscador', { title: l('Buscar un reporte…'), grow2: true }),
-                this.cardMarkup('logo', { title: 'LOGO' })
+                this.cardMarkup('reloj', { title: l('Hora Oficial'), noFooter: true }),
+                this.cardMarkup('buscador', { title: l('Buscar un reporte…'), grow2: true, noFooter: true }),
+                this.cardMarkup('logo', { title: 'LOGO', noFooter: true })
             ]),
             this.rowMarkup([
                 this.cardMarkup('gps_signal', {
-                    title: l('Señal GPS'),
+                    title: l('Sin Señal GPS'),
                     hint: l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal recibida. Se actualiza en vivo con el árbol Online.'),
                     footerLabel: l('Abrir alertas de señal')
                 }),
@@ -239,7 +247,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     footerLabel: l('Abrir árbol de flota')
                 }),
                 this.cardMarkup('top5km', {
-                    title: l('Vehículos con más KM'),
+                    title: l('Vehículos con Kilometraje en Exceso'),
                     hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: panel de analítica de PILOT, con respaldo al reporte de kilometraje.'),
                     footerLabel: l('Abrir reporte de kilometraje')
                 })
@@ -374,9 +382,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     buildLopShell: function () {
         var rows = [
             this.rowMarkup([
-                this.cardMarkup('reloj', { title: l('Hora exacta') }),
-                this.cardMarkup('buscador', { title: l('Buscar un reporte…'), grow2: true }),
-                this.cardMarkup('logo', { title: 'LOGO' })
+                this.cardMarkup('reloj', { title: l('Hora Oficial'), noFooter: true }),
+                this.cardMarkup('buscador', { title: l('Buscar un reporte…'), grow2: true, noFooter: true }),
+                this.cardMarkup('logo', { title: 'LOGO', noFooter: true })
             ]),
             this.rowMarkup([
                 this.cardMarkup('alertas', {
@@ -398,7 +406,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     footerLabel: l('Abrir árbol de flota')
                 }),
                 this.cardMarkup('top5km', {
-                    title: l('Vehículos con más KM'), meta: 'rt=4',
+                    title: l('Vehículos con Kilometraje en Exceso'), meta: 'rt=4',
                     footerLabel: l('Abrir reporte de kilometraje')
                 })
             ]),
@@ -855,10 +863,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // updateCardBody, que re-parsea el HTML completo). El setInterval no se
     // limpia: el módulo vive toda la sesión (es un nav tab), igual que el
     // resto del módulo no tiene teardown.
+    clockConfig: function () {
+        var c = (this.config && this.config.clock) || this.DEFAULT_CONFIG.clock;
+        return {
+            timeZone: c.timeZone || 'America/Santiago',
+            locale: c.locale || 'es-CL',
+            label: c.label || 'Hora Oficial'
+        };
+    },
+
     chileTime: function () {
+        var cfg = this.clockConfig();
         try {
-            var parts = new Intl.DateTimeFormat('es-CL', {
-                timeZone: 'America/Santiago',
+            var parts = new Intl.DateTimeFormat(cfg.locale, {
+                timeZone: cfg.timeZone,
                 hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
             }).formatToParts(new Date());
             var m = {};
@@ -878,10 +896,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         };
 
+        // El título "Hora Oficial" ya lo pone la cabecera de la card
+        // (cardMarkup). El cuerpo muestra solo la hora — antes repetía el
+        // rótulo y quedaba "Hora Oficial / Hora exacta Chile / HH:MM:SS".
         this.updateCardBody('reloj', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-clock',
             cn: [
-                { cls: 'promatic_dashboard_enhancer-clock__label', html: l('Hora exacta Chile') },
                 {
                     id: 'promatic_dashboard_enhancer-clock-time',
                     cls: 'promatic_dashboard_enhancer-clock__time',
@@ -974,6 +994,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     { cls: 'promatic_dashboard_enhancer-stat-card__title', html: title },
                     {
                         cls: 'promatic_dashboard_enhancer-stat-card__count',
+                        // Solo "N/D" cuando la consulta falló (null/undefined).
+                        // Sin incidencias = 0 explícito, nunca ocultar la card.
                         html: (count === null || count === undefined) ? l('N/D') : String(count)
                     }
                 ]

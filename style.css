@@ -302,6 +302,30 @@
     color: var(--status-text);
 }
 
+/* Alerta crítica "Más de 48h sin señal": microanimación de pulso para que
+   destaque sobre las otras dos filas. Solo la fila roja. Se detiene por
+   completo si el usuario pide movimiento reducido (accesibilidad). */
+@keyframes promatic_dashboard_enhancer-alert-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+.promatic_dashboard_enhancer-signal-row--red {
+    animation: promatic_dashboard_enhancer-alert-pulse 2s ease-out infinite;
+}
+
+.promatic_dashboard_enhancer-signal-row--red .promatic_dashboard_enhancer-signal-row__badge {
+    animation: promatic_dashboard_enhancer-alert-pulse 2s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .promatic_dashboard_enhancer-signal-row--red,
+    .promatic_dashboard_enhancer-signal-row--red .promatic_dashboard_enhancer-signal-row__badge {
+        animation: none;
+    }
+}
+
 /* ===== Alertas Generales (card 'alertas_generales') ===== */
 .promatic_dashboard_enhancer-stat-card-grid {
     display: grid;
