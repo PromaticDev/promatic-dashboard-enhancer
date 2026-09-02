@@ -1,7 +1,12 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    moduleBuild: '2026-09-02-1347',
+    // version: SemVer de release, se sube a mano (ver brain/INT-006).
+    //   minor = lote de feedback / widget nuevo · patch = fix puntual.
+    // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
+    //   (cache-busting de style.css + traza en consola). No es la versión.
+    version: '0.3.0',
+    moduleBuild: '2026-09-02-1455',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
