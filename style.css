@@ -311,16 +311,11 @@
     100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
 }
 
-.promatic_dashboard_enhancer-signal-row--red {
-    animation: promatic_dashboard_enhancer-alert-pulse 2s ease-out infinite;
-}
-
 .promatic_dashboard_enhancer-signal-row--red .promatic_dashboard_enhancer-signal-row__badge {
     animation: promatic_dashboard_enhancer-alert-pulse 2s ease-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .promatic_dashboard_enhancer-signal-row--red,
     .promatic_dashboard_enhancer-signal-row--red .promatic_dashboard_enhancer-signal-row__badge {
         animation: none;
     }
@@ -368,6 +363,21 @@
     height: 100px;
     fill-opacity: 0.5;
     stroke-opacity: 0.5;
+    transform-origin: center;
+    animation: promatic_dashboard_enhancer-icon-breathe 3.2s ease-in-out infinite;
+}
+
+/* Respiración suave de los íconos de fondo de Alertas Generales:
+   escala 1 -> 1.08 -> 1 en loop. Se detiene con movimiento reducido. */
+@keyframes promatic_dashboard_enhancer-icon-breathe {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .promatic_dashboard_enhancer-stat-card__icon svg {
+        animation: none;
+    }
 }
 
 .promatic_dashboard_enhancer-stat-card__title {

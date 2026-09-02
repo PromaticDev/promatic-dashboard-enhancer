@@ -505,6 +505,35 @@ body {
   padding: 10px;
 }
 
+/* Alerta crítica "Más de 48h sin señal": microanimación de pulso para que
+   destaque sobre las otras dos filas. Solo la fila roja. Se detiene por
+   completo si el usuario pide movimiento reducido (accesibilidad). */
+@keyframes promatic_dashboard_enhancer-alert-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55);
+  }
+
+  70% {
+    box-shadow: 0 0 0 10px rgba(220, 38, 38, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
+}
+
+.signal-row--red .signal-row__badge {
+  animation: promatic_dashboard_enhancer-alert-pulse 2s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .signal-row--red .signal-row__badge {
+    animation: none;
+  }
+}
+
+
 /* Ícono de fondo grande — clase propia (NO stat-card__icon, esa la usa
    Alertas Generales con otro tamaño/posición; reutilizarla causaba que la
    regla de Alertas Generales pisara esta, más abajo en el archivo) */
@@ -571,17 +600,17 @@ body {
    con texto blanco solo da 4.09:1, no pasa AA (ver comentario arriba). */
 .signal-row--yellow .signal-row__badge {
   background-color: var(--status-warn-bright);
-  color: var(--status-text);
+  color: var(--status-danger-bright);
 }
 
 .signal-row--orange .signal-row__badge {
   background-color: var(--status-alert-bright);
-  color: var(--status-text);
+  color: var(--WalterWhite);
 }
 
 .signal-row--red .signal-row__badge {
-  background-color: var(--status-danger-bright);
-  color: var(--status-text);
+  background-color: var(--status-danger-strong);
+  color: var(--WalterWhite);
 }
 
 
@@ -750,6 +779,28 @@ body {
   height: 100px;
   fill-opacity: 0.5;
   stroke-opacity: 0.5;
+  transform-origin: center;
+  animation: promatic_dashboard_enhancer-icon-breathe 1.5s ease-in-out infinite;
+}
+
+/* Respiración suave de los íconos de fondo de Alertas Generales:
+   escala 1 → 1.08 → 1 en loop. Se detiene con movimiento reducido. */
+@keyframes promatic_dashboard_enhancer-icon-breathe {
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-card__icon svg {
+    animation: none;
+  }
 }
 
 .stat-card__title {
