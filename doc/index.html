@@ -1,24 +1,194 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Promatic Dashboard — Extension Documentation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Promatic Dashboard — Documentación de la extensión</title>
+    <style>
+        :root {
+            --bg: #f7f9fb;
+            --surface: #ffffff;
+            --border: #e2e8f0;
+            --text: #1e293b;
+            --muted: #64748b;
+            --accent: #0a67a0;
+            --accent-soft: #e8f1f7;
+            --code-bg: #f1f5f9;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 2.5rem 1.25rem;
+            font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: var(--text);
+            background: var(--bg);
+        }
+        main {
+            max-width: 760px;
+            margin: 0 auto;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2.5rem 2.25rem;
+        }
+        header {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 1.25rem;
+            margin-bottom: 1.75rem;
+        }
+        h1 {
+            margin: 0 0 .35rem;
+            font-size: 1.7rem;
+            letter-spacing: -.02em;
+        }
+        .tagline {
+            margin: 0;
+            color: var(--muted);
+            font-size: 1rem;
+        }
+        h2 {
+            font-size: 1.05rem;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--accent);
+            margin: 2rem 0 .75rem;
+        }
+        p { margin: .6rem 0; }
+        ul { margin: .6rem 0; padding-left: 1.25rem; }
+        li { margin: .35rem 0; }
+        code {
+            background: var(--code-bg);
+            padding: .12em .4em;
+            border-radius: 4px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: .88em;
+        }
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.1rem;
+            overflow-x: auto;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: .85rem;
+            line-height: 1.55;
+        }
+        pre code { background: none; padding: 0; }
+        .badge {
+            display: inline-block;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: .8rem;
+            font-weight: 600;
+            padding: .2rem .6rem;
+            border-radius: 999px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: .75rem 0;
+            font-size: .92rem;
+        }
+        th, td {
+            text-align: left;
+            padding: .55rem .6rem;
+            border-bottom: 1px solid var(--border);
+        }
+        th { color: var(--muted); font-weight: 600; }
+        td code { font-size: .85em; }
+        footer {
+            margin-top: 2.25rem;
+            padding-top: 1.25rem;
+            border-top: 1px solid var(--border);
+            color: var(--muted);
+            font-size: .85rem;
+        }
+    </style>
 </head>
 <body>
-    <h1>Promatic Dashboard</h1>
+<main>
+    <header>
+        <h1>Promatic Dashboard</h1>
+        <p class="tagline">Panel de resumen de flota en tiempo real, integrado como extensión nativa de la plataforma PILOT.</p>
+    </header>
+
     <p>
-        A customizable fleet dashboard extension for the PILOT platform.
-        It adds a dedicated navigation tab with a real-time overview panel.
+        <span class="badge">Full UI Extension</span>
     </p>
 
-    <h2>Status</h2>
-    <p>Alpha — connectivity test build.</p>
-    <p>Doc version 0.1 alpha test</p>
-
-    <h2>Installation</h2>
+    <h2>Qué hace</h2>
     <p>
-        Register this extension's base URL in PILOT admin. Once loaded,
-        a new "Promatic Dashboard" tab appears in the left navigation panel.
+        La extensión agrega una pestaña propia en el panel de navegación de PILOT con un
+        dashboard de flota. Reúne en una sola vista el estado de conectividad de los
+        vehículos, las alertas relevantes, el kilometraje y otros indicadores operativos,
+        actualizándose en vivo con el árbol de vehículos de la plataforma.
     </p>
+    <p>
+        Está pensada para dar una lectura rápida del estado general de la flota sin tener
+        que recorrer los distintos reportes nativos, y para enlazar de vuelta a ellos
+        cuando se necesita el detalle.
+    </p>
+
+    <h2>Características principales</h2>
+    <ul>
+        <li><strong>Estado de flota en vivo</strong> — vehículos activos, en movimiento y detenidos, en porcentajes sobre el total.</li>
+        <li><strong>Sin Señal GPS</strong> — vehículos sin conexión al servidor agrupados por antigüedad de la última señal (menos de 24 h, entre 24 y 48 h, más de 48 h), con realce visual para los casos críticos.</li>
+        <li><strong>Alertas Generales</strong> — conteo de accidentes recientes y vehículos que requieren mantención.</li>
+        <li><strong>Vehículos con Kilometraje en Exceso</strong> — ranking de kilómetros recorridos en el período configurado, con enlace directo al informe de kilometraje de PILOT.</li>
+        <li><strong>Hora Oficial</strong> — reloj con zona horaria configurable.</li>
+        <li><strong>Alcance ajustable</strong> — el dashboard puede seguir la selección de vehículos del panel "Principal" de PILOT o considerar la flota completa, desde un control en el propio panel.</li>
+        <li><strong>Actualización manual</strong> — botón para refrescar todos los indicadores sin recargar la página.</li>
+        <li><strong>Solo lectura</strong> — la extensión únicamente consulta datos; nunca crea, modifica ni elimina información en PILOT.</li>
+    </ul>
+
+    <h2>Configuración — <code>config.json</code></h2>
+    <p>
+        El comportamiento del dashboard se ajusta desde el archivo <code>config.json</code>
+        incluido en la extensión, sin necesidad de tocar el código. Si el archivo no está
+        disponible, la extensión usa valores por defecto equivalentes.
+    </p>
+    <pre><code>{
+  "top5km": {
+    "windowDays": 7,          // días hacia atrás para el ranking de kilometraje
+    "activeVehicleCap": 300,  // tope de vehículos a consultar
+    "source": "ratings",      // fuente de datos: "ratings" o "reports"
+    "count": 5                // filas visibles en la tarjeta
+  },
+  "fleet": {
+    "scope": "pilot-selection", // "pilot-selection" (sigue la selección) o "all"
+    "maxVehicles": 500          // tope de seguridad para llamadas a la API
+  },
+  "clock": {
+    "timeZone": "America/Santiago", // identificador de zona horaria IANA
+    "locale": "es-CL",             // formato de hora
+    "label": "Hora Oficial"        // rótulo del widget
+  }
+}</code></pre>
+    <table>
+        <tr><th>Sección</th><th>Para qué sirve</th></tr>
+        <tr><td><code>top5km</code></td><td>Ventana de tiempo, límites y fuente del ranking de kilometraje.</td></tr>
+        <tr><td><code>fleet</code></td><td>Qué vehículos considera el dashboard y tope de seguridad de consultas.</td></tr>
+        <tr><td><code>clock</code></td><td>Zona horaria, idioma y rótulo del reloj.</td></tr>
+    </table>
+    <p>
+        Los cambios en <code>config.json</code> se aplican al volver a publicar la extensión.
+        La estructura está preparada para que, más adelante, un servicio externo pueda
+        entregar la misma configuración de forma dinámica.
+    </p>
+
+    <h2>Instalación</h2>
+    <p>
+        Registrar la URL base de esta extensión en la administración de PILOT. Una vez
+        cargada, aparece una nueva pestaña <strong>"Promatic Dashboard"</strong> en el panel
+        de navegación izquierdo.
+    </p>
+
+    <h2>Estado</h2>
+    <p>En desarrollo activo — verificada y funcionando en instancia PILOT real.</p>
+
+    <footer>
+        Documentación de la extensión · Promatic Dashboard
+    </footer>
+</main>
 </body>
 </html>
