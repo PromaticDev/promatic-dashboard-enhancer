@@ -3,8 +3,11 @@
   "top5km": {
     "windowDays": 7,
     "activeVehicleCap": 300,
-    "source": "ratings",
-    "count": 5
+    "tripsMaxVehicles": 100,
+    "tripsBatchSize": 4,
+    "source": "trips-v3",
+    "count": 5,
+    "kmField": "gps"
   },
   "fleet": {
     "scope": "pilot-selection",

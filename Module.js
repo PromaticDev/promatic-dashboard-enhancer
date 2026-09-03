@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.3.0',
-    moduleBuild: '2026-09-02-1827',
+    version: '0.4.0',
+    moduleBuild: '2026-09-03-1448',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -15,7 +15,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // en config.json = igual requiere re-publicar hoy, pero deja el punto
     // de extensión listo para el override remoto.
     DEFAULT_CONFIG: {
-        top5km: { windowDays: 7, activeVehicleCap: 300, source: 'ratings', count: 5 },
+        top5km: { windowDays: 7, activeVehicleCap: 300, tripsMaxVehicles: 100, tripsBatchSize: 4, source: 'trips-v3', count: 5, kmField: 'gps' },
         // fleet.scope: 'pilot-selection' = los widgets siguen la selección
         // con checkbox del panel "Principal" de PILOT (online_tree.getChecked()).
         // 'all' = árbol Online completo. El slider del pie del dashboard
@@ -1294,6 +1294,48 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
+    // -----------------------------------------------------------------------
+    // API v3 — /api/v3/vehicles/trips (x-legacy cmd:distance). 1 request por
+    // vehículo. URL RELATIVA al host (same-origin) — un host absoluto se
+    // bloquea por CORS (verificado 2026-09-03, ver spec/api.md). Devuelve
+    // { code, msg, data:[tramos] }; cada tramo trae gps (km por GPS) y can
+    // (km por odómetro CAN, a veces 0). data:[] si el vehículo no se movió.
+    // -----------------------------------------------------------------------
+
+    fetchVehicleTripsV3: function (agentId, tsUnixSec, teUnixSec, timeoutMs) {
+        var url = '/api/v3/vehicles/trips?agent_id=' + encodeURIComponent(agentId) +
+            '&ts=' + encodeURIComponent(tsUnixSec) + '&te=' + encodeURIComponent(teUnixSec);
+        var ctrl = new AbortController();
+        var timeout = setTimeout(function () {
+            ctrl.abort();
+        }, timeoutMs || 8000);
+
+        return fetch(url, {
+            method: 'GET',
+            credentials: 'include',
+            signal: ctrl.signal
+        }).then(function (resp) {
+            if (!resp.ok) {
+                throw new Error('HTTP ' + resp.status);
+            }
+            return resp.json();
+        }).finally(function () {
+            clearTimeout(timeout);
+        });
+    },
+
+    // Suma el km de todos los tramos de una respuesta de fetchVehicleTripsV3.
+    // kmField: 'gps' (default, primario) | 'can'. data ausente / [] → 0.
+    sumTripsKm: function (tripsResponse, kmField) {
+        var field = kmField || 'gps';
+        var tramos = (tripsResponse && tripsResponse.data) || [];
+        var km = 0;
+        for (var i = 0; i < tramos.length; i++) {
+            km += Number(tramos[i][field]) || 0;
+        }
+        return Math.round(km * 10) / 10;
+    },
+
     // startIso/stopIso opcionales (formato "YYYY-MM-DDTHH:MM:SS"). Sin ellos:
     // día actual con today=true (comportamiento original). Con ellos: ventana
     // real, today='' — necesario para el Top 5 KM (ventana de N días).
@@ -1490,34 +1532,104 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             startDate.setHours(0, 0, 0, 0);
 
             var csv = vehIds.join(',');
+
             var runReports = function () {
                 return me.fetchReportType(4, csv, startDate, stopDate, 20000)
                     .then(function (report) {
                         me.renderTop5Km(me.parseReportType4(report, nameToId), days, startDate, stopDate, count);
-                        console.log('[promatic_dashboard_enhancer] Top KM servido por: reports-fallback');
+                        console.log('[promatic_dashboard_enhancer] Top KM servido por: reports');
+                    });
+            };
+            var runRatings = function () {
+                return me.fetchAnalyticsMainData(csv, 15000,
+                    startDate.toISOString().slice(0, 19), stopDate.toISOString().slice(0, 19))
+                    .then(function (mainData) {
+                        me.renderTop5Km(me.parseRatingsTop5(mainData), days, startDate, stopDate, count);
+                        console.log('[promatic_dashboard_enhancer] Top KM servido por: ratings');
+                    });
+            };
+            var runTripsV3 = function () {
+                var tripIds = vehIds.slice(0, cfg.tripsMaxVehicles || 100);
+                return me._top5FromTripsV3(tripIds, startDate, stopDate, nameToId, cfg)
+                    .then(function (ranked) {
+                        var withKm = ranked.filter(function (x) { return x.km > 0; });
+                        if (withKm.length === 0) {
+                            throw new Error('trips-v3 sin km > 0');
+                        }
+                        me.renderTop5Km(withKm, days, startDate, stopDate, count);
+                        console.log('[promatic_dashboard_enhancer] Top KM servido por: trips-v3 (' +
+                            tripIds.length + ' vehículos consultados)');
                     });
             };
 
-            if (cfg.source === 'reports') {
-                runReports().catch(function (err) {
-                    me.reportTop5Error(err, vehIds.length, days);
-                });
-                return;
-            }
+            var fail = function (err) { me.reportTop5Error(err, vehIds.length, days); };
 
-            me.fetchAnalyticsMainData(csv, 15000,
-                startDate.toISOString().slice(0, 19), stopDate.toISOString().slice(0, 19))
-                .then(function (mainData) {
-                    me.renderTop5Km(me.parseRatingsTop5(mainData), days, startDate, stopDate, count);
-                    console.log('[promatic_dashboard_enhancer] Top KM servido por: ratings');
-                })
-                .catch(function (err) {
-                    console.warn('[promatic_dashboard_enhancer] Top KM: ratings.data no sirvió (' +
-                        (err && err.message ? err.message : err) + ') — fallback a reports.php');
-                    runReports().catch(function (err2) {
-                        me.reportTop5Error(err2, vehIds.length, days);
-                    });
+            if (cfg.source === 'reports') {
+                runReports().catch(fail);
+            } else if (cfg.source === 'ratings') {
+                runRatings().catch(function (err) {
+                    console.warn('[promatic_dashboard_enhancer] Top KM: ratings falló (' +
+                        (err && err.message ? err.message : err) + ') — fallback a reports');
+                    runReports().catch(fail);
                 });
+            } else {
+                // 'trips-v3' (default)
+                runTripsV3().catch(function (err) {
+                    console.warn('[promatic_dashboard_enhancer] Top KM: trips-v3 falló (' +
+                        (err && err.message ? err.message : err) + ') — fallback a reports');
+                    runReports().catch(fail);
+                });
+            }
+        });
+    },
+
+    // Rama "trips-v3" del Top KM. Consulta /api/v3/vehicles/trips por cada
+    // vehículo candidato, en lotes de cfg.tripsBatchSize (concurrentes; los
+    // lotes van en serie). Un vehículo que falla cuenta 0 km y no aborta.
+    // Devuelve ranked = [{name, km, id}] ordenado desc — id = agentid, name
+    // del árbol si se conoce, si no el agent_id como string.
+    _top5FromTripsV3: function (vehIds, startDate, stopDate, nameToId, cfg) {
+        var me = this;
+        var batchSize = cfg.tripsBatchSize || 4;
+        var kmField = cfg.kmField || 'gps';
+        var tsUnix = Math.floor(startDate.getTime() / 1000);
+        var teUnix = Math.floor(stopDate.getTime() / 1000);
+        var idToName = {};
+        for (var nm in nameToId) {
+            if (nameToId.hasOwnProperty(nm)) { idToName[Number(nameToId[nm])] = nm; }
+        }
+
+        var results = [];
+        var queue = vehIds.slice();
+        var PromiseImpl = (typeof Ext !== 'undefined' && Ext.Promise) ? Ext.Promise : Promise;
+
+        function runBatch() {
+            if (queue.length === 0) { return PromiseImpl.resolve(); }
+            var slice = queue.splice(0, batchSize);
+            var calls = slice.map(function (id) {
+                return me.fetchVehicleTripsV3(id, tsUnix, teUnix, 8000)
+                    .then(function (resp) {
+                        results.push({ id: id, km: me.sumTripsKm(resp, kmField) });
+                    })
+                    .catch(function (err) {
+                        console.warn('[promatic_dashboard_enhancer] Top KM trips-v3: vehículo ' +
+                            id + ' falló (' + (err && err.message ? err.message : err) + ') — cuenta 0');
+                        results.push({ id: id, km: 0 });
+                    });
+            });
+            return PromiseImpl.all(calls).then(runBatch);
+        }
+
+        return runBatch().then(function () {
+            var ranked = results.map(function (r) {
+                return {
+                    name: idToName[Number(r.id)] || String(r.id),
+                    km: r.km,
+                    id: r.id
+                };
+            });
+            ranked.sort(function (a, b) { return b.km - a.km; });
+            return ranked;
         });
     },
 
@@ -1846,15 +1958,50 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             reports.reportFormSubmit();
         }
 
+        // objectsStore.isLoaded() puede ser true con getCount()===0: los
+        // hijos del root se cargan lazy vía XHR tree.php?node=root (~1.4s).
+        // Marcar+submitear antes de eso da 0 seleccionados → "Seleccione 1 o
+        // más objetos" (BR-PILOT-0010). Se espera a que el árbol tenga nodos
+        // reales: listener 'load' con guard de count, y un poll de respaldo
+        // por si el store ya está poblado y no vuelve a emitir 'load'.
+        var objectsReady = function () {
+            return objectsStore.getCount() > 0;
+        };
+        var whenObjectsReady = function (done) {
+            if (objectsReady()) { done(); return; }
+            var settled = false;
+            var poll, giveUp;
+            function onLoad() { check(); }
+            function check() {
+                if (settled || !objectsReady()) { return; }
+                settled = true;
+                objectsStore.un('load', onLoad);
+                clearInterval(poll);
+                clearTimeout(giveUp);
+                done();
+            }
+            objectsStore.on('load', onLoad);
+            poll = setInterval(check, 200);
+            giveUp = setTimeout(function () {
+                if (settled) { return; }
+                settled = true;
+                objectsStore.un('load', onLoad);
+                clearInterval(poll);
+                console.warn('[promatic_dashboard_enhancer] runNativeReport: el árbol de objetos ' +
+                    'no cargó en 10s — se intenta el submit igual');
+                done();
+            }, 10000);
+            objectsStore.load();
+        };
+
+        var afterReportStore = function () {
+            whenObjectsReady(submitWhenReady);
+        };
+
         if (!reportStore.isLoaded()) {
-            reportStore.load({ callback: function () {
-                if (!objectsStore.isLoaded()) { objectsStore.load({ callback: submitWhenReady }); }
-                else { submitWhenReady(); }
-            } });
-        } else if (!objectsStore.isLoaded()) {
-            objectsStore.load({ callback: submitWhenReady });
+            reportStore.load({ callback: afterReportStore });
         } else {
-            submitWhenReady();
+            afterReportStore();
         }
     },
 
