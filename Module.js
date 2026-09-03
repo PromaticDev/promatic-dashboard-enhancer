@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-03-1934',
+    moduleBuild: '2026-09-03-1936',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -333,15 +333,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var center = {
             cls: 'promatic_dashboard_enhancer-shell-center',
             cn: [
-                this.cardMarkup('gps_signal', {
-                    title: l('Sin Señal GPS'),
-                    hint: l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal recibida. Se actualiza en vivo con el árbol Online.'),
-                    noFooter: true,
-                    skeleton: 'chips'
-                }),
+                // Las 3 cards de datos en un flex-wrap: en pantallas anchas
+                // van las 3 en fila; al angostar hacen wrap (2+1, luego 1+1+1
+                // apiladas). El mapa queda siempre en su propia fila ancha.
                 {
                     cls: 'promatic_dashboard_enhancer-shell-center-row',
                     cn: [
+                        this.cardMarkup('gps_signal', {
+                            title: l('Sin Señal GPS'),
+                            hint: l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal recibida. Se actualiza en vivo con el árbol Online.'),
+                            noFooter: true,
+                            skeleton: 'chips'
+                        }),
                         this.cardMarkup('flota', {
                             title: l('Estado de Flota'),
                             hint: l('Porcentajes sobre el total de vehículos del árbol Online. Se actualiza en vivo.'),

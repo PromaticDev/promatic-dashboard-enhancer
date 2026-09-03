@@ -159,7 +159,10 @@
     min-width: 320px;
 }
 
-/* Fila dentro del centro (Estado de Flota + Top KM lado a lado). */
+/* Fila de las 3 cards de datos del centro (Sin Señal GPS + Estado de Flota +
+   Top KM). flex-wrap: en pantallas anchas caben las 3 en fila; al angostar
+   hacen wrap a 2+1 y luego se apilan. flex-basis 300px = punto de quiebre
+   razonable para que Sin Señal GPS (3 chips) no quede apretada. */
 .promatic_dashboard_enhancer-shell-center-row {
     display: flex;
     flex-wrap: wrap;
@@ -168,7 +171,7 @@
 }
 
 .promatic_dashboard_enhancer-shell-center-row > .promatic_dashboard_enhancer-card {
-    flex: 1 1 260px;
+    flex: 1 1 300px;
 }
 
 /* La columna izquierda angosta necesita cards sin el min-width de 220px. */
