@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.4.0',
-    moduleBuild: '2026-09-03-1448',
+    moduleBuild: '2026-09-03-1725',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -990,30 +990,76 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             'c-2.8 0-5 2.2-5 5s2.2 5 5 5s5-2.2 5-5c0-.513-.081-1.006-.219-1.469l2.125-2.125l-.312-.406' +
             'c-.8-.8-.794-2.012-.094-2.813L9.812 12.5z" /></svg>';
 
-        var card = function (bg, title, count, iconSvg, titleAttr) {
+        // Íconos de las categorías beta (aún sin datos conectados).
+        // Combustible y GPS manual: SVGs oficiales del proyecto (dev/icons/,
+        // usan currentColor). Ralentí: versión simplificada de icon-ralenti.svg
+        // (el original es un reloj con dígitos, demasiado pesado para inline).
+        // Territorio: genérico (no hay ícono oficial todavía).
+        var svgRalenti =
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+            'stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" />' +
+            '<path d="M12 7v5l3 2" /></svg>';
+        var svgCombustible =
+            '<svg viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" ' +
+            'd="M2 .75H.75v22.5h14.5v-4.006a5.25 5.25 0 0 0 5-5.244V7.25H23v-2.5h-2.45A2.75 2.75 0 0 1 23 3.25V.75' +
+            'A5.25 5.25 0 0 0 17.75 6v8a2.75 2.75 0 0 1-2.5 2.739V.75zM3.25 8.5V3.25h9.5V8.5z" clip-rule="evenodd"/></svg>';
+        var svgGpsManual =
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
+            '<path stroke-linecap="round" d="m22 8l-3-3m0 0l-3-3m3 3l-3 3m3-3l3-3"/>' +
+            '<path d="M9 10.03A3.515 3.515 0 0 1 13.97 15"/>' +
+            '<path stroke-linejoin="round" d="M4.853 19.147c3.196 3.196 8.06 3.707 11.789 1.533c.886-.517 1.33-.776 1.357-1.302' +
+            's-.471-.89-1.468-1.618c-1.848-1.35-3.667-3-5.48-4.812C9.24 11.136 7.59 9.317 6.24 7.47c-.728-.997-1.092-1.495-1.618-1.468' +
+            's-.785.47-1.302 1.357c-2.174 3.73-1.663 8.593 1.533 11.79Z"/></svg>';
+        var svgTerritorio =
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+            'stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" />' +
+            '<path d="M9 3v15M15 6v15" /></svg>';
+
+        // count: número (conectada), null/undefined (falló → "N/D"),
+        // o beta:true (categoría futura → badge "beta", sin número).
+        var card = function (bg, title, count, iconSvg, titleAttr, isBeta) {
+            var body;
+            if (isBeta) {
+                body = { cls: 'promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta', html: l('beta') };
+            } else if (count === null || count === undefined) {
+                body = { cls: 'promatic_dashboard_enhancer-stat-card__count', html: l('N/D') };
+            } else {
+                body = { cls: 'promatic_dashboard_enhancer-stat-card__count', html: String(count) };
+            }
             return {
                 tag: 'a', href: '#', style: 'background:' + bg, title: titleAttr,
-                cls: 'promatic_dashboard_enhancer-stat-card',
+                cls: 'promatic_dashboard_enhancer-stat-card' + (isBeta ? ' promatic_dashboard_enhancer-stat-card--beta' : ''),
                 cn: [
                     { tag: 'span', cls: 'promatic_dashboard_enhancer-stat-card__icon', html: iconSvg },
                     { cls: 'promatic_dashboard_enhancer-stat-card__title', html: title },
-                    {
-                        cls: 'promatic_dashboard_enhancer-stat-card__count',
-                        // Solo "N/D" cuando la consulta falló (null/undefined).
-                        // Sin incidencias = 0 explícito, nunca ocultar la card.
-                        html: (count === null || count === undefined) ? l('N/D') : String(count)
-                    }
+                    body
                 ]
             };
         };
 
+        // Si alguna categoría CONECTADA tiene incidencias (> 0), la card entera
+        // vira de azul a naranja de alerta. Las beta y las que fallaron (N/D)
+        // no cuentan para esto.
+        var hasAlert = (typeof accidentes === 'number' && accidentes > 0) ||
+                       (typeof mantencion === 'number' && mantencion > 0);
+        var gridCls = 'promatic_dashboard_enhancer-stat-card-grid' +
+            (hasAlert ? ' promatic_dashboard_enhancer-stat-card-grid--alert' : '');
+
         this.updateCardBody('alertas_generales', Ext.DomHelper.markup({
-            cls: 'promatic_dashboard_enhancer-stat-card-grid',
+            cls: gridCls,
             cn: [
                 card('var(--g6)', l('Accidentes'), accidentes, svgAccidente,
                     l('Accidentes — events.php type=29, últimos 30 días')),
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
-                    l('Recordatorios de mantención de vehículo (ptm)'))
+                    l('Recordatorios de mantención de vehículo (ptm)')),
+                card('var(--g6)', l('Ralentí excesivo'), null, svgRalenti,
+                    l('Ralentí acumulado sobre umbral — pendiente de conexión'), true),
+                card('var(--g7)', l('Manipulación de combustible'), null, svgCombustible,
+                    l('Drenaje/carga anómala de estanque — pendiente de conexión'), true),
+                card('var(--g6)', l('GPS desconectado manual'), null, svgGpsManual,
+                    l('Desconexión intencional del equipo — pendiente de conexión'), true),
+                card('var(--g7)', l('Salida de territorio nacional'), null, svgTerritorio,
+                    l('Vehículo cruza la frontera — pendiente de conexión'), true)
             ]
         }));
     },
