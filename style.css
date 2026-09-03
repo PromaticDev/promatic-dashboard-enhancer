@@ -279,9 +279,17 @@
 /* ===== Mapa de hotspots (Ext.panel.Panel embebido, patrón examples/airports) ===== */
 .promatic_dashboard_enhancer-hotspots-map,
 .promatic_dashboard_enhancer-hotspots-map-body {
-    width: 100%;
+    width: 100% !important;
     height: 100%;
-    min-height: 340px;
+    min-height: 300px;
+}
+
+/* Leaflet mide su contenedor al montarse; forzar que ocupe todo el ancho
+   disponible del widget (rectangular, no cuadrado). */
+#promatic_dashboard_enhancer-card-body-hotspots .leaflet-container,
+#promatic_dashboard_enhancer-card-body-hotspots .x-panel-body {
+    width: 100% !important;
+    height: 100% !important;
 }
 
 /* El card-body del hotspots no debe tener padding ni scroll — el panel del
@@ -505,10 +513,11 @@
 
 .promatic_dashboard_enhancer-stat-card__icon {
     position: absolute;
-    top: 8px;
-    right: -14px;
-    width: 64px;
-    height: 40px;
+    top: 50%;
+    right: -10px;
+    transform: translateY(-50%);
+    width: 52px;
+    height: 52px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -516,8 +525,8 @@
 }
 
 .promatic_dashboard_enhancer-stat-card__icon svg {
-    width: 60px;
-    height: 60px;
+    width: 100%;
+    height: 100%;
     fill-opacity: 0.5;
     stroke-opacity: 0.5;
     transform-origin: center;

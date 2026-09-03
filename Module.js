@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-03-1908',
+    moduleBuild: '2026-09-03-1920',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -336,7 +336,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 this.cardMarkup('gps_signal', {
                     title: l('Sin Señal GPS'),
                     hint: l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal recibida. Se actualiza en vivo con el árbol Online.'),
-                    footerLabel: l('Abrir alertas de señal'),
+                    noFooter: true,
                     skeleton: 'chips'
                 }),
                 {
@@ -1083,48 +1083,41 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     renderAlertasGenerales: function (accidentes, mantencion) {
+        // Todos los íconos normalizados a viewBox="0 0 24 24" y estilo
+        // outline (stroke=currentColor, width 1.6) para que se vean del mismo
+        // peso y centrados entre sí.
         var svgAccidente =
-            '<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" ' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
             'stroke-linecap="round" stroke-linejoin="round">' +
-            '<path d="M9 2 L16.5 15.5 H1.5 Z" /><line x1="9" y1="7" x2="9" y2="11" />' +
-            '<circle cx="9" cy="13.2" r="0.9" fill="currentColor" stroke="none" /></svg>';
+            '<path d="M12 3 L21.5 20 H2.5 Z" /><line x1="12" y1="9" x2="12" y2="14" />' +
+            '<circle cx="12" cy="17" r="1.1" fill="currentColor" stroke="none" /></svg>';
         var svgMantencion =
-            '<svg viewBox="0 0 26 26" fill="currentColor"><path d="M1.313 0L0 1.313l2.313 4l1.5-.22' +
-            'l9.156 9.157l-.781.75c-.4.4-.4 1.006 0 1.406l.406.407c.4.4 1.012.4 1.312 0L15.094 18' +
-            'c-.1.6 0 1.313.5 1.813L21 25.188c1.1 1.1 2.9 1.1 4 0c1.3-1.2 1.288-2.994.188-4.094' +
-            'l-5.375-5.407c-.5-.5-1.213-.7-1.813-.5L16.687 14c.3-.4.3-1.012 0-1.313l-.375-.374' +
-            'a.974.974 0 0 0-1.406 0l-.656.656l-9.156-9.156l.218-1.5l-4-2.313zm19.5.031C18.84-.133 ' +
-            '16.224 1.175 15 2.312c-1.506 1.506-1.26 3.475-.063 5.376l-2.124 2.125l1.5 1.687c.8-.7 ' +
-            '1.98-.7 2.78 0l.407.406l.094.094l.875-.875c1.808 1.063 3.69 1.216 5.125-.219c1.4-1.3 ' +
-            '2.918-4.506 2.218-6.406L23 7.406c-.4.4-1.006.4-1.406 0L18.687 4.5a.974.974 0 0 1 0-1.406' +
-            'L21.595.188c-.25-.088-.5-.133-.782-.157m-11 12.469l-3.626 3.625A5.3 5.3 0 0 0 5 16' +
-            'c-2.8 0-5 2.2-5 5s2.2 5 5 5s5-2.2 5-5c0-.513-.081-1.006-.219-1.469l2.125-2.125l-.312-.406' +
-            'c-.8-.8-.794-2.012-.094-2.813L9.812 12.5z" /></svg>';
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+            'stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M14.7 6.3a4 4 0 0 0-5.3 5.3L4 17l3 3 5.4-5.4a4 4 0 0 0 5.3-5.3l-2.6 2.6-2.1-2.1z" />' +
+            '<path d="M7 17h.01" /></svg>';
 
         // Íconos de las categorías beta (aún sin datos conectados).
-        // Combustible y GPS manual: SVGs oficiales del proyecto (dev/icons/,
-        // usan currentColor). Ralentí: versión simplificada de icon-ralenti.svg
-        // (el original es un reloj con dígitos, demasiado pesado para inline).
-        // Territorio: genérico (no hay ícono oficial todavía).
+        // Ralentí: reloj de arena (tiempo perdido con el motor en marcha).
         var svgRalenti =
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
-            'stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" />' +
-            '<path d="M12 7v5l3 2" /></svg>';
+            'stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M6 3h12M6 21h12M8 3v3.5a4 4 0 0 0 1.5 3.1L12 12l-2.5 2.4A4 4 0 0 0 8 17.5V21' +
+            'M16 3v3.5a4 4 0 0 1-1.5 3.1L12 12l2.5 2.4a4 4 0 0 1 1.5 3.1V21" /></svg>';
         var svgCombustible =
-            '<svg viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" ' +
-            'd="M2 .75H.75v22.5h14.5v-4.006a5.25 5.25 0 0 0 5-5.244V7.25H23v-2.5h-2.45A2.75 2.75 0 0 1 23 3.25V.75' +
-            'A5.25 5.25 0 0 0 17.75 6v8a2.75 2.75 0 0 1-2.5 2.739V.75zM3.25 8.5V3.25h9.5V8.5z" clip-rule="evenodd"/></svg>';
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+            'stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M4 20V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15M3.5 20h11" />' +
+            '<path d="M14 8h2.5a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V7.5L18.5 4" /><path d="M7 8h4" /></svg>';
         var svgGpsManual =
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
-            '<path stroke-linecap="round" d="m22 8l-3-3m0 0l-3-3m3 3l-3 3m3-3l3-3"/>' +
-            '<path d="M9 10.03A3.515 3.515 0 0 1 13.97 15"/>' +
-            '<path stroke-linejoin="round" d="M4.853 19.147c3.196 3.196 8.06 3.707 11.789 1.533c.886-.517 1.33-.776 1.357-1.302' +
-            's-.471-.89-1.468-1.618c-1.848-1.35-3.667-3-5.48-4.812C9.24 11.136 7.59 9.317 6.24 7.47c-.728-.997-1.092-1.495-1.618-1.468' +
-            's-.785.47-1.302 1.357c-2.174 3.73-1.663 8.593 1.533 11.79Z"/></svg>';
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+            'stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M12 21s-7-6.5-7-12a7 7 0 0 1 11.9-5" /><path d="M9.5 9a3 3 0 0 1 4.5 2.6" />' +
+            '<line x1="4" y1="3.5" x2="20" y2="20.5" /></svg>';
         var svgTerritorio =
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
-            'stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" />' +
-            '<path d="M9 3v15M15 6v15" /></svg>';
+            'stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l6-3 6 3 4-2v15l-4 2-6-3-6 3z" />' +
+            '<path d="M10 3v15M16 6v15" /></svg>';
 
         // count: número (conectada), null/undefined (falló → "N/D"),
         // o beta:true (categoría futura → badge "beta", sin número).
@@ -1230,6 +1223,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me._hotspotsMap = new MC('promatic_dashboard_enhancer_hotspots');
                         me._hotspotsMap.init(-33.45, -70.66, 5, this.id + '-body', false);
                         me.loadHotspots();
+                        // Leaflet midió el contenedor antes de que el layout
+                        // flex terminara — recalcular a los 300/700ms para
+                        // que ocupe todo el ancho (rectangular, no cuadrado).
+                        Ext.defer(function () {
+                            if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
+                        }, 300);
+                        Ext.defer(function () {
+                            if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
+                        }, 700);
                     } catch (err) {
                         me.widgetErrorCode('HOTSPOTS-INIT', err);
                         this.body.setHtml(l('No se pudo inicializar el mapa de desconexión.'));
@@ -1335,11 +1337,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     updateGpsSignalCard: function (b24, b48, bMore) {
-        // 3 buckets en fila horizontal (rediseño 3 sep). El chip "Más de 48h"
+        // 3 buckets en fila horizontal (rediseño 3 sep). Sin footer — las
+        // fichas son el único elemento de la card. El chip "Más de 48h"
         // (--red) es el único que pulsa (@keyframes ...-alert-pulse).
+        // TODO: conectar el click de cada chip al panel de alertas nativo.
         var chip = function (mod, label, count, title) {
             return {
-                tag: 'a', href: '#',
                 cls: 'promatic_dashboard_enhancer-signal-chip promatic_dashboard_enhancer-signal-chip--' + mod,
                 title: title,
                 cn: [
