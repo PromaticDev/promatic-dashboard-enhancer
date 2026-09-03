@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-03-1848',
+    moduleBuild: '2026-09-03-1859',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -146,7 +146,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   'chips'   — Sin Señal GPS (3 chips en fila)
     //   'stats'   — Alertas Generales (columna de tarjetas)
     //   'map'     — Hotspots (bloque grande)
-    skeletonMarkup: function (kind) {
+    // Devuelve un SPEC de Ext.DomHelper (objeto), no un string — se anida
+    // como `cn` dentro del spec del card, que buildRacShell renderiza de una
+    // sola pasada. Un string HTML acá se re-escaparía en esa pasada.
+    skeletonSpec: function (kind) {
         var bar = function (w, h) {
             return { cls: 'promatic_dashboard_enhancer-sk-bar',
                 style: 'width:' + w + ';height:' + (h || 12) + 'px' };
@@ -154,28 +157,26 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var block = function (h) {
             return { cls: 'promatic_dashboard_enhancer-sk-bar', style: 'height:' + h + 'px' };
         };
-        var body;
         if (kind === 'donut') {
-            var quad = [block(46), block(46), block(46), block(46)];
-            body = { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--grid2', cn: quad };
-        } else if (kind === 'ranking') {
-            body = { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--ranking', cn: [
-                block(70), bar('80%'), bar('65%'), bar('72%'), bar('50%'), bar('58%')
-            ] };
-        } else if (kind === 'chips') {
-            body = { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--row', cn: [
-                block(40), block(40), block(40)
-            ] };
-        } else if (kind === 'stats') {
-            body = { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--col', cn: [
-                block(50), block(50), block(50), block(50), block(50), block(50)
-            ] };
-        } else if (kind === 'map') {
-            body = { cls: 'promatic_dashboard_enhancer-sk', cn: [block(320)] };
-        } else {
-            body = { cls: 'promatic_dashboard_enhancer-sk', cn: [bar('90%'), bar('70%'), bar('80%')] };
+            return { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--grid2',
+                cn: [block(46), block(46), block(46), block(46)] };
         }
-        return Ext.DomHelper.markup(body);
+        if (kind === 'ranking') {
+            return { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--ranking',
+                cn: [block(70), bar('80%'), bar('65%'), bar('72%'), bar('50%'), bar('58%')] };
+        }
+        if (kind === 'chips') {
+            return { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--row',
+                cn: [block(40), block(40), block(40)] };
+        }
+        if (kind === 'stats') {
+            return { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--col',
+                cn: [block(50), block(50), block(50), block(50), block(50), block(50)] };
+        }
+        if (kind === 'map') {
+            return { cls: 'promatic_dashboard_enhancer-sk', cn: [block(320)] };
+        }
+        return { cls: 'promatic_dashboard_enhancer-sk', cn: [bar('90%'), bar('70%'), bar('80%')] };
     },
 
     cardMarkup: function (id, opts) {
@@ -199,14 +200,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
         }
 
+        var bodySpec = {
+            id: 'promatic_dashboard_enhancer-card-body-' + id,
+            cls: 'promatic_dashboard_enhancer-card__body'
+        };
+        if (opts.bodyHtml) {
+            bodySpec.html = opts.bodyHtml;
+        } else if (opts.skeleton) {
+            bodySpec.cn = [this.skeletonSpec(opts.skeleton)];
+        } else {
+            bodySpec.html = l('Cargando...');
+        }
+
         var cn = [
             { cls: 'promatic_dashboard_enhancer-card__head', cn: headCn },
-            {
-                id: 'promatic_dashboard_enhancer-card-body-' + id,
-                cls: 'promatic_dashboard_enhancer-card__body',
-                html: opts.bodyHtml ||
-                    (opts.skeleton ? this.skeletonMarkup(opts.skeleton) : l('Cargando...'))
-            }
+            bodySpec
         ];
         // Cards puramente informativas (reloj, buscador, logo) no llevan pie
         // "Ver en PILOT" — no hay nada nativo a lo que enlazar.
