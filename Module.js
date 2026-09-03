@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.4.0',
-    moduleBuild: '2026-09-03-1725',
+    version: '0.5.0',
+    moduleBuild: '2026-09-03-1842',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -228,47 +228,101 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // conteo (buckets GPS, events.php por categoría) no está conectado
     // todavía, no se fabrica dato de ejemplo en el plugin real.
     // -----------------------------------------------------------------------
+    // Bloque "Exportar Reporte / Generar Golden Report" bajo el logo.
+    // PLACEHOLDER VISUAL — sin lógica (decisión 3 sep). Comunica lo que
+    // viene (FR-0005: reportes visuales propios). Los controles se ven pero
+    // no hacen nada; se marcan con --beta como las tarjetas de alerta sin
+    // conectar.
+    exportBlockMarkup: function () {
+        return {
+            cls: 'promatic_dashboard_enhancer-export-block',
+            cn: [
+                {
+                    cls: 'promatic_dashboard_enhancer-export-card promatic_dashboard_enhancer-export-card--beta',
+                    cn: [
+                        { cls: 'promatic_dashboard_enhancer-export-card__title', html: l('Exportar Reporte') },
+                        { cls: 'promatic_dashboard_enhancer-export-card__control', html: l('Seleccionar') + ' ▾' }
+                    ]
+                },
+                {
+                    cls: 'promatic_dashboard_enhancer-export-card promatic_dashboard_enhancer-export-card--beta',
+                    cn: [
+                        { cls: 'promatic_dashboard_enhancer-export-card__title', html: l('Generar Golden Report') },
+                        { cls: 'promatic_dashboard_enhancer-export-card__control', html: '▾' }
+                    ]
+                }
+            ]
+        };
+    },
+
+    // Layout de 4 columnas (rediseño 3 sep, idea-rediseño-layout.jpg):
+    //  - Col izq FIJA: reloj (grande) + Alertas Generales (vertical).
+    //  - Col centro (2-3) FLEX: Sin Señal GPS (buckets horizontales) arriba,
+    //    luego Estado de Flota + Top KM lado a lado, luego mapa hotspots ancho.
+    //  - Col der FIJA: logo (sin header) + bloque export (placeholder).
+    //  - Buscador: OCULTO — cardMarkup('buscador') se conserva pero no se
+    //    monta (vuelve con FR-0006, asistente IA).
+    // Para LOC/LOP: col izq y la posición de Sin Señal GPS quedan fijas;
+    // solo cambian las columnas del centro (buildLopShell se adapta aparte).
     buildRacShell: function () {
-        var rows = [
-            this.rowMarkup([
+        var colLeft = {
+            cls: 'promatic_dashboard_enhancer-shell-col--fixed-left',
+            cn: [
                 this.cardMarkup('reloj', { title: l('Hora Oficial'), noFooter: true }),
-                this.cardMarkup('buscador', { title: l('Buscar un reporte…'), grow2: true, noFooter: true }),
-                this.cardMarkup('logo', { title: 'LOGO', noFooter: true })
-            ]),
-            this.rowMarkup([
+                this.cardMarkup('alertas_generales', {
+                    title: l('Alertas Generales'),
+                    hint: l('Accidentes: eventos de los últimos 30 días. Requiere mantención: recordatorios por vehículo configurados en PILOT. Las categorías "beta" aún no están conectadas.'),
+                    footerLabel: l('Abrir alertas')
+                })
+            ]
+        };
+
+        var center = {
+            cls: 'promatic_dashboard_enhancer-shell-center',
+            cn: [
                 this.cardMarkup('gps_signal', {
                     title: l('Sin Señal GPS'),
                     hint: l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal recibida. Se actualiza en vivo con el árbol Online.'),
                     footerLabel: l('Abrir alertas de señal')
                 }),
-                this.cardMarkup('alertas_generales', {
-                    title: l('Alertas Generales'),
-                    hint: l('Accidentes: eventos de los últimos 30 días. Requiere mantención: recordatorios por vehículo configurados en PILOT.'),
-                    footerLabel: l('Abrir alertas')
-                }),
-                this.cardMarkup('flota', {
-                    title: l('Estado de Flota'),
-                    hint: l('Porcentajes sobre el total de vehículos del árbol Online. Se actualiza en vivo.'),
-                    footerLabel: l('Abrir árbol de flota')
-                }),
-                this.cardMarkup('top5km', {
-                    title: l('Vehículos con Kilometraje en Exceso'),
-                    hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: panel de analítica de PILOT, con respaldo al reporte de kilometraje.'),
-                    footerLabel: l('Abrir reporte de kilometraje')
-                })
-            ]),
-            this.rowMarkup([
+                {
+                    cls: 'promatic_dashboard_enhancer-shell-center-row',
+                    cn: [
+                        this.cardMarkup('flota', {
+                            title: l('Estado de Flota'),
+                            hint: l('Porcentajes sobre el total de vehículos del árbol Online. Se actualiza en vivo.'),
+                            footerLabel: l('Abrir árbol de flota')
+                        }),
+                        this.cardMarkup('top5km', {
+                            title: l('Vehículos con Kilometraje en Exceso'),
+                            hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: /api/v3/vehicles/trips, con respaldo al reporte de kilometraje.'),
+                            footerLabel: l('Abrir reporte de kilometraje')
+                        })
+                    ]
+                },
                 this.cardMarkup('hotspots', {
                     title: l('Hotspots de desconexión'), meta: 'type=15',
                     footerLabel: l('Abrir mapa de desconexión')
                 })
-            ]),
+            ]
+        };
+
+        var colRight = {
+            cls: 'promatic_dashboard_enhancer-shell-col--fixed-right',
+            cn: [
+                this.cardMarkup('logo', { noFooter: true }),
+                this.exportBlockMarkup()
+            ]
+        };
+
+        var shell = [
+            { cls: 'promatic_dashboard_enhancer-shell-4col', cn: [colLeft, center, colRight] },
             this.controlsBarMarkup()
         ];
 
         return Ext.create('Ext.Component', {
             cls: 'promatic_dashboard_enhancer-rac-shell',
-            html: Ext.DomHelper.markup(rows)
+            html: Ext.DomHelper.markup(shell)
         });
     },
 
@@ -1179,33 +1233,26 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     updateGpsSignalCard: function (b24, b48, bMore) {
-        var row = function (mod, label, count, title) {
+        // 3 buckets en fila horizontal (rediseño 3 sep). El chip "Más de 48h"
+        // (--red) es el único que pulsa (@keyframes ...-alert-pulse).
+        var chip = function (mod, label, count, title) {
             return {
                 tag: 'a', href: '#',
-                cls: 'promatic_dashboard_enhancer-signal-row promatic_dashboard_enhancer-signal-row--' + mod,
+                cls: 'promatic_dashboard_enhancer-signal-chip promatic_dashboard_enhancer-signal-chip--' + mod,
                 title: title,
                 cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-signal-row__label', html: label },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-signal-row__badge', html: String(count) }
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-signal-chip__label', html: label },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-signal-chip__badge', html: String(count) }
                 ]
             };
         };
 
         this.updateCardBody('gps_signal', Ext.DomHelper.markup({
-            cls: 'promatic_dashboard_enhancer-signal-card-bg',
+            cls: 'promatic_dashboard_enhancer-signal-track',
             cn: [
-                { cls: 'promatic_dashboard_enhancer-signal-card__body', cn: [
-                    row('yellow', l('Menos de 24h'), b24, l('Vehículos desconectados hace menos de 24h')),
-                    row('orange', l('Entre 24 y 48h'), b48, l('Vehículos desconectados entre 24 y 48h')),
-                    row('red', l('Más de 48h'), bMore, l('Vehículos desconectados hace más de 48h o sin dato reciente'))
-                ] },
-                { tag: 'span', cls: 'promatic_dashboard_enhancer-signal-card-bg__icon', 'aria-hidden': 'true', html:
-                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
-                    '<path stroke-linecap="round" d="m22 8l-3-3m0 0l-3-3m3 3l-3 3m3-3l3-3" />' +
-                    '<path d="M9 10.03A3.515 3.515 0 0 1 13.97 15" />' +
-                    '<path stroke-linejoin="round" d="M4.853 19.147c3.196 3.196 8.06 3.707 11.789 1.533c.886-.517 1.33-.776 1.357-1.302s-.471-.89-1.468-1.618c-1.848-1.35-3.667-3-5.48-4.812C9.24 11.136 7.59 9.317 6.24 7.47c-.728-.997-1.092-1.495-1.618-1.468s-.785.47-1.302 1.357c-2.174 3.73-1.663 8.593 1.533 11.79Z" />' +
-                    '</svg>'
-                }
+                chip('yellow', l('Menos de 24h'), b24, l('Vehículos desconectados hace menos de 24h')),
+                chip('orange', l('Entre 24 y 48h'), b48, l('Vehículos desconectados entre 24 y 48h')),
+                chip('red', l('Más de 48h'), bMore, l('Vehículos desconectados hace más de 48h o sin dato reciente'))
             ]
         }));
     },

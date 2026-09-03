@@ -118,6 +118,101 @@
     min-width: 0;
 }
 
+/* ===== Layout RAC de 4 columnas (rediseño 3 sep, idea-rediseño-layout.jpg) =====
+   Col 1 (izq) y col 4 (der): ancho fijo. Col 2-3 (centro): flex, absorben
+   el espacio restante y son las únicas que otras vistas (LOC/LOP) moverán.
+   Flexbox puro, sin grid ni !important (BR-PILOT-0006). */
+.promatic_dashboard_enhancer-shell-4col {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+/* Col 1 — antes ~1fr de 4; ahora ~30% más angosta. */
+.promatic_dashboard_enhancer-shell-col--fixed-left {
+    flex: 0 0 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 180px;
+}
+
+/* Col 4 — logo + bloque export. */
+.promatic_dashboard_enhancer-shell-col--fixed-right {
+    flex: 0 0 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 200px;
+}
+
+/* Contenedor de las 2 columnas centrales flexibles. */
+.promatic_dashboard_enhancer-shell-center {
+    flex: 1 1 480px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 320px;
+}
+
+/* Fila dentro del centro (Estado de Flota + Top KM lado a lado). */
+.promatic_dashboard_enhancer-shell-center-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: stretch;
+}
+
+.promatic_dashboard_enhancer-shell-center-row > .promatic_dashboard_enhancer-card {
+    flex: 1 1 260px;
+}
+
+/* La columna izquierda angosta necesita cards sin el min-width de 220px. */
+.promatic_dashboard_enhancer-shell-col--fixed-left .promatic_dashboard_enhancer-card,
+.promatic_dashboard_enhancer-shell-col--fixed-right .promatic_dashboard_enhancer-card {
+    min-width: 0;
+}
+
+/* Bloque "Exportar Reporte / Generar Golden Report" — placeholder (FR-0005). */
+.promatic_dashboard_enhancer-export-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.promatic_dashboard_enhancer-export-card {
+    border: 1px solid var(--g4);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #fff;
+}
+
+.promatic_dashboard_enhancer-export-card--beta {
+    opacity: 0.7;
+}
+
+.promatic_dashboard_enhancer-export-card__title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--g7);
+}
+
+.promatic_dashboard_enhancer-export-card__control {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--g6);
+    border: 1px solid var(--g3);
+    border-radius: 5px;
+    padding: 5px 10px;
+    text-align: center;
+}
+
 .promatic_dashboard_enhancer-card__head {
     display: flex;
     align-items: baseline;
@@ -125,6 +220,12 @@
     gap: 8px;
     padding: 8px 12px;
     border-bottom: 1px solid #F1F5F9;
+}
+
+/* El card del logo no lleva título — su head queda vacío. Ocultarlo para
+   que el logo suba y no quede un borde/espacio muerto arriba. */
+#promatic_dashboard_enhancer-card-logo .promatic_dashboard_enhancer-card__head {
+    display: none;
 }
 
 .promatic_dashboard_enhancer-card__title {
@@ -198,8 +299,8 @@
 }
 
 .promatic_dashboard_enhancer-clock__time {
-    font-size: 28px;
-    font-weight: 600;
+    font-size: 34px;
+    font-weight: 700;
     color: var(--g7);
     letter-spacing: 1px;
     font-variant-numeric: tabular-nums;
@@ -219,127 +320,98 @@
     max-width: 210px;
 }
 
-/* ===== Señal GPS (card 'gps_signal') ===== */
-.promatic_dashboard_enhancer-signal-card-bg {
-    position: relative;
-    width: 100%;
-    background: #fff;
-    border-radius: 8px;
-    border: 1px solid var(--g2);
-    box-shadow: 0 2px 5px rgba(6, 67, 104, 0.07);
-    overflow: hidden;
-    padding: 10px;
-}
-
-/* Dentro de .card__body (que ya da borde/sombra/padding) se neutraliza el chrome redundante. */
-.promatic_dashboard_enhancer-card__body > .promatic_dashboard_enhancer-signal-card-bg {
-    border: 0;
-    box-shadow: none;
-    padding: 0;
-    background: transparent;
-}
-
-.promatic_dashboard_enhancer-signal-card-bg__icon {
-    position: absolute;
-    right: -10px;
-    bottom: -30px;
-    z-index: 1;
-    pointer-events: none;
-}
-
-.promatic_dashboard_enhancer-signal-card-bg__icon svg {
-    width: 190px;
-    height: 190px;
-    stroke: #085280;
-    opacity: 0.12;
-}
-
-.promatic_dashboard_enhancer-signal-card__body {
+/* ===== Sin Señal GPS (card 'gps_signal') — 3 buckets en fila (rediseño 3 sep) ===== */
+.promatic_dashboard_enhancer-signal-track {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-    position: relative;
-    z-index: 2;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 
-.promatic_dashboard_enhancer-signal-row {
+.promatic_dashboard_enhancer-signal-chip {
+    flex: 1 1 120px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 14px;
+    gap: 10px;
+    padding: 10px 12px;
     border-radius: 8px;
     text-decoration: none;
-    background: linear-gradient(90deg, rgba(10, 103, 160, 1) 0%, rgba(10, 103, 160, 0) 100%);
-    transition: background-color 0.15s ease;
+    background: #e2e8f0;
+    transition: filter 0.15s ease;
 }
 
-.promatic_dashboard_enhancer-signal-row:hover {
-    background-color: #e2e8f0;
+.promatic_dashboard_enhancer-signal-chip:hover {
+    filter: brightness(1.05);
 }
 
-.promatic_dashboard_enhancer-signal-row__label {
-    font-size: 0.85rem;
+.promatic_dashboard_enhancer-signal-chip__label {
+    font-size: 0.8rem;
     font-weight: 700;
     color: var(--g0);
 }
 
-.promatic_dashboard_enhancer-signal-row__badge {
+.promatic_dashboard_enhancer-signal-chip__badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 4px 10px;
+    min-width: 26px;
+    padding: 3px 8px;
     border-radius: 5px;
     font-size: 1rem;
     font-weight: 700;
     color: #ffffff;
 }
 
-.promatic_dashboard_enhancer-signal-row--yellow .promatic_dashboard_enhancer-signal-row__badge {
+.promatic_dashboard_enhancer-signal-chip--yellow { background: var(--g5); }
+.promatic_dashboard_enhancer-signal-chip--yellow .promatic_dashboard_enhancer-signal-chip__badge {
     background-color: var(--status-warn-bright);
     color: var(--status-text);
 }
 
-.promatic_dashboard_enhancer-signal-row--orange .promatic_dashboard_enhancer-signal-row__badge {
+.promatic_dashboard_enhancer-signal-chip--orange { background: var(--g6); }
+.promatic_dashboard_enhancer-signal-chip--orange .promatic_dashboard_enhancer-signal-chip__badge {
     background-color: var(--status-alert-bright);
     color: var(--status-text);
 }
 
-.promatic_dashboard_enhancer-signal-row--red .promatic_dashboard_enhancer-signal-row__badge {
+.promatic_dashboard_enhancer-signal-chip--red { background: var(--g7); }
+.promatic_dashboard_enhancer-signal-chip--red .promatic_dashboard_enhancer-signal-chip__badge {
     background-color: var(--status-danger-bright);
     color: #ffffff;
 }
 
-/* Alerta crítica "Más de 48h sin señal": microanimación de pulso para que
-   destaque sobre las otras dos filas. Solo la fila roja. Se detiene por
-   completo si el usuario pide movimiento reducido (accesibilidad). */
+/* Alerta crítica "Más de 48h sin señal": microanimación de pulso. Solo el
+   badge del chip rojo. Se detiene con movimiento reducido (accesibilidad). */
 @keyframes promatic_dashboard_enhancer-alert-pulse {
     0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55); }
     70%  { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
     100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
 }
 
-.promatic_dashboard_enhancer-signal-row--red .promatic_dashboard_enhancer-signal-row__badge {
+.promatic_dashboard_enhancer-signal-chip--red .promatic_dashboard_enhancer-signal-chip__badge {
     animation: promatic_dashboard_enhancer-alert-pulse 2s ease-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .promatic_dashboard_enhancer-signal-row--red .promatic_dashboard_enhancer-signal-row__badge {
+    .promatic_dashboard_enhancer-signal-chip--red .promatic_dashboard_enhancer-signal-chip__badge {
         animation: none;
     }
 }
 
 /* ===== Alertas Generales (card 'alertas_generales') ===== */
+/* Columna vertical — la card vive en la col izq angosta del shell RAC, 1
+   tarjeta por fila (rediseño 3 sep). */
 .promatic_dashboard_enhancer-stat-card-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .promatic_dashboard_enhancer-stat-card {
     position: relative;
-    border-radius: 12px;
-    padding: 14px 14px 12px;
-    min-height: 70px;
+    border-radius: 10px;
+    padding: 10px 12px 9px;
+    min-height: 54px;
     color: #fff;
     text-decoration: none;
     display: flex;
@@ -355,10 +427,10 @@
 
 .promatic_dashboard_enhancer-stat-card__icon {
     position: absolute;
-    top: 20px;
-    right: -20px;
-    width: 100px;
-    height: 50px;
+    top: 8px;
+    right: -14px;
+    width: 64px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -366,8 +438,8 @@
 }
 
 .promatic_dashboard_enhancer-stat-card__icon svg {
-    width: 100px;
-    height: 100px;
+    width: 60px;
+    height: 60px;
     fill-opacity: 0.5;
     stroke-opacity: 0.5;
     transform-origin: center;
@@ -397,7 +469,7 @@
 }
 
 .promatic_dashboard_enhancer-stat-card__count {
-    font-size: 27px;
+    font-size: 20px;
     font-weight: 800;
     line-height: 1;
 }
