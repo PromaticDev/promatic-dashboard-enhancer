@@ -409,15 +409,34 @@
     max-width: 210px;
 }
 
-/* ===== Sin Señal GPS (card 'gps_signal') — 3 buckets en fila (rediseño 3 sep) ===== */
+/* ===== Sin Señal GPS (card 'gps_signal') ===== */
+/* Los 3 chips cambian de orientación según el ANCHO DE LA CARD (container
+   query), no del viewport:
+   - card angosta (comparte fila con Flota + Top KM en pantalla ancha) →
+     chips apilados en COLUMNA.
+   - card ancha (viewport angosto, la card ocupa la fila completa) →
+     chips en FILA horizontal.
+   El contenedor observado es el card-body de gps_signal. */
+#promatic_dashboard_enhancer-card-body-gps_signal {
+    container-type: inline-size;
+    container-name: gpssignal;
+}
+
 .promatic_dashboard_enhancer-signal-track {
     display: flex;
+    flex-direction: column;   /* default: columna (card angosta) */
     gap: 10px;
-    flex-wrap: wrap;
+}
+
+@container gpssignal (min-width: 380px) {
+    .promatic_dashboard_enhancer-signal-track {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
 }
 
 .promatic_dashboard_enhancer-signal-chip {
-    flex: 1 1 120px;
+    flex: 1 1 auto;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -427,6 +446,12 @@
     text-decoration: none;
     background: #e2e8f0;
     transition: filter 0.15s ease;
+}
+
+@container gpssignal (min-width: 380px) {
+    .promatic_dashboard_enhancer-signal-chip {
+        flex: 1 1 120px;
+    }
 }
 
 .promatic_dashboard_enhancer-signal-chip:hover {
