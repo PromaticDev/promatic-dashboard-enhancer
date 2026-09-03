@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-03-1842',
+    moduleBuild: '2026-09-03-1848',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -136,6 +136,48 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // html), que ubica el nodo por id con Ext.get() — no hay Ext.Component
     // por card, así que no aplica el patrón this.mileageEl.update() del
     // resto del módulo.
+    // Skeleton de carga — barras grises con la forma aproximada del
+    // contenido real, mientras el widget hace su primer fetch. Reemplazado
+    // por updateCardBody() cuando llega el dato (o por el mensaje de error
+    // del propio widget si falla). El shimmer se apaga con
+    // prefers-reduced-motion (ver style.css). kind:
+    //   'donut'   — Estado de Flota (2x2 de cuadrantes con % grande)
+    //   'ranking' — Top KM (barra apilada + filas de ranking)
+    //   'chips'   — Sin Señal GPS (3 chips en fila)
+    //   'stats'   — Alertas Generales (columna de tarjetas)
+    //   'map'     — Hotspots (bloque grande)
+    skeletonMarkup: function (kind) {
+        var bar = function (w, h) {
+            return { cls: 'promatic_dashboard_enhancer-sk-bar',
+                style: 'width:' + w + ';height:' + (h || 12) + 'px' };
+        };
+        var block = function (h) {
+            return { cls: 'promatic_dashboard_enhancer-sk-bar', style: 'height:' + h + 'px' };
+        };
+        var body;
+        if (kind === 'donut') {
+            var quad = [block(46), block(46), block(46), block(46)];
+            body = { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--grid2', cn: quad };
+        } else if (kind === 'ranking') {
+            body = { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--ranking', cn: [
+                block(70), bar('80%'), bar('65%'), bar('72%'), bar('50%'), bar('58%')
+            ] };
+        } else if (kind === 'chips') {
+            body = { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--row', cn: [
+                block(40), block(40), block(40)
+            ] };
+        } else if (kind === 'stats') {
+            body = { cls: 'promatic_dashboard_enhancer-sk promatic_dashboard_enhancer-sk--col', cn: [
+                block(50), block(50), block(50), block(50), block(50), block(50)
+            ] };
+        } else if (kind === 'map') {
+            body = { cls: 'promatic_dashboard_enhancer-sk', cn: [block(320)] };
+        } else {
+            body = { cls: 'promatic_dashboard_enhancer-sk', cn: [bar('90%'), bar('70%'), bar('80%')] };
+        }
+        return Ext.DomHelper.markup(body);
+    },
+
     cardMarkup: function (id, opts) {
         opts = opts || {};
         var headCn = [
@@ -162,7 +204,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             {
                 id: 'promatic_dashboard_enhancer-card-body-' + id,
                 cls: 'promatic_dashboard_enhancer-card__body',
-                html: opts.bodyHtml || l('Cargando...')
+                html: opts.bodyHtml ||
+                    (opts.skeleton ? this.skeletonMarkup(opts.skeleton) : l('Cargando...'))
             }
         ];
         // Cards puramente informativas (reloj, buscador, logo) no llevan pie
@@ -272,7 +315,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 this.cardMarkup('alertas_generales', {
                     title: l('Alertas Generales'),
                     hint: l('Accidentes: eventos de los últimos 30 días. Requiere mantención: recordatorios por vehículo configurados en PILOT. Las categorías "beta" aún no están conectadas.'),
-                    footerLabel: l('Abrir alertas')
+                    footerLabel: l('Abrir alertas'),
+                    skeleton: 'stats'
                 })
             ]
         };
@@ -283,7 +327,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 this.cardMarkup('gps_signal', {
                     title: l('Sin Señal GPS'),
                     hint: l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal recibida. Se actualiza en vivo con el árbol Online.'),
-                    footerLabel: l('Abrir alertas de señal')
+                    footerLabel: l('Abrir alertas de señal'),
+                    skeleton: 'chips'
                 }),
                 {
                     cls: 'promatic_dashboard_enhancer-shell-center-row',
@@ -291,18 +336,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         this.cardMarkup('flota', {
                             title: l('Estado de Flota'),
                             hint: l('Porcentajes sobre el total de vehículos del árbol Online. Se actualiza en vivo.'),
-                            footerLabel: l('Abrir árbol de flota')
+                            footerLabel: l('Abrir árbol de flota'),
+                            skeleton: 'donut'
                         }),
                         this.cardMarkup('top5km', {
                             title: l('Vehículos con Kilometraje en Exceso'),
                             hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: /api/v3/vehicles/trips, con respaldo al reporte de kilometraje.'),
-                            footerLabel: l('Abrir reporte de kilometraje')
+                            footerLabel: l('Abrir reporte de kilometraje'),
+                            skeleton: 'ranking'
                         })
                     ]
                 },
                 this.cardMarkup('hotspots', {
                     title: l('Hotspots de desconexión'), meta: 'type=15',
-                    footerLabel: l('Abrir mapa de desconexión')
+                    footerLabel: l('Abrir mapa de desconexión'),
+                    skeleton: 'map'
                 })
             ]
         };
