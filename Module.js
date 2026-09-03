@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-03-1946',
+    moduleBuild: '2026-09-03-1952',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -359,9 +359,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         })
                     ]
                 },
+                // NOTA: en RAC este mapa es temporal. Los gerentes (reunión
+                // 3 sep) pidieron para RAC un mapa de "vehículos disponibles
+                // por sucursal" (FR-0008) — las geocercas de sucursal ya
+                // están en PILOT (Ana). El heatmap de desconexión GPS
+                // (type=15) es de la vista LOC/LOP. Se deja aquí como demo del
+                // mapa propio funcionando (BR-PILOT-0007) hasta armar FR-0008.
                 this.cardMarkup('hotspots', {
-                    title: l('Hotspots de desconexión'), meta: 'type=15',
-                    footerLabel: l('Abrir mapa de desconexión'),
+                    title: l('Mapa de flota (demo)'), meta: l('disponibilidad por sucursal en diseño'),
+                    footerLabel: l('Abrir mapa'),
                     skeleton: 'map'
                 })
             ]
