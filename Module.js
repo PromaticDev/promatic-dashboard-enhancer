@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-03-1904',
+    moduleBuild: '2026-09-03-1908',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -99,11 +99,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me.bindFleetUpdates();
                         me.loadTop5KmData();
                         me.loadAlertasGenerales();
-                        // loadHotspots DESACTIVADO 28 ago: new MapContainer/
-                        // setHeatmap afectaba el mapa nativo de PILOT (Online)
-                        // en vez de crear uno propio. Nunca verificado en
-                        // cuenta real — reactivar tras leer MapContainer.md.
-                        me.updateCardBody('hotspots', l('Mapa de desconexión — en integración.'));
+                        // Mapa de hotspots: instancia propia dentro de un
+                        // Ext.panel.Panel (patrón examples/airports/Map.js,
+                        // BR-PILOT-0007). buildHotspotsMapPanel monta el panel
+                        // y su listener 'render' crea el MapContainer y llama
+                        // loadHotspots. NUNCA toca window.mapContainer.
+                        me.buildHotspotsMapPanel();
                         me.startClock();
                         me.renderLogo();
                     }
@@ -1175,9 +1176,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     // Hotspots de desconexión (card 'hotspots') — heatmap sobre un
-    // MapContainer PROPIO (instancia nueva, NO se reusa window.mapContainer:
-    // esa es solo para features dentro de los tabs Online/History — ver
-    // spec/api.md "Crear un mapa propio dentro de un panel de la extensión").
+    // MapContainer PROPIO (instancia nueva, NUNCA window.mapContainer, que es
+    // la global del mapa Online — Sergei, respuesta 3 sep punto 4).
     // Datos: events.php type=15 ("No connection"), ventana 30 días, cada item
     // trae lat/lon. Se agrega por celda de ~0.01° y se pasa a setHeatmap.
     getMapContainerClass: function () {
@@ -1185,15 +1185,78 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             (window.Pilot && Pilot.utils && Pilot.utils.MapContainer) || null;
     },
 
+    // Monta un Ext.panel.Panel dentro del div de mount de la card 'hotspots'
+    // y crea ahí una instancia propia de MapContainer, siguiendo el patrón
+    // oficial de examples/airports/Map.js (BR-PILOT-0007):
+    //   - init(lat, lon, zoom, this.id + '-body', false)
+    //     → el 4º arg DEBE ser el id del -body de un panel Ext YA RENDERIZADO,
+    //       no un <div> arbitrario (ese era el bug: el <div> no montaba la
+    //       instancia y MapContainer caía al mapa global).
+    //   - checkResize() en el evento 'resize' del panel.
+    // Se llama en el afterrender del panel principal, cuando el shell ya
+    // está en el DOM con dimensiones.
+    buildHotspotsMapPanel: function () {
+        var me = this;
+        var body = Ext.get('promatic_dashboard_enhancer-card-body-hotspots');
+        if (!body) {
+            // el shell aún no montó — reintento acotado
+            me._hotspotsMountRetry = (me._hotspotsMountRetry || 0) + 1;
+            if (me._hotspotsMountRetry < 40) {
+                Ext.defer(me.buildHotspotsMapPanel, 300, me);
+            }
+            return;
+        }
+        if (me._hotspotsPanel) { return; } // ya montado
+        if (!me.getMapContainerClass()) {
+            body.setHtml(l('El mapa no está disponible en este runtime.'));
+            return;
+        }
+
+        // Limpia el skeleton 'map' y monta el panel Ext ahí.
+        body.setHtml('');
+        me._hotspotsPanel = Ext.create('Ext.panel.Panel', {
+            renderTo: body,
+            cls: 'promatic_dashboard_enhancer-hotspots-map',
+            bodyCls: 'promatic_dashboard_enhancer-hotspots-map-body',
+            layout: 'fit',
+            height: 340,
+            border: false,
+            listeners: {
+                render: function () {
+                    try {
+                        var MC = me.getMapContainerClass();
+                        // Centro aproximado de Chile continental; el heatmap
+                        // reajusta el encuadre a los puntos reales.
+                        me._hotspotsMap = new MC('promatic_dashboard_enhancer_hotspots');
+                        me._hotspotsMap.init(-33.45, -70.66, 5, this.id + '-body', false);
+                        me.loadHotspots();
+                    } catch (err) {
+                        me.widgetErrorCode('HOTSPOTS-INIT', err);
+                        this.body.setHtml(l('No se pudo inicializar el mapa de desconexión.'));
+                    }
+                },
+                resize: function () {
+                    if (me._hotspotsMap && me._hotspotsMap.checkResize) {
+                        me._hotspotsMap.checkResize();
+                    }
+                }
+            }
+        });
+    },
+
+    // Se llama desde el listener 'render' de _hotspotsPanel, con la instancia
+    // me._hotspotsMap ya creada. Consulta los eventos type=15 y pinta el
+    // heatmap sobre esa instancia — nunca crea un MapContainer nuevo ni toca
+    // el DOM de la card (eso lo maneja el panel).
     loadHotspots: function () {
         var me = this;
+        var setBodyMsg = function (msg) {
+            if (me._hotspotsPanel && me._hotspotsPanel.body) {
+                me._hotspotsPanel.body.setHtml(msg);
+            }
+        };
 
         this.withFleetVehicleIds(function (vehIds) {
-            if (!me.getMapContainerClass()) {
-                me.updateCardBody('hotspots', l('El mapa no está disponible en este runtime.'));
-                return;
-            }
-
             var csv = vehIds.join(',');
             var stop = new Date();
             var start = new Date();
@@ -1214,8 +1277,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 })
                 .catch(function (err) {
                     var code = me.widgetErrorCode('HOTSPOTS', err);
-                    me.updateCardBody('hotspots',
-                        l('No se pudo cargar el mapa de desconexión.') + ' (' + code + ')');
+                    setBodyMsg(l('No se pudo cargar el mapa de desconexión.') + ' (' + code + ')');
                 });
         });
     },
@@ -1248,44 +1310,28 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         console.log('[promatic_dashboard_enhancer] hotspots: ' + items.length +
             ' eventos type=15, ' + withCoords + ' con coords, ' + points.length + ' celdas');
 
-        if (points.length === 0) {
-            this.updateCardBody('hotspots',
-                l('Sin desconexiones con ubicación en los últimos 30 días.'));
+        var map = this._hotspotsMap;
+        if (!map) {
+            console.warn('[promatic_dashboard_enhancer] hotspots: _hotspotsMap no está listo');
             return;
         }
 
-        this.updateCardBody('hotspots', Ext.DomHelper.markup({
-            id: 'promatic_dashboard_enhancer-hotspots-map',
-            cls: 'promatic_dashboard_enhancer-map-el'
-        }));
+        if (points.length === 0) {
+            // Sin datos: el mapa se queda centrado en Chile, sin heatmap.
+            // No se pisa el body del panel (el mapa ya está renderizado).
+            return;
+        }
 
-        var me = this;
-        var MC = this.getMapContainerClass();
-
-        // defer: el div del mapa tiene que estar en el DOM con dimensiones
-        // antes de que Leaflet lo tome (si no, mide 0x0 y no dibuja).
-        Ext.defer(function () {
-            try {
-                var mc = new MC('promatic_dashboard_enhancer_hotspots');
-                mc.init(points[0].lat, points[0].lng, 6,
-                    'promatic_dashboard_enhancer-hotspots-map', { withControls: true });
-
-                if (typeof mc.setHeatmap === 'function') {
-                    mc.setHeatmap(points, true, l('Desconexiones'));
-                }
-                // Leaflet a veces necesita recalcular tamaño tras montarse
-                // dentro de un contenedor flex que terminó de dimensionar.
-                Ext.defer(function () {
-                    var map = mc.getMap ? mc.getMap() : mc.map;
-                    if (map && map.invalidateSize) { map.invalidateSize(); }
-                }, 400);
-
-                me._hotspotsMap = mc;
-            } catch (err) {
-                me.widgetErrorCode('HOTSPOTS-MAP', err);
-                me.updateCardBody('hotspots', l('No se pudo inicializar el mapa de desconexión.'));
+        try {
+            if (typeof map.setHeatmap === 'function') {
+                map.setHeatmap(points, true, l('Desconexiones'));
             }
-        }, 300, this);
+            // Leaflet a veces necesita recalcular tamaño tras montarse dentro
+            // de un contenedor flex que terminó de dimensionar.
+            if (map.checkResize) { map.checkResize(); }
+        } catch (err) {
+            this.widgetErrorCode('HOTSPOTS-HEATMAP', err);
+        }
     },
 
     updateGpsSignalCard: function (b24, b48, bMore) {
