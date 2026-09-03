@@ -466,20 +466,27 @@
     color: #ffffff;
 }
 
-/* Alerta crítica "Más de 48h sin señal": microanimación de pulso. Solo el
-   badge del chip rojo. Se detiene con movimiento reducido (accesibilidad). */
+/* Alerta crítica "Más de 48h sin señal": el CHIP rojo entero late — un
+   parpadeo de brillo + un halo interior, sin box-shadow que se salga del
+   .card__body (que tiene overflow-y:auto y lo recortaría). Se detiene con
+   movimiento reducido (accesibilidad). */
 @keyframes promatic_dashboard_enhancer-alert-pulse {
-    0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55); }
-    70%  { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+    0%, 100% {
+        box-shadow: inset 0 0 0 0 rgba(254, 82, 82, 0);
+        filter: brightness(1);
+    }
+    50% {
+        box-shadow: inset 0 0 0 3px rgba(254, 82, 82, 0.9);
+        filter: brightness(1.18);
+    }
 }
 
-.promatic_dashboard_enhancer-signal-chip--red .promatic_dashboard_enhancer-signal-chip__badge {
-    animation: promatic_dashboard_enhancer-alert-pulse 2s ease-out infinite;
+.promatic_dashboard_enhancer-signal-chip--red {
+    animation: promatic_dashboard_enhancer-alert-pulse 1.6s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .promatic_dashboard_enhancer-signal-chip--red .promatic_dashboard_enhancer-signal-chip__badge {
+    .promatic_dashboard_enhancer-signal-chip--red {
         animation: none;
     }
 }
