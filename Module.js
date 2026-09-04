@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-04-1755',
+    moduleBuild: '2026-09-04-1759',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1254,11 +1254,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: 'promatic_dashboard_enhancer-hotspots-map',
             bodyCls: 'promatic_dashboard_enhancer-hotspots-map-body',
             layout: 'fit',
-            // Altura inicial = min-height del contenedor CSS
-            // (#card-body-hotspots, resize:both — 4 sep, pedido del
-            // usuario). No queda fija: el ResizeObserver de más abajo la
-            // ajusta al tamaño real del contenedor en cada resize (inicial
-            // y cuando el usuario arrastra el handle nativo del navegador).
+            // Alto fijo, igual al de #card-body-hotspots en CSS (cuadrado).
+            // No se ajusta dinámicamente por altura — solo por ancho
+            // (ResizeObserver de más abajo dispara checkResize de Leaflet).
             height: 650,
             border: false,
             listeners: {
@@ -1279,25 +1277,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         Ext.defer(function () {
                             if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
                         }, 700);
-                        // El usuario puede estirar #card-body-hotspots a mano
-                        // (CSS resize:both) — eso NO dispara el ciclo de
-                        // layout de Ext (el resize del panel Ext es interno,
-                        // no ve el drag del handle nativo del navegador).
-                        // ResizeObserver sobre el contenedor real cubre ese
-                        // caso; checkResize() re-mide Leaflet al nuevo tamaño.
+                        // #card-body-hotspots tiene alto fijo por CSS (650px,
+                        // cuadrado) — se retiró resize:both (4 sep) porque
+                        // competía con el layout responsive: al achicar la
+                        // ventana el mapa quedaba "flotando" con el alto del
+                        // último drag manual en vez de ajustarse al ancho
+                        // real de la columna. El ResizeObserver ya NO toca
+                        // la altura del panel Ext (setHeight) — solo dispara
+                        // checkResize() para que Leaflet se re-mida cuando
+                        // cambia el ancho de la columna (breakpoints).
                         if (window.ResizeObserver && body.dom) {
-                            // Tope defensivo: mientras los widgets hermanos
-                            // están en skeleton (alturas variables) el shell
-                            // puede reportar un clientHeight inflado; sin
-                            // clamp, setHeight() dispara otro resize del
-                            // contenedor y el ciclo crece sin límite ("el
-                            // mapa se cae de la pantalla"). 845px = tope de
-                            // .shell-col--map / #card-body-hotspots en CSS
-                            // (base cuadrada 650px, estirable a mano hasta acá).
-                            var HOTSPOTS_MAX_HEIGHT = 845;
                             me._hotspotsResizeObserver = new ResizeObserver(function () {
-                                var h = Math.min(body.dom.clientHeight, HOTSPOTS_MAX_HEIGHT);
-                                if (me._hotspotsPanel) { me._hotspotsPanel.setHeight(h); }
                                 if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
                             });
                             me._hotspotsResizeObserver.observe(body.dom);
