@@ -175,6 +175,7 @@
     display: flex;
     flex-direction: column;
     min-width: 320px;
+    height: 650px;
 }
 
 .promatic_dashboard_enhancer-shell-col--map .promatic_dashboard_enhancer-card {
@@ -304,20 +305,19 @@
 }
 
 /* El card-body del hotspots no debe tener padding — el panel del mapa lo
-   llena por completo. resize:both (4 sep, pedido del usuario): el mapa
-   se veía "aplastado" con el ancho nuevo (col 3, doble ancho) — se puede
-   estirar a mano desde la esquina inferior derecha. min-height ≈ alto real
-   medido de la col 2 (Sin Señal GPS + Top KM, 504px) para que arranque
-   como una caja grande, no aplastada — valor fijo, no recalculado en vivo.
-   overflow:auto (no hidden) es requisito de CSS resize para funcionar. */
+   llena por completo. Alto fijo (650px, cuadrado) — se retiró resize:both
+   (4 sep) porque con la caja ya grande, achicar la ventana del navegador
+   dejaba el mapa "flotando" pegado a su tamaño manual en vez de ajustarse
+   al contenedor (el drag humano y el layout responsive competían por el
+   mismo alto). Ver ResizeObserver en Module.js para el resize real
+   (ancho de columna / breakpoints), no para redimensionado manual. */
 #promatic_dashboard_enhancer-card-body-hotspots {
     /* Mismo padding que .card__body genérico (8px 12px) — antes 0, el mapa
        quedaba pegado a los bordes de la card, distinto al resto de los
        widgets. Pedido del usuario, 4 sep. */
     padding: 8px 12px;
-    overflow: auto;
-    resize: both;
-    min-height: 504px;
+    overflow: hidden;
+    height: 650px;
 }
 
 .promatic_dashboard_enhancer-card__head {
@@ -415,16 +415,28 @@
 
 .promatic_dashboard_enhancer-logo {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     padding: 12px;
     height: 100%;
+    gap: 4px;
 }
 
 .promatic_dashboard_enhancer-logo img {
     width: 100%;
     height: auto;
     max-width: 210px;
+}
+
+/* Versión visible bajo el logo (moduleBuild + SemVer) — evita tener que
+   ir a comparar contra el repo público / borrar caché a ciegas para saber
+   si el navegador ya cargó el último build. Pedido del usuario, 4 sep. */
+.promatic_dashboard_enhancer-version {
+    font-size: 10px;
+    color: #94A3B8;
+    letter-spacing: 0.2px;
+    text-align: center;
 }
 
 /* ===== Sin Señal GPS (card 'gps_signal') ===== */
