@@ -63,17 +63,6 @@
         <!-- Col izquierda fija: Hora Oficial + Alertas Generales -->
         <div class="promatic_dashboard_enhancer-shell-col--fixed-left">
 
-          <div class="promatic_dashboard_enhancer-card" id="promatic_dashboard_enhancer-card-reloj">
-            <div class="promatic_dashboard_enhancer-card__head">
-              <h3 class="promatic_dashboard_enhancer-card__title">Hora Oficial</h3>
-            </div>
-            <div class="promatic_dashboard_enhancer-card__body">
-              <div class="promatic_dashboard_enhancer-clock">
-                <div class="promatic_dashboard_enhancer-clock__time" id="proto-clock-time">00:00:00</div>
-              </div>
-            </div>
-          </div>
-
           <div class="promatic_dashboard_enhancer-card" id="promatic_dashboard_enhancer-card-alertas_generales">
             <div class="promatic_dashboard_enhancer-card__head">
               <h3 class="promatic_dashboard_enhancer-card__title">Alertas Generales</h3>
@@ -83,7 +72,7 @@
             <div class="promatic_dashboard_enhancer-card__body">
               <div class="promatic_dashboard_enhancer-stat-card-grid">
 
-                <a class="promatic_dashboard_enhancer-stat-card" href="#" style="background:var(--g6)"
+                <a class="promatic_dashboard_enhancer-stat-card promatic_dashboard_enhancer-stat-card--has-alert" href="#" style="background:var(--g6)"
                   title="Accidentes — events.php type=29, últimos 30 días">
                   <span class="promatic_dashboard_enhancer-stat-card__icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
@@ -96,7 +85,7 @@
                   <div class="promatic_dashboard_enhancer-stat-card__count">1</div>
                 </a>
 
-                <a class="promatic_dashboard_enhancer-stat-card" href="#" style="background:var(--g7)"
+                <a class="promatic_dashboard_enhancer-stat-card promatic_dashboard_enhancer-stat-card--has-alert" href="#" style="background:var(--g7)"
                   title="Recordatorios de mantención de vehículo (ptm)">
                   <span class="promatic_dashboard_enhancer-stat-card__icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
@@ -135,21 +124,35 @@
                 </a>
 
                 <a class="promatic_dashboard_enhancer-stat-card promatic_dashboard_enhancer-stat-card--beta" href="#"
-                  style="background:var(--g7)" title="Drenaje/carga anómala de estanque — pendiente de conexión">
+                  style="background:var(--g7)" title="Carga de combustible fuera de lo esperado — pendiente de conexión">
                   <span class="promatic_dashboard_enhancer-stat-card__icon">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
                       <path fill="currentColor"
                         d="m19.77 7.23l.01-.01l-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33a2.5 2.5 0 0 0 2.5 2.5c.36 0 .69-.08 1-.21v7.21c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5a2.5 2.5 0 0 0 5 0V9c0-.69-.28-1.32-.73-1.77M12 10H6V5h6zm6 0c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1" />
                     </svg>
                   </span>
-                  <div class="promatic_dashboard_enhancer-stat-card__title">Manipulación de combustible</div>
+                  <div class="promatic_dashboard_enhancer-stat-card__title">Inconsistencias en Carga</div>
                   <div
                     class="promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta">
                     beta</div>
                 </a>
 
                 <a class="promatic_dashboard_enhancer-stat-card promatic_dashboard_enhancer-stat-card--beta" href="#"
-                  style="background:var(--g6)" title="Desconexión intencional del equipo — pendiente de conexión">
+                  style="background:var(--g6)" title="Baja brusca de combustible que no corresponde a una recarga — pendiente de conexión">
+                  <span class="promatic_dashboard_enhancer-stat-card__icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+                      <path fill="currentColor"
+                        d="m19.77 7.23l.01-.01l-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33a2.5 2.5 0 0 0 2.5 2.5c.36 0 .69-.08 1-.21v7.21c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5a2.5 2.5 0 0 0 5 0V9c0-.69-.28-1.32-.73-1.77M12 10H6V5h6zm6 0c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1" />
+                    </svg>
+                  </span>
+                  <div class="promatic_dashboard_enhancer-stat-card__title">Drenaje de Combustible</div>
+                  <div
+                    class="promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta">
+                    beta</div>
+                </a>
+
+                <a class="promatic_dashboard_enhancer-stat-card promatic_dashboard_enhancer-stat-card--beta" href="#"
+                  style="background:var(--g7)" title="Desconexión intencional del equipo — pendiente de conexión">
                   <span class="promatic_dashboard_enhancer-stat-card__icon">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
                       <path fill="currentColor"
@@ -158,14 +161,14 @@
                         d="M43.4,4.6a1.9,1.9,0,0,0-2.8,0L37.2,8a10,10,0,0,0-13,.9l-3,3a2,2,0,0,0-.6,1.4,1.7,1.7,0,0,0,.6,1.4L32.9,26.4a1.9,1.9,0,0,0,2.8,0l3-2.9a9.9,9.9,0,0,0,2.9-7.1A10.4,10.4,0,0,0,40,10.9l3.4-3.5A1.9,1.9,0,0,0,43.4,4.6Z" />
                     </svg>
                   </span>
-                  <div class="promatic_dashboard_enhancer-stat-card__title">GPS desconectado manual</div>
+                  <div class="promatic_dashboard_enhancer-stat-card__title">GPS Manipulado</div>
                   <div
                     class="promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta">
                     beta</div>
                 </a>
 
                 <a class="promatic_dashboard_enhancer-stat-card promatic_dashboard_enhancer-stat-card--beta" href="#"
-                  style="background:var(--g7)" title="Vehículo cruza la frontera — pendiente de conexión">
+                  style="background:var(--g6)" title="Vehículo cruza la frontera — pendiente de conexión">
                   <span class="promatic_dashboard_enhancer-stat-card__icon">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 1024 1023">
                       <path fill="currentColor"
@@ -185,10 +188,10 @@
 
         </div>
 
-        <!-- Col centro flex: Sin Señal GPS + Estado de Flota + Top KM, luego mapa -->
-        <div class="promatic_dashboard_enhancer-shell-center">
-
-          <div class="promatic_dashboard_enhancer-shell-center-row">
+        <!-- Col 2: Sin Señal GPS + Top KM, apiladas verticalmente (4 sep,
+             pedido de Ana: sin "Estado de Flota" — es dato de LOP, no
+             montada hoy — el hueco quedaba más alto que el resto). -->
+        <div class="promatic_dashboard_enhancer-shell-col--mid">
 
             <div class="promatic_dashboard_enhancer-card" id="promatic_dashboard_enhancer-card-gps_signal">
               <div class="promatic_dashboard_enhancer-card__head">
@@ -227,35 +230,6 @@
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div class="promatic_dashboard_enhancer-card" id="promatic_dashboard_enhancer-card-flota">
-              <div class="promatic_dashboard_enhancer-card__head">
-                <h3 class="promatic_dashboard_enhancer-card__title">Estado de Flota</h3>
-                <span class="promatic_dashboard_enhancer-card__hint"
-                  title="Porcentajes sobre el total de vehículos del árbol Online. Se actualiza en vivo.">?</span>
-              </div>
-              <div class="promatic_dashboard_enhancer-card__body">
-                <div class="promatic_dashboard_enhancer-fleet-quadrants">
-                  <div class="promatic_dashboard_enhancer-fleet-quadrant">
-                    <div class="promatic_dashboard_enhancer-fleet-quadrant__pct">93%</div>
-                    <div class="promatic_dashboard_enhancer-fleet-quadrant__lbl">Activos</div>
-                  </div>
-                  <div class="promatic_dashboard_enhancer-fleet-quadrant promatic_dashboard_enhancer-fleet-quadrant--moving">
-                    <div class="promatic_dashboard_enhancer-fleet-quadrant__pct">59%</div>
-                    <div class="promatic_dashboard_enhancer-fleet-quadrant__lbl">En movimiento</div>
-                  </div>
-                  <div class="promatic_dashboard_enhancer-fleet-quadrant promatic_dashboard_enhancer-fleet-quadrant--parked">
-                    <div class="promatic_dashboard_enhancer-fleet-quadrant__pct">34%</div>
-                    <div class="promatic_dashboard_enhancer-fleet-quadrant__lbl">Estacionado</div>
-                  </div>
-                  <div class="promatic_dashboard_enhancer-fleet-quadrant promatic_dashboard_enhancer-fleet-quadrant--offline">
-                    <div class="promatic_dashboard_enhancer-fleet-quadrant__pct">7%</div>
-                    <div class="promatic_dashboard_enhancer-fleet-quadrant__lbl">Sin conexión</div>
-                  </div>
-                </div>
-              </div>
-              <div class="promatic_dashboard_enhancer-card__footer"><a href="#">Abrir árbol de flota ›</a></div>
             </div>
 
             <div class="promatic_dashboard_enhancer-card" id="promatic_dashboard_enhancer-card-top5km">
@@ -335,19 +309,21 @@
               <div class="promatic_dashboard_enhancer-card__footer"><a href="#">Abrir reporte de kilometraje ›</a></div>
             </div>
 
-          </div>
+        </div>
 
+        <!-- Col 3: el mapa solo, con el doble de ancho de una columna
+             regular (4 sep, pedido de Ana) — formato más cuadrado. -->
+        <div class="promatic_dashboard_enhancer-shell-col--map">
           <div class="promatic_dashboard_enhancer-card" id="promatic_dashboard_enhancer-card-hotspots">
             <div class="promatic_dashboard_enhancer-card__head">
               <h3 class="promatic_dashboard_enhancer-card__title">Mapa de flota (demo)</h3>
               <span class="promatic_dashboard_enhancer-card__meta">disponibilidad por sucursal en diseño</span>
             </div>
             <div class="promatic_dashboard_enhancer-card__body" id="promatic_dashboard_enhancer-card-body-hotspots">
-              <div id="map-hotspots-rac" class="map-el" style="height:340px" title="Mapa Leaflet dummy — en producción es una instancia propia de MapContainer (PILOT)."></div>
+              <div id="map-hotspots-rac" class="map-el" style="height:100%" title="Mapa Leaflet dummy — en producción es una instancia propia de MapContainer (PILOT). Arrastra la esquina inferior derecha para estirarlo."></div>
             </div>
             <div class="promatic_dashboard_enhancer-card__footer"><a href="#">Abrir mapa ›</a></div>
           </div>
-
         </div>
 
         <!-- Col derecha fija: logo + bloque de exportación (placeholder) -->
@@ -357,6 +333,17 @@
             <div class="promatic_dashboard_enhancer-card__body">
               <div class="promatic_dashboard_enhancer-logo">
                 <img src="img/dashboard-enhancer-resized-small.jpg" alt="Dashboard Enhancer">
+              </div>
+            </div>
+          </div>
+
+          <div class="promatic_dashboard_enhancer-card" id="promatic_dashboard_enhancer-card-reloj">
+            <div class="promatic_dashboard_enhancer-card__head">
+              <h3 class="promatic_dashboard_enhancer-card__title">Hora Oficial</h3>
+            </div>
+            <div class="promatic_dashboard_enhancer-card__body">
+              <div class="promatic_dashboard_enhancer-clock">
+                <div class="promatic_dashboard_enhancer-clock__time" id="proto-clock-time">00:00:00</div>
               </div>
             </div>
           </div>

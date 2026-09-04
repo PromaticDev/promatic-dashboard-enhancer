@@ -2,6 +2,7 @@
 
 .promatic_dashboard_enhancer-panel {
     padding: 12px;
+    background-color: var(--g2);
     /* Tokens de color — en el contenedor, no en :root (ver spec/api.md). */
     --g0: #f4f6f8;
     --g1: #e6edf3;
@@ -95,6 +96,11 @@
     min-width: 220px;
     border-radius: 8px;
     border: 1px solid #E2E8F0;
+    /* Fondo blanco explícito — sin esto la card es transparente y deja ver
+       lo que haya detrás (en PILOT real lo disimula el panel nativo blanco,
+       pero en el prototipo/mockup se nota el fondo del frame). Pedido de
+       Ana, reunión de pauta 4 sep. */
+    background: #ffffff;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 10px rgba(15, 23, 42, 0.03);
     display: flex;
     flex-direction: column;
@@ -150,33 +156,35 @@
     min-width: 200px;
 }
 
-/* Contenedor de las 2 columnas centrales flexibles. */
-.promatic_dashboard_enhancer-shell-center {
-    flex: 1 1 480px;
+/* Col 2 — Sin Señal GPS + Top KM apiladas verticalmente (4 sep, pedido de
+   Ana: sin "Estado de Flota" el hueco quedaba más alto que el resto).
+   Angosta, mismo ancho aprox. que col 1/4. */
+.promatic_dashboard_enhancer-shell-col--mid {
+    flex: 1 1 280px;
     display: flex;
     flex-direction: column;
     gap: 16px;
+    min-width: 260px;
+}
+
+/* Col 3 — el mapa solo, con el doble de flex-basis de col--mid: gana ancho
+   y (via la altura fija del panel del mapa, ver buildHotspotsMapPanel)
+   queda más cuadrado que el rectángulo apaisado anterior. */
+.promatic_dashboard_enhancer-shell-col--map {
+    flex: 2 1 480px;
+    display: flex;
+    flex-direction: column;
     min-width: 320px;
 }
 
-/* Fila de las 3 cards de datos del centro (Sin Señal GPS + Estado de Flota +
-   Top KM). flex-wrap: en pantallas anchas caben las 3 en fila; al angostar
-   hacen wrap a 2+1 y luego se apilan. flex-basis 300px = punto de quiebre
-   razonable para que Sin Señal GPS (3 chips) no quede apretada. */
-.promatic_dashboard_enhancer-shell-center-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    align-items: stretch;
-}
-
-.promatic_dashboard_enhancer-shell-center-row > .promatic_dashboard_enhancer-card {
-    flex: 1 1 300px;
+.promatic_dashboard_enhancer-shell-col--map .promatic_dashboard_enhancer-card {
+    height: 100%;
 }
 
 /* La columna izquierda angosta necesita cards sin el min-width de 220px. */
 .promatic_dashboard_enhancer-shell-col--fixed-left .promatic_dashboard_enhancer-card,
-.promatic_dashboard_enhancer-shell-col--fixed-right .promatic_dashboard_enhancer-card {
+.promatic_dashboard_enhancer-shell-col--fixed-right .promatic_dashboard_enhancer-card,
+.promatic_dashboard_enhancer-shell-col--mid .promatic_dashboard_enhancer-card {
     min-width: 0;
 }
 
@@ -295,11 +303,21 @@
     height: 100% !important;
 }
 
-/* El card-body del hotspots no debe tener padding ni scroll — el panel del
-   mapa lo llena por completo. */
+/* El card-body del hotspots no debe tener padding — el panel del mapa lo
+   llena por completo. resize:both (4 sep, pedido del usuario): el mapa
+   se veía "aplastado" con el ancho nuevo (col 3, doble ancho) — se puede
+   estirar a mano desde la esquina inferior derecha. min-height ≈ alto real
+   medido de la col 2 (Sin Señal GPS + Top KM, 504px) para que arranque
+   como una caja grande, no aplastada — valor fijo, no recalculado en vivo.
+   overflow:auto (no hidden) es requisito de CSS resize para funcionar. */
 #promatic_dashboard_enhancer-card-body-hotspots {
-    padding: 0;
-    overflow: hidden;
+    /* Mismo padding que .card__body genérico (8px 12px) — antes 0, el mapa
+       quedaba pegado a los bordes de la card, distinto al resto de los
+       widgets. Pedido del usuario, 4 sep. */
+    padding: 8px 12px;
+    overflow: auto;
+    resize: both;
+    min-height: 504px;
 }
 
 .promatic_dashboard_enhancer-card__head {
@@ -318,7 +336,7 @@
 }
 
 .promatic_dashboard_enhancer-card__title {
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 600;
     margin: 0;
 }
@@ -388,7 +406,7 @@
 }
 
 .promatic_dashboard_enhancer-clock__time {
-    font-size: 34px;
+    font-size: 26px;
     font-weight: 700;
     color: var(--g7);
     letter-spacing: 1px;
@@ -431,14 +449,14 @@
 .promatic_dashboard_enhancer-signal-watermark {
     position: absolute;
     top: 50%;
-    right: -6px;
+    right: 22px;
     transform: translateY(-50%);
-    width: 88px;
-    height: 88px;
-    color: var(--g5);
-    opacity: 0.12;
+    width: 196px;
+    height: 150px;
+    color: #fff;
+    opacity: 0.22;
     pointer-events: none;
-    z-index: 0;
+    z-index: 2;
 }
 
 .promatic_dashboard_enhancer-signal-watermark svg {
@@ -502,19 +520,25 @@
     color: #ffffff;
 }
 
-.promatic_dashboard_enhancer-signal-chip--yellow { background: var(--g5); }
+/* Cápsula completa con el color de alerta (no la rampa azul estructural)
+   — pedido de Ana, reunión de pauta 4 sep: Sin Señal GPS es un campo
+   crítico y debe destacar del resto del dashboard, que es "muy azul". */
+.promatic_dashboard_enhancer-signal-chip--yellow { background: var(--status-warn-strong); }
+.promatic_dashboard_enhancer-signal-chip--yellow .promatic_dashboard_enhancer-signal-chip__label { color: #ffffff; }
 .promatic_dashboard_enhancer-signal-chip--yellow .promatic_dashboard_enhancer-signal-chip__badge {
     background-color: var(--status-warn-bright);
     color: var(--status-text);
 }
 
-.promatic_dashboard_enhancer-signal-chip--orange { background: var(--g6); }
+.promatic_dashboard_enhancer-signal-chip--orange { background: var(--status-alert-strong); }
+.promatic_dashboard_enhancer-signal-chip--orange .promatic_dashboard_enhancer-signal-chip__label { color: #ffffff; }
 .promatic_dashboard_enhancer-signal-chip--orange .promatic_dashboard_enhancer-signal-chip__badge {
     background-color: var(--status-alert-bright);
     color: var(--status-text);
 }
 
-.promatic_dashboard_enhancer-signal-chip--red { background: var(--g7); }
+.promatic_dashboard_enhancer-signal-chip--red { background: var(--status-danger-strong); }
+.promatic_dashboard_enhancer-signal-chip--red .promatic_dashboard_enhancer-signal-chip__label { color: #ffffff; }
 .promatic_dashboard_enhancer-signal-chip--red .promatic_dashboard_enhancer-signal-chip__badge {
     background-color: var(--status-danger-bright);
     color: #ffffff;
@@ -591,18 +615,24 @@
     fill-opacity: 0.5;
     stroke-opacity: 0.5;
     transform-origin: center;
+}
+
+/* Respiración del ícono de fondo: SOLO en cards con incidencia real
+   (count > 0, clase --has-alert puesta por renderAlertasGenerales) — sin
+   incidencia, la animación "no aporta en nada" (Ana, pauta 4 sep). Las
+   demás cards se quedan quietas; su único feedback es el hover de
+   brightness ya existente arriba. */
+.promatic_dashboard_enhancer-stat-card--has-alert .promatic_dashboard_enhancer-stat-card__icon svg {
     animation: promatic_dashboard_enhancer-icon-breathe 2s ease-in-out infinite;
 }
 
-/* Respiración suave de los íconos de fondo de Alertas Generales:
-   escala 1 -> 1.08 -> 1 en loop. Se detiene con movimiento reducido. */
 @keyframes promatic_dashboard_enhancer-icon-breathe {
     0%, 100% { transform: scale(1); }
     50%      { transform: scale(1.08); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .promatic_dashboard_enhancer-stat-card__icon svg {
+    .promatic_dashboard_enhancer-stat-card--has-alert .promatic_dashboard_enhancer-stat-card__icon svg {
         animation: none;
     }
 }
@@ -845,11 +875,20 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
 }
 
 /* Barra de controles del pie del dashboard (ADR-014) */
+/* Footer de ancho completo (4 sep, pedido del usuario) — antes flotaba
+   sin fondo/borde, apenas se leía como parte del dashboard. Reserva de
+   layout: si más adelante se agregan filtros/restricciones de flota,
+   este es el lugar natural para meterlos junto al slider/botón. */
 .promatic_dashboard_enhancer-controls {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
     gap: 8px;
-    padding: 8px 0 4px;
+    margin-top: 16px;
+    padding: 10px 16px;
+    background: #ffffff;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
 }
 
 .promatic_dashboard_enhancer-ctrl-btn {

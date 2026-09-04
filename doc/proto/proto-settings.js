@@ -115,6 +115,18 @@ buildHotspots('map-hotspots-rac');
 buildHotspots('map-hotspots-lop');
 buildDisponibilidad('map-disponibilidad-lop');
 
+// El card-body del mapa RAC ahora es resize:both (4 sep, pedido del
+// usuario — ver dist/style.css #card-body-hotspots) — cuando el usuario
+// arrastra el handle nativo del navegador, Leaflet necesita invalidateSize()
+// para redibujar sobre el nuevo tamaño real.
+(function () {
+  var hotspotsBody = document.getElementById('promatic_dashboard_enhancer-card-body-hotspots');
+  var racMap = window.__pdMaps && window.__pdMaps['map-hotspots-rac'];
+  if (hotspotsBody && racMap && window.ResizeObserver) {
+    new ResizeObserver(function () { racMap.invalidateSize(); }).observe(hotspotsBody);
+  }
+})();
+
 // -------- Reloj "Hora Oficial" — card fija de la col izquierda RAC --------
 // Usa Intl con timeZone fijo a America/Santiago, igual que chileTime() en
 // dist/Module.js (clockConfig() default). "Exacta" acá depende del reloj

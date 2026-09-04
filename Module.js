@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-04-1542',
+    moduleBuild: '2026-09-04-1702',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -317,10 +317,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // Para LOC/LOP: col izq y la posición de Sin Señal GPS quedan fijas;
     // solo cambian las columnas del centro (buildLopShell se adapta aparte).
     buildRacShell: function () {
+        // Col 1 (4 sep, mismo lote de cambios de la pauta): solo Alertas
+        // Generales — gana el alto completo de la columna. El reloj se
+        // movió a col 4, debajo del logo.
         var colLeft = {
             cls: 'promatic_dashboard_enhancer-shell-col--fixed-left',
             cn: [
-                this.cardMarkup('reloj', { title: l('Hora Oficial'), noFooter: true }),
                 this.cardMarkup('alertas_generales', {
                     title: l('Alertas Generales'),
                     hint: l('Accidentes: eventos de los últimos 30 días. Requiere mantención: recordatorios por vehículo configurados en PILOT. Las categorías "beta" aún no están conectadas.'),
@@ -330,41 +332,42 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ]
         };
 
-        var center = {
-            cls: 'promatic_dashboard_enhancer-shell-center',
+        // Col 2 (4 sep, pedido de Ana vía Orlando): Sin Señal GPS + Top KM
+        // apiladas verticalmente, angosta — libera el ancho que ocupaba
+        // "Estado de Flota" (retirado de RAC, FR-0009: es dato de LOP, que
+        // hoy no está montada — updateFlotaLopCard/refreshFleetStore siguen
+        // corriendo igual, solo no se monta esta card acá) sin dejar un
+        // hueco. Reserva de espacio al final para un futuro widget (no
+        // implementado todavía).
+        var colMid = {
+            cls: 'promatic_dashboard_enhancer-shell-col--mid',
             cn: [
-                // Las 3 cards de datos en un flex-wrap: en pantallas anchas
-                // van las 3 en fila; al angostar hacen wrap (2+1, luego 1+1+1
-                // apiladas). El mapa queda siempre en su propia fila ancha.
-                {
-                    cls: 'promatic_dashboard_enhancer-shell-center-row',
-                    cn: [
-                        this.cardMarkup('gps_signal', {
-                            title: l('Sin Señal GPS'),
-                            hint: l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal recibida. Se actualiza en vivo con el árbol Online.'),
-                            noFooter: true,
-                            skeleton: 'chips'
-                        }),
-                        this.cardMarkup('flota', {
-                            title: l('Estado de Flota'),
-                            hint: l('Porcentajes sobre el total de vehículos del árbol Online. Se actualiza en vivo.'),
-                            footerLabel: l('Abrir árbol de flota'),
-                            skeleton: 'donut'
-                        }),
-                        this.cardMarkup('top5km', {
-                            title: l('Vehículos con Kilometraje en Exceso'),
-                            hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: /api/v3/vehicles/trips, con respaldo al reporte de kilometraje.'),
-                            footerLabel: l('Abrir reporte de kilometraje'),
-                            skeleton: 'ranking'
-                        })
-                    ]
-                },
-                // NOTA: en RAC este mapa es temporal. Los gerentes (reunión
-                // 3 sep) pidieron para RAC un mapa de "vehículos disponibles
-                // por sucursal" (FR-0008) — las geocercas de sucursal ya
-                // están en PILOT (Ana). El heatmap de desconexión GPS
-                // (type=15) es de la vista LOC/LOP. Se deja aquí como demo del
-                // mapa propio funcionando (BR-PILOT-0007) hasta armar FR-0008.
+                this.cardMarkup('gps_signal', {
+                    title: l('Sin Señal GPS'),
+                    hint: l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal recibida. Se actualiza en vivo con el árbol Online.'),
+                    noFooter: true,
+                    skeleton: 'chips'
+                }),
+                this.cardMarkup('top5km', {
+                    title: l('Vehículos con Kilometraje en Exceso'),
+                    hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: /api/v3/vehicles/trips, con respaldo al reporte de kilometraje.'),
+                    footerLabel: l('Abrir reporte de kilometraje'),
+                    skeleton: 'ranking'
+                })
+            ]
+        };
+
+        // Col 3: el mapa solo, con el doble de ancho de una columna regular
+        // — gana altura/formato más cuadrado en vez del rectángulo apaisado
+        // de antes. NOTA: en RAC este mapa es temporal. Los gerentes
+        // (reunión 3 sep) pidieron para RAC un mapa de "vehículos
+        // disponibles por sucursal" (FR-0008) — las geocercas de sucursal ya
+        // están en PILOT (Ana). El heatmap de desconexión GPS (type=15) es
+        // de la vista LOC/LOP. Se deja aquí como demo del mapa propio
+        // funcionando (BR-PILOT-0007) hasta armar FR-0008.
+        var colMap = {
+            cls: 'promatic_dashboard_enhancer-shell-col--map',
+            cn: [
                 this.cardMarkup('hotspots', {
                     title: l('Mapa de flota (demo)'), meta: l('disponibilidad por sucursal en diseño'),
                     footerLabel: l('Abrir mapa'),
@@ -377,12 +380,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: 'promatic_dashboard_enhancer-shell-col--fixed-right',
             cn: [
                 this.cardMarkup('logo', { noFooter: true }),
+                this.cardMarkup('reloj', { title: l('Hora Oficial'), noFooter: true }),
                 this.exportBlockMarkup()
             ]
         };
 
         var shell = [
-            { cls: 'promatic_dashboard_enhancer-shell-4col', cn: [colLeft, center, colRight] },
+            { cls: 'promatic_dashboard_enhancer-shell-4col', cn: [colLeft, colMid, colMap, colRight] },
             this.controlsBarMarkup()
         ];
 
@@ -1159,9 +1163,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             } else {
                 body = { cls: 'promatic_dashboard_enhancer-stat-card__count', html: String(count) };
             }
+            // La respiración del ícono de fondo solo tiene sentido cuando
+            // la card reporta una incidencia real (count > 0) — pedido de
+            // Ana, pauta 4 sep: "no aportan en nada" si están siempre
+            // animadas. Las demás quedan quietas, con hover simple (CSS).
+            var hasIncident = !isBeta && typeof count === 'number' && count > 0;
             return {
                 tag: 'a', href: '#', style: 'background:' + bg, title: titleAttr,
-                cls: 'promatic_dashboard_enhancer-stat-card' + (isBeta ? ' promatic_dashboard_enhancer-stat-card--beta' : ''),
+                cls: 'promatic_dashboard_enhancer-stat-card' +
+                    (isBeta ? ' promatic_dashboard_enhancer-stat-card--beta' : '') +
+                    (hasIncident ? ' promatic_dashboard_enhancer-stat-card--has-alert' : ''),
                 cn: [
                     { tag: 'span', cls: 'promatic_dashboard_enhancer-stat-card__icon', html: iconSvg },
                     { cls: 'promatic_dashboard_enhancer-stat-card__title', html: title },
@@ -1187,11 +1198,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     l('Recordatorios de mantención de vehículo (ptm)')),
                 card('var(--g6)', l('Ralentí excesivo'), null, svgRalenti,
                     l('Ralentí acumulado sobre umbral — pendiente de conexión'), true),
-                card('var(--g7)', l('Manipulación de combustible'), null, svgCombustible,
-                    l('Drenaje/carga anómala de estanque — pendiente de conexión'), true),
-                card('var(--g6)', l('GPS desconectado manual'), null, svgGpsManual,
+                card('var(--g7)', l('Inconsistencias en Carga'), null, svgCombustible,
+                    l('Carga de combustible fuera de lo esperado — pendiente de conexión'), true),
+                card('var(--g6)', l('Drenaje de Combustible'), null, svgCombustible,
+                    l('Baja brusca de combustible que no corresponde a una recarga — pendiente de conexión'), true),
+                card('var(--g7)', l('GPS Manipulado'), null, svgGpsManual,
                     l('Desconexión intencional del equipo — pendiente de conexión'), true),
-                card('var(--g7)', l('Salida de territorio nacional'), null, svgTerritorio,
+                card('var(--g6)', l('Salida de territorio nacional'), null, svgTerritorio,
                     l('Vehículo cruza la frontera — pendiente de conexión'), true)
             ]
         }));
@@ -1241,7 +1254,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: 'promatic_dashboard_enhancer-hotspots-map',
             bodyCls: 'promatic_dashboard_enhancer-hotspots-map-body',
             layout: 'fit',
-            height: 340,
+            // Altura inicial = min-height del contenedor CSS
+            // (#card-body-hotspots, resize:both — 4 sep, pedido del
+            // usuario). No queda fija: el ResizeObserver de más abajo la
+            // ajusta al tamaño real del contenedor en cada resize (inicial
+            // y cuando el usuario arrastra el handle nativo del navegador).
+            height: 504,
             border: false,
             listeners: {
                 render: function () {
@@ -1261,6 +1279,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         Ext.defer(function () {
                             if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
                         }, 700);
+                        // El usuario puede estirar #card-body-hotspots a mano
+                        // (CSS resize:both) — eso NO dispara el ciclo de
+                        // layout de Ext (el resize del panel Ext es interno,
+                        // no ve el drag del handle nativo del navegador).
+                        // ResizeObserver sobre el contenedor real cubre ese
+                        // caso; checkResize() re-mide Leaflet al nuevo tamaño.
+                        if (window.ResizeObserver && body.dom) {
+                            me._hotspotsResizeObserver = new ResizeObserver(function () {
+                                if (me._hotspotsPanel) { me._hotspotsPanel.setHeight(body.dom.clientHeight); }
+                                if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
+                            });
+                            me._hotspotsResizeObserver.observe(body.dom);
+                        }
                     } catch (err) {
                         me.widgetErrorCode('HOTSPOTS-INIT', err);
                         this.body.setHtml(l('No se pudo inicializar el mapa de desconexión.'));
