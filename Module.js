@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-03-1952',
+    moduleBuild: '2026-09-04-1038',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -906,6 +906,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
+    // Tope de reintentos ante la falsa pinta inicial: online_tree materializa
+    // las filas del store antes de que PILOT sincronice is_server_online por
+    // cada una (llega en un 'datachanged'/'update' posterior, no en la carga
+    // inicial) — de lo contrario toda la flota se ve "offline" por unos
+    // segundos al montar. Ver SPEC.md §3 pendiente "primera pinta Estado de
+    // Flota".
+    FLEET_SETTLE_MAX_RETRIES: 6,
+    FLEET_SETTLE_RETRY_MS: 700,
+
     _refreshFleetStore: function () {
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) {
@@ -967,6 +976,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 parked++;
             }
         }
+
+        // Falsa pinta inicial: 100% offline con flota no vacía suele ser
+        // is_server_online aún sin sincronizar (no un apagón real de la
+        // flota completa) — reintentar antes de pintar el estado transitorio.
+        if (total > 0 && offlineCount === total &&
+            (this._fleetSettleAttempt || 0) < this.FLEET_SETTLE_MAX_RETRIES) {
+            this._fleetSettleAttempt = (this._fleetSettleAttempt || 0) + 1;
+            Ext.defer(this.refreshFleetStore, this.FLEET_SETTLE_RETRY_MS, this);
+            return;
+        }
+        this._fleetSettleAttempt = 0;
 
         // Log solo cuando los números cambian — con flota estable, silencio.
         var sig = total + '/' + offlineCount + '/' + moving + '/' + parked +
