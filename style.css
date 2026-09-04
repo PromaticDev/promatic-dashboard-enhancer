@@ -608,8 +608,8 @@
 }
 
 .promatic_dashboard_enhancer-stat-card__title {
-    font-size: 11.5px;
-    font-weight: 600;
+    font-size: 1rem;
+    font-weight: 500;
     line-height: 1.25;
     max-width: 74%;
     margin-bottom: 4px;

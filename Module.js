@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-04-1216',
+    moduleBuild: '2026-09-04-1450',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1112,10 +1112,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     renderAlertasGenerales: function (accidentes, mantencion) {
-        // Accidentes/Mantención/GPS manual: dibujados a mano, outline,
-        // viewBox="0 0 24 24" (stroke=currentColor, width 1.6). Ralentí/
-        // Combustible/Territorio: assets de dev/icons/ (filled, currentColor,
-        // viewBox propio) — el wrapper .stat-card__icon los escala igual.
+        // Accidentes/Mantención: dibujados a mano, outline, viewBox="0 0 24 24"
+        // (stroke=currentColor, width 1.6). Ralentí/Combustible/Territorio/
+        // GPS manual: assets de dev/icons/ (filled, currentColor, viewBox
+        // propio) — el wrapper .stat-card__icon los escala igual.
         var svgAccidente =
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
             'stroke-linecap="round" stroke-linejoin="round">' +
@@ -1136,11 +1136,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var svgCombustible =
             '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
             '<path fill="currentColor" d="m19.77 7.23l.01-.01l-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33a2.5 2.5 0 0 0 2.5 2.5c.36 0 .69-.08 1-.21v7.21c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5a2.5 2.5 0 0 0 5 0V9c0-.69-.28-1.32-.73-1.77M12 10H6V5h6zm6 0c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1"/></svg>';
+        // GPS desconectado manual: icon-unplugged.svg (dev/icons/) —
+        // manipulación física del dispositivo (desenchufar/jammer), no
+        // confundir con el ícono de "Sin Señal GPS" (antena tachada,
+        // watermark de la card gps_signal aparte).
         var svgGpsManual =
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
-            'stroke-linecap="round" stroke-linejoin="round">' +
-            '<path d="M12 21s-7-6.5-7-12a7 7 0 0 1 11.9-5" /><path d="M9.5 9a3 3 0 0 1 4.5 2.6" />' +
-            '<line x1="4" y1="3.5" x2="20" y2="20.5" /></svg>';
+            '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">' +
+            '<path fill="currentColor" d="M25.6,25.6,22.2,29,19,25.8l3.4-3.4a2,2,0,0,0-2.8-2.8L16.2,23l-1.3-1.3a1.9,1.9,0,0,0-2.8,0l-3,3a9.8,9.8,0,0,0-3,7,9.1,9.1,0,0,0,1.8,5.6L4.6,40.6a1.9,1.9,0,0,0,0,2.8,1.9,1.9,0,0,0,2.8,0l3.2-3.2a10.1,10.1,0,0,0,5.9,1.9,10.2,10.2,0,0,0,7.1-2.9l3-3a2,2,0,0,0,.6-1.4,1.7,1.7,0,0,0-.6-1.4L25,31.8l3.4-3.4a2,2,0,0,0-2.8-2.8Z"/>' +
+            '<path fill="currentColor" d="M43.4,4.6a1.9,1.9,0,0,0-2.8,0L37.2,8a10,10,0,0,0-13,.9l-3,3a2,2,0,0,0-.6,1.4,1.7,1.7,0,0,0,.6,1.4L32.9,26.4a1.9,1.9,0,0,0,2.8,0l3-2.9a9.9,9.9,0,0,0,2.9-7.1A10.4,10.4,0,0,0,40,10.9l3.4-3.5A1.9,1.9,0,0,0,43.4,4.6Z"/></svg>';
         var svgTerritorio =
             '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 1024 1023">' +
             '<path fill="currentColor" d="M512 1023q-104 0-199-40.5t-163.5-109T40.5 710T0 511t40.5-198.5t109-163T313 40.5T512 0t199 40.5t163.5 109t109 163T1024 511t-40.5 199t-109 163.5t-163.5 109t-199 40.5m222-199L512 602L290 824q100 71 222 71t222-71M128 511q0 122 70 221l222-222l-221-221q-71 100-71 222m163-313l221 220l221-220q-100-71-221-71t-221 71m534 91L604 510l222 222q70-99 70-221t-71-222"/></svg>';
