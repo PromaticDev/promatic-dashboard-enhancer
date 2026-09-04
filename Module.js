@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-04-1702',
+    moduleBuild: '2026-09-04-1747',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1286,8 +1286,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         // ResizeObserver sobre el contenedor real cubre ese
                         // caso; checkResize() re-mide Leaflet al nuevo tamaño.
                         if (window.ResizeObserver && body.dom) {
+                            // Tope defensivo: mientras los widgets hermanos
+                            // están en skeleton (alturas variables) el shell
+                            // puede reportar un clientHeight inflado; sin
+                            // clamp, setHeight() dispara otro resize del
+                            // contenedor y el ciclo crece sin límite ("el
+                            // mapa se cae de la pantalla"). 900px = tope de
+                            // .shell-col--map / #card-body-hotspots en CSS.
+                            var HOTSPOTS_MAX_HEIGHT = 900;
                             me._hotspotsResizeObserver = new ResizeObserver(function () {
-                                if (me._hotspotsPanel) { me._hotspotsPanel.setHeight(body.dom.clientHeight); }
+                                var h = Math.min(body.dom.clientHeight, HOTSPOTS_MAX_HEIGHT);
+                                if (me._hotspotsPanel) { me._hotspotsPanel.setHeight(h); }
                                 if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
                             });
                             me._hotspotsResizeObserver.observe(body.dom);
