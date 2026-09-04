@@ -415,16 +415,28 @@
 
 .promatic_dashboard_enhancer-logo {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     padding: 12px;
     height: 100%;
+    gap: 4px;
 }
 
 .promatic_dashboard_enhancer-logo img {
     width: 100%;
     height: auto;
     max-width: 210px;
+}
+
+/* Versión visible bajo el logo (moduleBuild + SemVer) — evita tener que
+   ir a comparar contra el repo público / borrar caché a ciegas para saber
+   si el navegador ya cargó el último build. Pedido del usuario, 4 sep. */
+.promatic_dashboard_enhancer-version {
+    font-size: 10px;
+    color: #94A3B8;
+    letter-spacing: 0.2px;
+    text-align: center;
 }
 
 /* ===== Sin Señal GPS (card 'gps_signal') ===== */
