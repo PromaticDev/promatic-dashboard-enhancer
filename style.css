@@ -175,12 +175,13 @@
     display: flex;
     flex-direction: column;
     min-width: 320px;
-    max-height: 900px;
+    height: 650px;
+    max-height: 845px;
 }
 
 .promatic_dashboard_enhancer-shell-col--map .promatic_dashboard_enhancer-card {
     height: 100%;
-    max-height: 900px;
+    max-height: 845px;
 }
 
 /* La columna izquierda angosta necesita cards sin el min-width de 220px. */
@@ -307,10 +308,9 @@
 
 /* El card-body del hotspots no debe tener padding — el panel del mapa lo
    llena por completo. resize:both (4 sep, pedido del usuario): el mapa
-   se veía "aplastado" con el ancho nuevo (col 3, doble ancho) — se puede
-   estirar a mano desde la esquina inferior derecha. min-height ≈ alto real
-   medido de la col 2 (Sin Señal GPS + Top KM, 504px) para que arranque
-   como una caja grande, no aplastada — valor fijo, no recalculado en vivo.
+   arranca cuadrado (650px) y se puede estirar a mano desde la esquina
+   inferior derecha hasta max-height (845px) — evita el bug de estiramiento
+   infinito durante skeleton loading (ver ResizeObserver en Module.js).
    overflow:auto (no hidden) es requisito de CSS resize para funcionar. */
 #promatic_dashboard_enhancer-card-body-hotspots {
     /* Mismo padding que .card__body genérico (8px 12px) — antes 0, el mapa
@@ -319,8 +319,9 @@
     padding: 8px 12px;
     overflow: auto;
     resize: both;
-    min-height: 504px;
-    max-height: 900px;
+    height: 650px;
+    min-height: 650px;
+    max-height: 845px;
 }
 
 .promatic_dashboard_enhancer-card__head {

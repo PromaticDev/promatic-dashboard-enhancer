@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.0',
-    moduleBuild: '2026-09-04-1747',
+    moduleBuild: '2026-09-04-1755',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1259,7 +1259,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // usuario). No queda fija: el ResizeObserver de más abajo la
             // ajusta al tamaño real del contenedor en cada resize (inicial
             // y cuando el usuario arrastra el handle nativo del navegador).
-            height: 504,
+            height: 650,
             border: false,
             listeners: {
                 render: function () {
@@ -1291,9 +1291,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                             // puede reportar un clientHeight inflado; sin
                             // clamp, setHeight() dispara otro resize del
                             // contenedor y el ciclo crece sin límite ("el
-                            // mapa se cae de la pantalla"). 900px = tope de
-                            // .shell-col--map / #card-body-hotspots en CSS.
-                            var HOTSPOTS_MAX_HEIGHT = 900;
+                            // mapa se cae de la pantalla"). 845px = tope de
+                            // .shell-col--map / #card-body-hotspots en CSS
+                            // (base cuadrada 650px, estirable a mano hasta acá).
+                            var HOTSPOTS_MAX_HEIGHT = 845;
                             me._hotspotsResizeObserver = new ResizeObserver(function () {
                                 var h = Math.min(body.dom.clientHeight, HOTSPOTS_MAX_HEIGHT);
                                 if (me._hotspotsPanel) { me._hotspotsPanel.setHeight(h); }
