@@ -102,18 +102,14 @@ function buildDisponibilidad(elId) {
   });
 }
 
-buildSemiDonut('donut-lop', [
-  { pct: 24, color: '--status-ok' }, { pct: 51, color: '--status-warn' },
-  { pct: 17, color: '--status-alert' }, { pct: 8, color: '--status-danger' }
-]);
 // RAC (v0.5.0): el mapa de hotspots real es una instancia de MapContainer
 // (Ext.panel.Panel) — el prototipo usa Leaflet dummy como aproximación
 // visual, no reproduce el mecanismo real (ver title del div en
-// proto-dash.html). Los mapas de LOP (vista sin actualizar todavía)
-// también usan Leaflet dummy.
+// proto-dash.html).
 buildHotspots('map-hotspots-rac');
-buildHotspots('map-hotspots-lop');
-buildDisponibilidad('map-disponibilidad-lop');
+// LOP (reconstruida 4 sep sobre el shell RAC): las cards quedaron como
+// placeholder "en diseño", sin mapas/donut todavía — buildDisponibilidad()
+// queda disponible para cuando FR-0008 defina el widget real.
 
 // El card-body del mapa RAC ahora es resize:both (4 sep, pedido del
 // usuario — ver dist/style.css #card-body-hotspots) — cuando el usuario
@@ -140,82 +136,13 @@ function updateChileClock() {
   var lookup = {};
   parts.forEach(function (p) { lookup[p.type] = p.value; });
   var text = lookup.hour + ':' + lookup.minute + ':' + lookup.second;
-  ['proto-clock-time', 'clock-time-lop'].forEach(function (id) {
+  ['proto-clock-time'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) { el.textContent = text; }
   });
 }
 updateChileClock();
 setInterval(updateChileClock, 1000);
-
-// -------- Buscador de reportes (solo LOP por ahora) — autocompletado dummy --------
-// En RAC el buscador está OCULTO en producción (ver comentario en
-// buildRacShell(), dist/Module.js — vuelve con FR-0006, asistente IA), así
-// que el prototipo no lo simula en esa vista. Catálogo ilustrativo basado en
-// los report_type/events confirmados en spec/api.md.
-var reportCatalog = [
-  'Reporte Recargas de Combustible',
-  'Reporte Ralentí',
-  'Reporte Eco Drive (Velocidad)',
-  'Reporte Eco Drive II (Calidad de Conducción)',
-  'Reporte Vehículos Fuera de Zona',
-  'Reporte Kilometraje Recorrido',
-  'Reporte Voltaje de Batería',
-  'Reporte Desconexión GPS',
-  'Reporte Utilización de Flota',
-  'Reporte Mantención Pendiente'
-];
-
-function setupSearchAutocomplete(inputId, listId) {
-  var input = document.getElementById(inputId);
-  var list = document.getElementById(listId);
-  if (!input || !list) { return; }
-
-  function renderMatches(query) {
-    var matches = reportCatalog.filter(function (name) {
-      return name.toLowerCase().indexOf(query) !== -1;
-    });
-    list.innerHTML = '';
-    if (!matches.length) {
-      var empty = document.createElement('div');
-      empty.className = 'search-suggestions-empty';
-      empty.textContent = 'Sin coincidencias en el catálogo de reportes';
-      list.appendChild(empty);
-      list.classList.add('open');
-      return;
-    }
-    matches.forEach(function (name) {
-      var item = document.createElement('div');
-      item.className = 'search-suggestion';
-      item.textContent = name;
-      // mousedown (no click) para que dispare antes del blur del input
-      item.addEventListener('mousedown', function (e) {
-        e.preventDefault();
-        input.value = name;
-        list.classList.remove('open');
-      });
-      list.appendChild(item);
-    });
-    list.classList.add('open');
-  }
-
-  input.addEventListener('input', function () {
-    var q = input.value.trim().toLowerCase();
-    if (!q) { list.classList.remove('open'); return; }
-    renderMatches(q);
-  });
-
-  input.addEventListener('focus', function () {
-    var q = input.value.trim().toLowerCase();
-    if (q) { renderMatches(q); }
-  });
-
-  input.addEventListener('blur', function () {
-    setTimeout(function () { list.classList.remove('open'); }, 100);
-  });
-}
-
-setupSearchAutocomplete('search-input-lop', 'search-suggestions-lop');
 
 // -------- Fix: Leaflet inicializado antes de que su contenedor tenga tamaño
 // definido puede quedar mostrando un solo tile en vez del mapa completo
