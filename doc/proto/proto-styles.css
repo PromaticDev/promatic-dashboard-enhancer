@@ -1,16 +1,17 @@
 /* ==========================================================================
-   Variables y Reset Base
+   proto-styles.css — SOLO "chrome" de la simulación de prototipo (marco,
+   tabs, tokens de fuente) + estilos de la vista LOP (sin actualizar en esta
+   pasada, sigue con su look anterior). Las clases del dashboard real
+   (cards, chips, cuadrantes, ranking, etc. de la vista RAC) viven en
+   dist/style.css con el prefijo promatic_dashboard_enhancer-* — proto-dash.html
+   las carga directo de ahí, no se duplican acá. Ver BR-PILOT (naming unificado,
+   4 sep 2026).
    ========================================================================== */
 :root {
-  /* Paleta "Cálida" (Versión 1) — dev/palettes/version1.css, adoptada 20 ago 2026,
-     rebalanceada el mismo día (más azul, menos naranjo) y recortada a 8 tonos
-     (se retiraron --g8/--g9, muy parecidos a --g6/--g7, sobraban). Un solo azul
-     fuerte (--accent-azure) en vez de dos compitiendo entre sí; baltic-blue
-     domina la rampa estructural (--g3..--g7). --g2 era el último respiro cálido
-     (vanilla-custard) — se retiró también: los bordes/divisores que lo usaban
-     se veían mal contra el resto de la paleta azul, así que --g2 pasó a un
-     verde sage (hue 170°, igual que --accent-teal) para que combine en vez de
-     chocar. --accent-teal reservado para semántica "positivo/en regla". */
+  /* Paleta "Cálida" (Versión 1) — dev/palettes/version1.css, adoptada 20 ago 2026.
+     Mismos tokens que dist/style.css (.promatic_dashboard_enhancer-panel) —
+     duplicados acá porque la vista LOP (sin actualizar) y el chrome del
+     prototipo (frame, tabs) los necesitan fuera del scope de esa clase. */
   --g0: #f4f6f8;
   --g1: #e6edf3;
   --g2: #cae2de;
@@ -30,33 +31,20 @@
       var(--gradient-color1) 0%,
       var(--gradient-color2) 100%);
 
-  /* Colores "semáforo" — solo para widgets con límite mantenido/excedido
-     (velocidad, estado de flota, batería, etc.), nunca para chrome general.
-     --status-text es el color de texto validado por contraste WCAG AA
-     contra los 4 (ADR-009) — ver dev/palettes/preview.html para el ejemplo. */
   --status-ok: #a8d5ba;
   --status-warn: #f0d97d;
   --status-alert: #f0a868;
   --status-danger: #e8938a;
   --status-text: #04283e;
 
-  /* Versiones "fuertes" (más saturadas/oscuras) de los 3 estados principales —
-     los pasteles fallan el 3:1 de contraste WCAG (objeto gráfico/texto) contra
-     fondos claros, así que estos son para trazos/anillos/números, nunca para
-     fondos de badge (ahí van los pasteles de arriba). Ver ADR-009. */
   --status-ok-strong: #238a4c;
   --status-warn-strong: #997a00;
   --status-alert-strong: #a34d00;
   --status-danger-strong: #ad1100;
 
-  /* Try ON colores alertas */
-
-  --status-ok-computer: #8cda43;
   --status-warn-bright: #ffe61e;
   --status-alert-bright: #ff721e;
   --status-danger-bright: #fe5252;
-
-
 
   /* Chrome de desarrollo — envoltorio de preview, no forma parte de la UI de PILOT */
   --dev-canvas-bg: #cbd5e1;
@@ -65,23 +53,14 @@
   --dev-frame-border: #94a3b8;
 
   --font-system: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-
-  /* Prueba de tipografías 24 ago 2026 — 2 familias OFL nuevas en dev/fonts/,
-     para evaluar si empastan menos que la fuente de sistema en tamaños muy
-     pesados (.clock-time, 800) o muy pequeños (.widget__meta, .action).
-     @font-face de cada una está más abajo. */
   --font-cooper-hewitt: 'Cooper Hewitt', var(--font-system);
   --font-office-code-pro: 'Office Code Pro', ui-monospace, "SFMono-Regular", Consolas, monospace;
-
-  /* ⚙️ CAMBIAR ACÁ para probar una fuente u otra — solo esta línea:
-     var(--font-system) | var(--font-cooper-hewitt) | var(--font-office-code-pro) */
   --font: var(--font-cooper-hewitt);
 }
 
 /* ==========================================================================
    Tipografías de prueba (24 ago 2026) — licencia SIL OFL, archivos en
-   dev/fonts/. No usar en dist/ todavía: es solo para evaluar legibilidad en
-   este prototipo, no está confirmado como decisión final de marca.
+   dev/fonts/. No usar en dist/ todavía.
    ========================================================================== */
 @font-face {
   font-family: 'Cooper Hewitt';
@@ -146,39 +125,7 @@
   font-style: normal;
 }
 
-/* Helpers para color inline */
-.bg-g0 {
-  background-color: var(--g0);
-}
-
-.bg-g1 {
-  background-color: var(--g1);
-}
-
-.bg-g2 {
-  background-color: var(--g2);
-}
-
-.bg-g3 {
-  background-color: var(--g3);
-}
-
-.bg-g4 {
-  background-color: var(--g4);
-}
-
-.bg-g5 {
-  background-color: var(--g5);
-}
-
-.bg-g6 {
-  background-color: var(--g6);
-}
-
-.bg-g7 {
-  background-color: var(--g7);
-}
-
+/* Helpers para color inline — usados por la leyenda de velocidad (LOP) */
 .bg-status-ok {
   background-color: var(--status-ok);
 }
@@ -199,12 +146,6 @@
   box-sizing: border-box;
 }
 
-/* Reset de headings — h1..h6 no deben traer el tamaño/peso/margen que el
-   navegador les pone por defecto. Cada clase de título (.widget__title, .l,
-   .clock-label, etc.) sigue controlando su propia apariencia como ya hacía;
-   este reset solo evita que la etiqueta semántica "pise" ese control.
-   Agregado 24 ago 2026 al migrar títulos de <span>/<div> a <h3>/<h4> — ver
-   brain/sesiones.md. */
 h1,
 h2,
 h3,
@@ -225,7 +166,6 @@ body {
 
 body {
   margin: 0;
-  background: var(--dev-canvas-bg);
   background: var(--gradient-bg);
   font-family: var(--font);
   padding: 12px;
@@ -243,30 +183,20 @@ body {
   color: var(--dev-label-strong);
 }
 
-
-/* ******************************* */
-/* 
-  Estilos de HTML para tratar de revertir el Pilot de Fuerza
-
-*/
-
-.promatic_dashboard_enhancer-stat-card {
-  padding: 12px;
+.frame-label code {
+  background: var(--g1);
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 
-
-
-
-
 /* ==========================================================================
-   Contenedor Principal (Fluid Frame)
+   Contenedor Principal (marco simulado de PILOT)
    ========================================================================== */
 .pilot-frame {
   width: 100%;
   max-width: 1522px;
   min-height: 100vh;
   margin: 0 auto;
-  /* background: var(--g0); */
   border: 2px dashed var(--dev-frame-border);
   border-radius: 6px;
   display: flex;
@@ -312,11 +242,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* background-color: var(--g4); */
 }
 
 /* ==========================================================================
-   Componente Base Widget
+   Vista LOP (sin actualizar en esta pasada — ver nota en proto-dash.html)
    ========================================================================== */
 .widget {
   background: var(--WalterWhite);
@@ -378,122 +307,20 @@ body {
   color: var(--accent-azure);
 }
 
-/* ==========================================================================
-   Franja Superior (Priority Strip)
-   ========================================================================== */
-.priority-strip,
 .priority-strip-loc {
   display: grid;
   gap: 12px;
-}
-
-.priority-strip {
-  /* 2 columnas desde 24 ago: Alertas + Estado de Flota (solo % — el
-     heatmap de bloques se separó, ver .fleet-quadrants más abajo) */
-  grid-template-columns: repeat(4, 1fr);
-}
-
-.priority-strip-loc {
-  /* Golden Score removido 24 ago — 3 widgets: alertas (chips) / velocidad / ralentí */
   grid-template-columns: 1fr 1fr 1fr;
 }
 
-.alert-subtitle {
-  font-size: 11px;
-  color: var(--g5);
-  margin-bottom: 8px;
-}
-
-.alert-5col {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  align-items: center;
-}
-
-.alert-stat {
-  flex: 1;
-  min-width: 0;
-  border-left: 1px solid var(--g2);
+.alerts-col {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  text-align: center;
-  height: 160px;
-  justify-content: space-around;
-  background-color: var(--g1);
-  border-bottom-left-radius: 6px;
-  border-bottom-right-radius: 6px;
+  flex-direction: row;
+  height: 100%;
 }
 
-.alert-stat:first-child {
-  border-left: none;
-}
-
-.alert-stat .l {
-  font-size: 12px;
-  color: var(--g5);
-  text-transform: uppercase;
-  letter-spacing: .2px;
-  line-height: 1.2;
-  align-content: start;
-  padding-top: 12px;
-  font-weight: 600;
-}
-
-
-
-.alert-stat .n {
-  font-size: 40px;
-  font-weight: 600;
-  color: var(--g5);
-  line-height: 1;
-  display: flex;
-  align-self: center;
-  margin-top: auto;
-  height: 70px;
-}
-
-.alert-stat .action {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: 24px;
-  font-size: 0.6rem;
-  font-weight: 700;
-  color: var(--g5);
-  text-transform: uppercase;
-  letter-spacing: .15px;
-  line-height: 1.15;
-  text-decoration: none;
-  border: 1px solid transparent;
-  border-radius: 0px 0px 6px 6px;
-  background: color-mix(in srgb, var(--accent-azure) 12%, transparent);
-  border-bottom-color: var(--g4);
-}
-
-.alert-stat .action:hover {
-  background: color-mix(in srgb, var(--accent-azure) 30%, transparent);
-  color: var(--g6);
-}
-
-/* ==========================================================================
-   "Sin señal GPS" — 2ª versión, estructura de tarjeta propuesta por Gemini
-   (dev/palettes/test-alerta-gps.html, 24 ago) — reemplaza la versión previa
-   de filas con ícono. Colores mapeados a las variables ya validadas por
-   contraste WCAG AA (ADR-009), no a los hex sueltos del original:
-   badge amarillo (--status-warn, claro) + texto oscuro = 10.82:1
-   badge naranjo (--status-alert-strong) + blanco = 5.80:1
-   badge rojo (--status-danger-strong) + blanco = 7.35:1
-   icon-box cabecera (--accent-azure) + ícono blanco = 3.62:1 (>3:1, umbral no-texto)
-   ========================================================================== */
-/* signal-card-bg — contenedor del widget Señal GPS (rediseño manual 27 ago,
-   reemplaza signal-card/signal-card__header/icon-box/title, ya sin uso).
-   position:relative es obligatorio: contiene al ícono de fondo
-   (.signal-card-bg__icon, position:absolute) — sin esto el ícono se escapa
-   del widget y se posiciona contra el ancestro posicionado más cercano. */
+/* Señal GPS (LOP) — versión de card con ícono de fondo grande, distinta de
+   la card promatic_dashboard_enhancer-signal-* que ya usa RAC. */
 .signal-card-bg {
   position: relative;
   width: 100%;
@@ -505,10 +332,7 @@ body {
   padding: 10px;
 }
 
-/* Alerta crítica "Más de 48h sin señal": microanimación de pulso para que
-   destaque sobre las otras dos filas. Solo la fila roja. Se detiene por
-   completo si el usuario pide movimiento reducido (accesibilidad). */
-@keyframes promatic_dashboard_enhancer-alert-pulse {
+@keyframes proto-lop-alert-pulse {
   0% {
     box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55);
   }
@@ -523,20 +347,15 @@ body {
 }
 
 .signal-row--red .signal-row__badge {
-  animation: promatic_dashboard_enhancer-alert-pulse 2s ease-out infinite;
+  animation: proto-lop-alert-pulse 2s ease-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-
   .signal-row--red .signal-row__badge {
     animation: none;
   }
 }
 
-
-/* Ícono de fondo grande — clase propia (NO stat-card__icon, esa la usa
-   Alertas Generales con otro tamaño/posición; reutilizarla causaba que la
-   regla de Alertas Generales pisara esta, más abajo en el archivo) */
 .signal-card-bg__icon {
   position: absolute;
   right: -10px;
@@ -552,7 +371,6 @@ body {
   opacity: 0.12;
 }
 
-/* Filas como "mini-caja" visual */
 .signal-card__body {
   display: flex;
   flex-direction: column;
@@ -568,7 +386,6 @@ body {
   padding: 10px 14px;
   border-radius: 8px;
   text-decoration: none;
-  background: #0A67A07A;
   background: linear-gradient(90deg, rgba(10, 103, 160, 1) 0%, rgba(10, 103, 160, 0) 100%);
   transition: transform 0.15s ease, background-color 0.15s ease;
 }
@@ -595,9 +412,6 @@ body {
   width: calc(100% - 200px);
 }
 
-/* Colores = tokens validados por WCAG AA (ADR-009), no hex sueltos.
-   Amarillo va con pastel + texto oscuro (10.82:1) — la versión "strong"
-   con texto blanco solo da 4.09:1, no pasa AA (ver comentario arriba). */
 .signal-row--yellow .signal-row__badge {
   background-color: var(--status-warn-bright);
   color: var(--status-danger-bright);
@@ -613,68 +427,85 @@ body {
   color: var(--WalterWhite);
 }
 
-
-/* ==========================================================================
-   Category Chips — alternativa compacta al alert-5col, probada primero en
-   dev/palettes/preview.html (Variación A). Pensada para escalar a más
-   categorías sin agrandar el widget: fluyen en varias líneas (flex-wrap).
-   ========================================================================== */
-.chip-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-content: flex-start;
-  height: 100%;
+/* Alertas Generales (LOP) — mismas cards visuales que RAC usaba antes del
+   naming unificado; queda con su propio prefijo corto hasta que se actualice
+   LOP en una sesión dedicada. */
+.stat-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
 }
 
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 6px 5px 5px;
-  border-radius: 20px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--g6);
-  background: var(--g0);
-  border: 1px solid var(--g3);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.chip:hover {
-  background: var(--g1);
-}
-
-.chip-icon {
-  width: 31px;
-  height: 31px;
-  border-radius: 50%;
-  background: var(--g1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.chip-icon svg {
-  width: 19px;
-  height: 19px;
-  stroke-width: 1.7;
-}
-
-.chip-count {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9.5px;
-  font-weight: 700;
+.stat-card {
+  position: relative;
+  border-radius: 12px;
+  padding: 14px 14px 12px;
+  min-height: 70px;
   color: #fff;
-  flex-shrink: 0;
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  transition: filter .15s ease;
+}
+
+.stat-card:hover {
+  filter: brightness(1.08);
+}
+
+.stat-card__icon {
+  position: absolute;
+  top: 20px;
+  right: -20px;
+  width: 100px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+}
+
+.stat-card__icon svg {
+  width: 100px;
+  height: 100px;
+  fill-opacity: 0.5;
+  stroke-opacity: 0.5;
+  transform-origin: center;
+  animation: proto-lop-icon-breathe 1.5s ease-in-out infinite;
+}
+
+@keyframes proto-lop-icon-breathe {
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-card__icon svg {
+    animation: none;
+  }
+}
+
+.stat-card__title {
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.25;
+  max-width: 74%;
+  margin-bottom: 4px;
+  opacity: .96;
+}
+
+.stat-card__count {
+  font-size: 27px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .speed-body {
@@ -719,327 +550,6 @@ body {
   gap: 4px;
 }
 
-/* ==========================================================================
-   Alertas Generales — Ronda 2 (27 ago 2026), comparada en
-   dev/palettes/preview.html. Señal GPS/desconexión sale de este widget y
-   pasa a widget-gps-signal (.signal-card solo, sin alert-5col alrededor) —
-   es la única alerta que aparece igual en todo panel, sin importar el tipo
-   de negocio del cliente. Lo que queda acá (Accidentes, Mantención, En
-   taller, y lo que se agregue por cliente) sí depende de la visión
-   estratégica de cada cliente. El chip-group de arriba (Category Chips) ya
-   se le mostró al cliente y no convenció — esto reemplaza esa dirección en
-   RAC, no la itera. Fondo con la rampa estructural (--g6/--g7 alternados),
-   nunca colores "semáforo" — para no competir en protagonismo con
-   widget-gps-signal, que sí debe leerse como la alerta más urgente.
-   ========================================================================== */
-.alerts-col {
-  display: flex;
-  flex-direction: row;
-  height: 100%;
-}
-
-.stat-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 10px;
-}
-
-.stat-card {
-  position: relative;
-  border-radius: 12px;
-  padding: 14px 14px 12px;
-  min-height: 70px;
-  color: #fff;
-  text-decoration: none;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  overflow: hidden;
-  transition: filter .15s ease;
-}
-
-.stat-card:hover {
-  filter: brightness(1.08);
-}
-
-.stat-card__icon {
-  position: absolute;
-  top: 20px;
-  right: -20px;
-  width: 100px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.5;
-}
-
-.stat-card__icon svg {
-  width: 100px;
-  height: 100px;
-  fill-opacity: 0.5;
-  stroke-opacity: 0.5;
-  transform-origin: center;
-  animation: promatic_dashboard_enhancer-icon-breathe 1.5s ease-in-out infinite;
-}
-
-/* Respiración suave de los íconos de fondo de Alertas Generales:
-   escala 1 → 1.08 → 1 en loop. Se detiene con movimiento reducido. */
-@keyframes promatic_dashboard_enhancer-icon-breathe {
-
-  0%,
-  100% {
-    transform: scale(1);
-  }
-
-  50% {
-    transform: scale(1.08);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stat-card__icon svg {
-    animation: none;
-  }
-}
-
-.stat-card__title {
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 1.25;
-  max-width: 74%;
-  margin-bottom: 4px;
-  opacity: .96;
-}
-
-.stat-card__count {
-  font-size: 27px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-/* ==========================================================================
-   Grilla Densa Principal (Responsive Grid)
-   ========================================================================== */
-.dense-grid {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  grid-auto-rows: 150px;
-  gap: 12px;
-  flex: 1;
-}
-
-.dg-3 {
-  grid-column: span 3;
-}
-
-.dg-6 {
-  grid-column: span 6;
-}
-
-.dg-4 {
-  grid-column: span 4;
-}
-
-.dg-12 {
-  grid-column: span 12;
-}
-
-/* Alto explícito por widget — mismo criterio que dg-*, pero en filas.
-   grid-auto-rows fija la unidad (190px); dr-N = N unidades + los gaps
-   entre medio. Agregado 24 ago junto con dg-12, para widgets como el mapa
-   de Hotspots o el ranking Top 5 que necesitan más alto que una tarjeta
-   compacta sin tener que estirar toda la fila para lograrlo. */
-.dr-1 {
-  grid-row: span 1;
-}
-
-.dr-2 {
-  grid-row: span 2;
-}
-
-.dr-3 {
-  grid-row: span 3;
-}
-
-/* Flota — 4 cuadrantes de % (arriba) + heatmap a todo el ancho (abajo).
-   Rediseñado 24 ago 2026: los % eran chicos y vivían en una columna angosta
-   de 140px al lado del heatmap; ahora son el elemento más visible del
-   widget y el heatmap ocupa el ancho completo, no el ancho de las cajitas. */
-.fleet-body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.fleet-quadrants {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.fleet-quadrant {
-  background: var(--g0);
-  border-radius: 6px;
-  padding: 10px 12px;
-}
-
-.fleet-quadrant__pct {
-  font-size: 30px;
-  font-weight: 600;
-  line-height: 1.1;
-  color: var(--g7);
-}
-
-.fleet-quadrant--moving .fleet-quadrant__pct {
-  color: var(--status-ok-strong);
-}
-
-.fleet-quadrant--parked .fleet-quadrant__pct {
-  color: var(--status-warn-strong);
-}
-
-.fleet-quadrant--offline .fleet-quadrant__pct {
-  color: var(--status-danger-strong);
-}
-
-.fleet-quadrant__lbl {
-  font-size: 11px;
-  color: var(--g5);
-  text-transform: uppercase;
-  letter-spacing: .2px;
-}
-
-.fleet-heatmap {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.fleet-total {
-  font-size: 12px;
-  color: var(--g5);
-}
-
-.heat-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-  max-height: 130px;
-  overflow-y: auto;
-}
-
-.heat-cell {
-  width: 14px;
-  height: 14px;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
-
-.heat-cell--moving {
-  background: var(--status-ok);
-}
-
-.heat-cell--parked {
-  background: var(--status-warn);
-}
-
-.heat-cell--offline {
-  background: var(--status-danger);
-  border: 1px solid var(--g3);
-}
-
-.heat-legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 10px;
-  color: var(--g5);
-}
-
-.heat-legend .heat-cell {
-  width: 10px;
-  height: 10px;
-}
-
-/* KM Recorridos & Rankings */
-.km-widget-body {
-  display: flex;
-  gap: 12px;
-  height: 100%;
-}
-
-.km-stack-wrap {
-  flex-shrink: 0;
-  width: 60px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.km-stack-total {
-  font-size: 9px;
-  color: var(--g5);
-  text-align: center;
-}
-
-.km-stack-total b {
-  display: block;
-  color: var(--g6);
-  font-size: 13px;
-}
-
-.stacked-track--v {
-  display: flex;
-  flex-direction: column;
-  width: 28px;
-  height: 110px;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.stacked-seg {
-  width: 100%;
-}
-
-.km-top5 {
-  flex: 1;
-  min-width: 0;
-  border-left: 1px solid var(--g2);
-  padding-left: 10px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-}
-
-.km-date-range {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--g6);
-  margin-bottom: 2px;
-}
-
-.km-color-legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  font-size: 8.5px;
-  color: var(--g5);
-}
-
-.km-legend-grad {
-  width: 36px;
-  height: 8px;
-  border-radius: 2px;
-  background: linear-gradient(to right, var(--g5), var(--g1));
-}
-
-/* Filas de Ranking */
 .km-top5-label {
   font-size: 8.5px;
   color: var(--g4);
@@ -1127,13 +637,10 @@ a.rank-row:hover .chev {
   min-height: 150px;
   height: 100%;
   border-radius: 5px;
-  /* filter: grayscale(1) contrast(1.05); */
   background: var(--g2);
 }
 
-/* ==========================================================================
-   Franja de IA / Búsqueda (AI Strip)
-   ========================================================================== */
+/* Franja de IA / Búsqueda (AI Strip) — LOP */
 .ai-strip {
   display: grid;
   grid-template-columns: 1fr 2fr 1fr;
@@ -1214,32 +721,14 @@ a.rank-row:hover .chev {
 
 .placeholder-card {
   border: 1.5px dashed var(--g4);
-  background: transparent;
   background-color: var(--WalterWhite);
   align-items: center;
   justify-content: center;
   display: flex;
 }
 
-.ph-label {
-  font-size: 10px;
-  color: var(--g4);
-  text-transform: uppercase;
-  letter-spacing: .3px;
-}
-
-/* Reloj "Hora exacta Chile" — ocupa el placeholder izquierdo del ai-strip */
 .clock-widget {
   flex-direction: column;
-}
-
-.clock-label {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .6px;
-  color: var(--g5);
-  margin-bottom: 4px;
 }
 
 .clock-time {
@@ -1251,92 +740,98 @@ a.rank-row:hover .chev {
   font-variant-numeric: tabular-nums;
 }
 
-/* Logo dummy — placeholder derecho del ai-strip, para branding a futuro */
 .logo-widget {
   padding: 30px;
   width: 100%;
   display: flex;
-
-  & img {
-    width: 100%;
-    height: auto;
-    max-width: 150px;
-  }
 }
 
-.logo-dummy {
+.logo-widget img {
   width: 100%;
-  max-width: 140px;
   height: auto;
+  max-width: 150px;
 }
 
-.logo-dummy__bg {
-  fill: var(--g1);
-  stroke: var(--g3);
-  stroke-width: 1;
+/* Grilla densa (LOP) */
+.dense-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: 150px;
+  gap: 12px;
+  flex: 1;
 }
 
-.logo-dummy__mark--a {
-  fill: var(--g5);
+.dg-6 {
+  grid-column: span 6;
 }
 
-.logo-dummy__mark--b {
-  fill: var(--g6);
-  opacity: .85;
+.dr-2 {
+  grid-row: span 2;
 }
 
-.logo-dummy__text {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 700;
-  fill: var(--g7);
+.dr-3 {
+  grid-row: span 3;
+}
+
+.fleet-quadrants {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.fleet-quadrant {
+  background: var(--g0);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.fleet-quadrant__pct {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--g7);
+}
+
+.fleet-quadrant--moving .fleet-quadrant__pct {
+  color: var(--status-ok-strong);
+}
+
+.fleet-quadrant--parked .fleet-quadrant__pct {
+  color: var(--status-warn-strong);
+}
+
+.fleet-quadrant--offline .fleet-quadrant__pct {
+  color: var(--status-danger-strong);
+}
+
+.fleet-quadrant__lbl {
+  font-size: 11px;
+  color: var(--g5);
+  text-transform: uppercase;
+  letter-spacing: .2px;
 }
 
 /* ==========================================================================
-   Media Queries (Breakpoints)
+   Media Queries (Breakpoints) — LOP
    ========================================================================== */
-
-/* Laptop / Desktops medianos (<= 1200px) */
 @media (max-width: 1200px) {
   .eco-widget {
     grid-column: span 1;
   }
-
-  .dg-3 {
-    grid-column: span 5;
-  }
-
-  .dg-4 {
-    grid-column: span 6;
-  }
 }
 
-/* Tablets (<= 900px) */
 @media (max-width: 900px) {
   body {
     padding: 8px;
   }
 
-  .priority-strip {
-    grid-template-columns: 1fr;
-  }
-
   .eco-widget {
     grid-column: span 1;
   }
 
-  .dg-1,
-  .dg-3 {
-    grid-column: span 3;
-  }
-
-  .dg-4 {
+  .dg-6 {
     grid-column: span 12;
     height: fit-content;
-  }
-
-  .km-widget-body {
-    flex-direction: column;
   }
 
   .fleet-quadrants {
@@ -1348,19 +843,7 @@ a.rank-row:hover .chev {
   }
 }
 
-/* Pantallas Móviles (<= 550px) */
 @media (max-width: 550px) {
-  .alert-5col {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-  }
-
-  .alert-stat {
-    border-left: none;
-    border-bottom: 1px solid var(--g2);
-    padding-bottom: 4px;
-  }
-
   .speed-body {
     flex-direction: column;
     align-items: flex-start;
@@ -1372,3 +855,4 @@ a.rank-row:hover .chev {
     width: 100%;
   }
 }
+</content>

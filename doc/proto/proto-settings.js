@@ -106,15 +106,20 @@ buildSemiDonut('donut-lop', [
   { pct: 24, color: '--status-ok' }, { pct: 51, color: '--status-warn' },
   { pct: 17, color: '--status-alert' }, { pct: 8, color: '--status-danger' }
 ]);
-buildHotspots('map-hotspots');
+// RAC (v0.5.0): el mapa de hotspots real es una instancia de MapContainer
+// (Ext.panel.Panel) — el prototipo usa Leaflet dummy como aproximación
+// visual, no reproduce el mecanismo real (ver title del div en
+// proto-dash.html). Los mapas de LOP (vista sin actualizar todavía)
+// también usan Leaflet dummy.
+buildHotspots('map-hotspots-rac');
 buildHotspots('map-hotspots-lop');
 buildDisponibilidad('map-disponibilidad-lop');
 
-// -------- Reloj "Hora exacta Chile" — placeholder izquierdo del ai-strip --------
-// Usa Intl con timeZone fijo a America/Santiago, así siempre muestra la hora
-// de Chile sin importar dónde esté el navegador que renderiza el prototipo.
-// "Exacta" acá depende del reloj del sistema del navegador, no de un servidor
-// horario — suficiente para un prototipo/demo, no para un uso que exija NTP.
+// -------- Reloj "Hora Oficial" — card fija de la col izquierda RAC --------
+// Usa Intl con timeZone fijo a America/Santiago, igual que chileTime() en
+// dist/Module.js (clockConfig() default). "Exacta" acá depende del reloj
+// del sistema del navegador, no de un servidor horario — suficiente para
+// un prototipo/demo, no para un uso que exija NTP.
 function updateChileClock() {
   var parts = new Intl.DateTimeFormat('es-CL', {
     timeZone: 'America/Santiago',
@@ -123,7 +128,7 @@ function updateChileClock() {
   var lookup = {};
   parts.forEach(function (p) { lookup[p.type] = p.value; });
   var text = lookup.hour + ':' + lookup.minute + ':' + lookup.second;
-  ['clock-time-rac', 'clock-time-lop'].forEach(function (id) {
+  ['proto-clock-time', 'clock-time-lop'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) { el.textContent = text; }
   });
@@ -131,9 +136,11 @@ function updateChileClock() {
 updateChileClock();
 setInterval(updateChileClock, 1000);
 
-// -------- Buscador de reportes — autocompletado dummy, sin conexión real --------
-// Catálogo ilustrativo basado en los report_type/events confirmados en spec/api.md
-// (kilometraje rt=4, ralentí type=16, eco driving type=24, voltaje rt=15, etc.)
+// -------- Buscador de reportes (solo LOP por ahora) — autocompletado dummy --------
+// En RAC el buscador está OCULTO en producción (ver comentario en
+// buildRacShell(), dist/Module.js — vuelve con FR-0006, asistente IA), así
+// que el prototipo no lo simula en esa vista. Catálogo ilustrativo basado en
+// los report_type/events confirmados en spec/api.md.
 var reportCatalog = [
   'Reporte Recargas de Combustible',
   'Reporte Ralentí',
@@ -196,7 +203,6 @@ function setupSearchAutocomplete(inputId, listId) {
   });
 }
 
-setupSearchAutocomplete('search-input-rac', 'search-suggestions-rac');
 setupSearchAutocomplete('search-input-lop', 'search-suggestions-lop');
 
 // -------- Fix: Leaflet inicializado antes de que su contenedor tenga tamaño
