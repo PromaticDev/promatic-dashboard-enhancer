@@ -422,7 +422,33 @@
     container-name: gpssignal;
 }
 
+.promatic_dashboard_enhancer-signal-body {
+    position: relative;
+}
+
+/* Watermark de fondo (icon-no-gps-signal.svg): grande, sutil, detrás de
+   los chips — z-index 0 vs. la track en 1, no intercepta clicks. */
+.promatic_dashboard_enhancer-signal-watermark {
+    position: absolute;
+    top: 50%;
+    right: -6px;
+    transform: translateY(-50%);
+    width: 88px;
+    height: 88px;
+    color: var(--g5);
+    opacity: 0.12;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.promatic_dashboard_enhancer-signal-watermark svg {
+    width: 100%;
+    height: 100%;
+}
+
 .promatic_dashboard_enhancer-signal-track {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;   /* default: columna (card angosta) */
     gap: 10px;
