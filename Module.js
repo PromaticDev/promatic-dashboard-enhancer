@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.9.0',
-    moduleBuild: '2026-09-07-1712',
+    version: '0.9.1',
+    moduleBuild: '2026-09-07-1739',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1484,9 +1484,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     fetchMantencionCount: function (vehIds) {
         var me = this;
         var csv = vehIds.join(',');
+        // cmd confirmados en spec/api.md §"Módulo mod/to/*": inspections→forms,
+        // services→list. En la cuenta de pruebas ambos dieron items:[] (sin
+        // datos). Se prueban con y sin filtro de vehículos por si el schema
+        // real de una cuenta con datos lo requiere.
         var endpoints = [
-            '/backend/ax/mod/to/inspections.php?cmd=list&veh=' + encodeURIComponent(csv),
-            '/backend/ax/mod/to/services.php?cmd=list&veh=' + encodeURIComponent(csv)
+            '/backend/ax/mod/to/inspections.php?cmd=forms&veh=' + encodeURIComponent(csv),
+            '/backend/ax/mod/to/inspections.php?cmd=forms',
+            '/backend/ax/mod/to/services.php?cmd=list&veh=' + encodeURIComponent(csv),
+            '/backend/ax/mod/to/services.php?cmd=list'
         ];
         var tryOne = function (i) {
             if (i >= endpoints.length) { return Promise.resolve(null); }
