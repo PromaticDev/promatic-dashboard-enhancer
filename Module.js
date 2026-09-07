@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.5.3',
-    moduleBuild: '2026-09-07-1508',
+    version: '0.6.0',
+    moduleBuild: '2026-09-07-1523',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -213,6 +213,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             bodySpec.html = l('Cargando...');
         }
 
+        if (opts.headExtra) {
+            headCn.push(opts.headExtra);
+        }
+
         var cn = [
             { cls: 'promatic_dashboard_enhancer-card__head', cn: headCn },
             bodySpec
@@ -358,6 +362,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: /api/v3/vehicles/trips, con respaldo al reporte de kilometraje.'),
                     footerLabel: l('Abrir reporte de kilometraje'),
                     skeleton: 'ranking'
+                }),
+                this.cardMarkup('flota', {
+                    title: l('Estado de Flota'),
+                    hint: l('Vehículos seleccionados en el panel "Principal": activos, en movimiento, estacionados y sin conexión. Se actualiza en vivo con el árbol Online.'),
+                    noFooter: true,
+                    skeleton: 'donut'
                 })
             ]
         };
@@ -374,9 +384,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: 'promatic_dashboard_enhancer-shell-col--map',
             cn: [
                 this.cardMarkup('hotspots', {
-                    title: l('Mapa de flota (demo)'), meta: l('disponibilidad por sucursal en diseño'),
+                    title: l('Ubicación de la Flota'),
+                    hint: l('Puntos de calor con la última posición GPS de los vehículos. El menú de arriba filtra por carpeta del panel "Principal".'),
                     footerLabel: l('Abrir mapa'),
-                    skeleton: 'map'
+                    skeleton: 'map',
+                    headExtra: {
+                        tag: 'select',
+                        id: 'promatic_dashboard_enhancer-map-folder',
+                        cls: 'promatic_dashboard_enhancer-map-folder',
+                        cn: [{ tag: 'option', value: '__all__', html: l('Ver todos los seleccionados') }]
+                    }
                 })
             ]
         };
@@ -474,10 +491,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // usan al montar, pintado en cada card afectada antes de la recarga.
         this.showCardSkeleton('gps_signal', 'chips');
         this.showCardSkeleton('top5km', 'ranking');
+        this.showCardSkeleton('flota', 'donut');
         this.showCardSkeleton('alertas_generales', 'stats');
         this.refreshFleetStore();
         this.loadTop5KmData();
         this.loadAlertasGenerales();
+        // El dropdown puede tener carpetas nuevas si cambió la selección.
+        this.populateMapFolderDropdown();
+        this.loadFleetHeatmap();
     },
 
     // Pinta el skeleton de carga en el body de una card (si está montada).
@@ -862,6 +883,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me._selectionTimer = null;
                     me.refreshFleetStore();
                     me.loadTop5KmData();
+                    me.populateMapFolderDropdown();
+                    me.loadFleetHeatmap();
                 }, 600);
             });
             this._selectionBound = true;
@@ -1287,7 +1310,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         // reajusta el encuadre a los puntos reales.
                         me._hotspotsMap = new MC('promatic_dashboard_enhancer_hotspots');
                         me._hotspotsMap.init(-33.45, -70.66, 5, this.id + '-body', false);
-                        me.loadHotspots();
+                        me.populateMapFolderDropdown();
+                        me.loadFleetHeatmap();
                         // Leaflet midió el contenedor antes de que el layout
                         // flex terminara — recalcular a los 300/700ms para
                         // que ocupe todo el ancho (rectangular, no cuadrado).
@@ -1326,93 +1350,155 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Se llama desde el listener 'render' de _hotspotsPanel, con la instancia
-    // me._hotspotsMap ya creada. Consulta los eventos type=15 y pinta el
-    // heatmap sobre esa instancia — nunca crea un MapContainer nuevo ni toca
-    // el DOM de la card (eso lo maneja el panel).
-    loadHotspots: function () {
-        var me = this;
-        var setBodyMsg = function (msg) {
-            if (me._hotspotsPanel && me._hotspotsPanel.body) {
-                me._hotspotsPanel.body.setHtml(msg);
-            }
+    // -----------------------------------------------------------------------
+    // Mapa "Ubicación de la Flota" (card 'hotspots') — heatmap de la ÚLTIMA
+    // posición GPS conocida de cada vehículo, tomada del store del online_tree
+    // (sin llamada HTTP). Un dropdown en el head filtra por carpeta del árbol
+    // "Principal" (o "Ver todos los seleccionados"). Pensado como fallback de
+    // feria: funciona con cualquier flota que se cargue en la cuenta.
+    // -----------------------------------------------------------------------
+
+    // Extrae [lat, lon] de un record del online_tree probando los campos que
+    // PILOT suele usar. Si tu build expone otro nombre, agrégalo acá — el
+    // console.warn de abajo (0 con coords) es la señal de que falta un campo.
+    _recordLatLon: function (rec) {
+        var g = function (k) {
+            var v = rec.get ? rec.get(k) : (rec.data ? rec.data[k] : undefined);
+            return (v === undefined || v === null || v === '') ? undefined : Number(v);
         };
-
-        this.withFleetVehicleIds(function (vehIds) {
-            var csv = vehIds.join(',');
-            var stop = new Date();
-            var start = new Date();
-            start.setDate(start.getDate() - 30);
-            var fmt = function (d) { return d.toISOString().slice(0, 10); };
-
-            var qs = 'cmd=search&veh=' + encodeURIComponent(csv) +
-                '&type=15&date_start=' + fmt(start) + '&date_stop=' + fmt(stop) +
-                '&limit=500&page=1&start=0';
-
-            fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include' })
-                .then(function (resp) {
-                    if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
-                    return resp.json();
-                })
-                .then(function (data) {
-                    me.renderHotspots((data && data.items) || []);
-                })
-                .catch(function (err) {
-                    var code = me.widgetErrorCode('HOTSPOTS', err);
-                    setBodyMsg(l('No se pudo cargar el mapa de desconexión.') + ' (' + code + ')');
-                });
-        });
+        var pairs = [['lat', 'lon'], ['lat', 'lng'], ['latitude', 'longitude'], ['y', 'x']];
+        for (var i = 0; i < pairs.length; i++) {
+            var la = g(pairs[i][0]);
+            var lo = g(pairs[i][1]);
+            if (isFinite(la) && isFinite(lo) && la !== 0 && lo !== 0) {
+                return [la, lo];
+            }
+        }
+        // Algunos builds anidan la posición en last_event / last_pos.
+        var nested = (rec.get && rec.get('last_event')) || (rec.data && rec.data.last_event) || {};
+        var nla = Number(nested.lat), nlo = Number(nested.lon || nested.lng);
+        if (isFinite(nla) && isFinite(nlo) && nla !== 0 && nlo !== 0) {
+            return [nla, nlo];
+        }
+        return null;
     },
 
-    renderHotspots: function (items) {
+    // Lista de { value, label } de las carpetas del árbol "Principal" que
+    // tienen al menos una hoja con agentid. value = id del nodo carpeta.
+    getMapFolderOptions: function (onlineTree) {
+        var store = onlineTree && onlineTree.getStore && onlineTree.getStore();
+        var root = store && store.getRoot && store.getRoot();
+        if (!root) { return []; }
+        var out = [];
+        root.cascadeBy(function (node) {
+            if (node === root) { return; }
+            if (node.get('agentid')) { return; } // hoja, no carpeta
+            // ¿tiene al menos un descendiente hoja con agentid?
+            var hasLeaf = false;
+            node.cascadeBy(function (c) {
+                if (!hasLeaf && c !== node && c.get('agentid')) { hasLeaf = true; }
+            });
+            if (hasLeaf) {
+                out.push({ value: node.getId(), label: node.get('text') || node.get('name') || l('(carpeta)') });
+            }
+        });
+        return out;
+    },
+
+    populateMapFolderDropdown: function () {
+        var me = this;
+        var sel = document.getElementById('promatic_dashboard_enhancer-map-folder');
+        if (!sel) { return; }
+        var onlineTree = this.getOnlineTree();
+        if (!onlineTree) { return; }
+
+        var opts = this.getMapFolderOptions(onlineTree);
+        // Reconstruye: "Ver todos" + una <option> por carpeta.
+        sel.innerHTML = '';
+        var all = document.createElement('option');
+        all.value = '__all__';
+        all.textContent = l('Ver todos los seleccionados');
+        sel.appendChild(all);
+        for (var i = 0; i < opts.length; i++) {
+            var o = document.createElement('option');
+            o.value = String(opts[i].value);
+            o.textContent = opts[i].label;
+            sel.appendChild(o);
+        }
+
+        if (!sel._pdeBound) {
+            sel._pdeBound = true;
+            sel.addEventListener('change', function () {
+                me._mapFolderFilter = (sel.value === '__all__') ? null : sel.value;
+                me.loadFleetHeatmap();
+            });
+        }
+    },
+
+    // Records de vehículos para el mapa: si hay filtro de carpeta activo, solo
+    // las hojas descendientes de ese nodo; si no, el alcance normal
+    // (getScopedFleetRecords = selección de "Principal" o toda la flota).
+    getMapScopedRecords: function (onlineTree) {
+        if (!this._mapFolderFilter) {
+            return this.getScopedFleetRecords(onlineTree);
+        }
+        var store = onlineTree.getStore();
+        var folder = store.getNodeById ? store.getNodeById(this._mapFolderFilter) : null;
+        if (!folder) { return this.getScopedFleetRecords(onlineTree); }
+        var recs = [];
+        folder.cascadeBy(function (c) {
+            if (c !== folder && c.get('agentid')) { recs.push(c); }
+        });
+        return recs;
+    },
+
+    loadFleetHeatmap: function () {
+        var me = this;
+        var map = this._hotspotsMap;
+        if (!map) { return; }
+
+        var onlineTree = this.getOnlineTree();
+        if (!onlineTree) { return; }
+
+        var records = this.getMapScopedRecords(onlineTree);
         var buckets = {};
         var withCoords = 0;
 
-        for (var i = 0; i < items.length; i++) {
-            var lat = Number(items[i].lat);
-            var lon = Number(items[i].lon);
-            if (!lat || !lon || !isFinite(lat) || !isFinite(lon)) {
-                continue; // event sin ubicación
-            }
+        for (var i = 0; i < records.length; i++) {
+            var ll = this._recordLatLon(records[i]);
+            if (!ll) { continue; }
             withCoords++;
-            var key = lat.toFixed(2) + ',' + lon.toFixed(2);
-            if (!buckets[key]) {
-                buckets[key] = { lat: lat, lng: lon, count: 0 };
-            }
+            var key = ll[0].toFixed(3) + ',' + ll[1].toFixed(3);
+            if (!buckets[key]) { buckets[key] = { lat: ll[0], lng: ll[1], count: 0 }; }
             buckets[key].count++;
         }
 
         var points = [];
         for (var k in buckets) {
-            if (buckets.hasOwnProperty(k)) {
-                points.push(buckets[k]);
-            }
+            if (buckets.hasOwnProperty(k)) { points.push(buckets[k]); }
         }
 
-        console.log('[promatic_dashboard_enhancer] hotspots: ' + items.length +
-            ' eventos type=15, ' + withCoords + ' con coords, ' + points.length + ' celdas');
+        console.log('[promatic_dashboard_enhancer] mapa flota: ' + records.length +
+            ' vehículos en alcance' + (this._mapFolderFilter ? ' (carpeta ' + this._mapFolderFilter + ')' : '') +
+            ', ' + withCoords + ' con coords, ' + points.length + ' celdas');
 
-        var map = this._hotspotsMap;
-        if (!map) {
-            console.warn('[promatic_dashboard_enhancer] hotspots: _hotspotsMap no está listo');
-            return;
-        }
+        try {
+            if (typeof map.removeAllHeatsMap === 'function') { map.removeAllHeatsMap(); }
+        } catch (e) { /* no-op */ }
 
         if (points.length === 0) {
-            // Sin datos: el mapa se queda centrado en Chile, sin heatmap.
-            // No se pisa el body del panel (el mapa ya está renderizado).
+            console.warn('[promatic_dashboard_enhancer] mapa flota: 0 vehículos con coordenadas. ' +
+                'Revisar los campos de posición del record del online_tree (_recordLatLon).');
             return;
         }
 
         try {
             if (typeof map.setHeatmap === 'function') {
-                map.setHeatmap(points, true, l('Desconexiones'));
+                map.setHeatmap(points, true, l('Vehículos'));
             }
-            // Leaflet a veces necesita recalcular tamaño tras montarse dentro
-            // de un contenedor flex que terminó de dimensionar.
             if (map.checkResize) { map.checkResize(); }
         } catch (err) {
-            this.widgetErrorCode('HOTSPOTS-HEATMAP', err);
+            this.widgetErrorCode('FLEETMAP-HEATMAP', err);
         }
     },
 

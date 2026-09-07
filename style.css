@@ -1068,3 +1068,24 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     opacity: 0.6;
     pointer-events: none;
 }
+
+/* El head del mapa lleva un <select> — centrar verticalmente y permitir
+   wrap si el nombre de carpeta es largo. */
+#promatic_dashboard_enhancer-card-hotspots .promatic_dashboard_enhancer-card__head {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Dropdown de carpeta sobre el mapa "Ubicación de la Flota" — vive en el
+   head de la card, alineado a la derecha. */
+.promatic_dashboard_enhancer-map-folder {
+    margin-left: auto;
+    max-width: 55%;
+    padding: 3px 6px;
+    font-size: 0.78rem;
+    color: var(--g7);
+    background: #fff;
+    border: 1px solid var(--g2);
+    border-radius: 4px;
+    cursor: pointer;
+}
