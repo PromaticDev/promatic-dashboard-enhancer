@@ -453,6 +453,7 @@
 #promatic_dashboard_enhancer-card-body-gps_signal {
     container-type: inline-size;
     container-name: gpssignal;
+    overflow-y: hidden;
 }
 
 .promatic_dashboard_enhancer-signal-body {
