@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.9.1',
-    moduleBuild: '2026-09-07-1739',
+    version: '0.9.2',
+    moduleBuild: '2026-09-07-1747',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -361,47 +361,115 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (wb) {
                 e.preventDefault();
                 var sel = document.getElementById('promatic_dashboard_enhancer-export-widget');
-                me.openReportWindow(me.buildWidgetReport(sel ? sel.value : 'flota'));
+                var which = sel ? sel.value : 'flota';
+                me.openReportModal(me.buildWidgetReport(which), me._widgetReportName(which));
                 return;
             }
             var gb = e.getTarget('#promatic_dashboard_enhancer-golden-btn', 3, true);
             if (gb) {
                 e.preventDefault();
-                me.openReportWindow(me.buildGoldenReport());
+                me.openReportModal(me.buildGoldenReport(), 'Golden Report');
             }
         });
     },
 
-    // Abre el HTML en una ventana nueva. El usuario imprime a PDF con Ctrl+P.
-    openReportWindow: function (html) {
-        var w = window.open('', '_blank');
-        if (!w) {
-            alert(l('El navegador bloqueó la ventana emergente. Habilita los pop-ups para exportar.'));
-            return;
+    _widgetReportName: function (which) {
+        return ({
+            flota: l('Estado de Flota'), top5km: l('Exceso de Kilometraje'),
+            eco: l('Safety Score (ECO)'), gps: l('Sin Señal GPS'),
+            alertas: l('Alertas Generales')
+        })[which] || l('Reporte');
+    },
+
+    // Muestra el HTML del reporte en un MODAL (overlay dentro de la página, no
+    // una pestaña nueva). El HTML va en un <iframe> srcdoc — aislado del CSS de
+    // PILOT. "Imprimir / Guardar PDF" llama print() del iframe; "Cerrar" quita
+    // el overlay. Esc también cierra.
+    openReportModal: function (html, title) {
+        var me = this;
+        this.closeReportModal();
+
+        var ov = document.createElement('div');
+        ov.id = 'promatic_dashboard_enhancer-report-modal';
+        ov.className = 'promatic_dashboard_enhancer-report-modal';
+        ov.innerHTML =
+            '<div class="promatic_dashboard_enhancer-report-modal__box">' +
+                '<div class="promatic_dashboard_enhancer-report-modal__bar">' +
+                    '<span class="promatic_dashboard_enhancer-report-modal__title"></span>' +
+                    '<span class="promatic_dashboard_enhancer-report-modal__actions">' +
+                        '<button type="button" data-act="print" class="promatic_dashboard_enhancer-report-modal__btn promatic_dashboard_enhancer-report-modal__btn--primary">' + l('Imprimir / Guardar PDF') + '</button>' +
+                        '<button type="button" data-act="close" class="promatic_dashboard_enhancer-report-modal__btn">' + l('Cerrar') + '</button>' +
+                    '</span>' +
+                '</div>' +
+                '<iframe class="promatic_dashboard_enhancer-report-modal__frame" title="' + Ext.String.htmlEncode(title || 'Reporte') + '"></iframe>' +
+            '</div>';
+        document.body.appendChild(ov);
+        ov.querySelector('.promatic_dashboard_enhancer-report-modal__title').textContent = title || l('Reporte');
+
+        var frame = ov.querySelector('iframe');
+        // document.write en el iframe (no srcdoc, que rompería con comillas
+        // dobles en el HTML). No hay navegación — es un iframe about:blank.
+        var fd = frame.contentWindow.document;
+        fd.open();
+        fd.write(html);
+        fd.close();
+
+        ov.addEventListener('click', function (ev) {
+            var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
+            if (act === 'close' || ev.target === ov) { me.closeReportModal(); return; }
+            if (act === 'print') {
+                try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+                catch (e2) { console.warn('[promatic_dashboard_enhancer] print del iframe falló:', e2); }
+            }
+        });
+        this._reportModalEsc = function (ev) { if (ev.key === 'Escape') { me.closeReportModal(); } };
+        document.addEventListener('keydown', this._reportModalEsc);
+    },
+
+    closeReportModal: function () {
+        var ov = document.getElementById('promatic_dashboard_enhancer-report-modal');
+        if (ov && ov.parentNode) { ov.parentNode.removeChild(ov); }
+        if (this._reportModalEsc) {
+            document.removeEventListener('keydown', this._reportModalEsc);
+            this._reportModalEsc = null;
         }
-        w.document.open();
-        w.document.write(html);
-        w.document.close();
     },
 
     // CSS común de los reportes (impresión A4, tabla, cajas de score).
     _reportStyles: function () {
         return '<style>' +
             '*{box-sizing:border-box}' +
-            'body{font:13px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b;margin:0;padding:32px;background:#fff}' +
-            'h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;border-bottom:2px solid #e2e8f0;padding-bottom:4px}' +
-            '.sub{color:#64748b;font-size:12px;margin-bottom:16px}' +
-            'table{border-collapse:collapse;width:100%;margin:8px 0;font-size:12px}' +
-            'th,td{border:1px solid #e2e8f0;padding:5px 8px;text-align:left}th{background:#f8fafc}' +
+            'body{font:13px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b;margin:0;padding:36px 40px;background:#fff}' +
+            'h1{font-size:22px;margin:0 0 2px;color:#0a3d5c}' +
+            'h2{font-size:14px;margin:26px 0 6px;color:#0a3d5c;border-bottom:2px solid #cbd5e1;padding-bottom:4px;text-transform:uppercase;letter-spacing:.4px}' +
+            '.sub{color:#64748b;font-size:11.5px;margin-bottom:4px}' +
+            '.lead{color:#334155;font-size:12.5px;margin:2px 0 14px;max-width:52em}' +
+            '.desc{color:#475569;font-size:11.5px;font-style:italic;margin:2px 0 10px;max-width:52em}' +
+            'table{border-collapse:collapse;width:100%;margin:8px 0 4px;font-size:11.5px}' +
+            'th,td{border:1px solid #e2e8f0;padding:6px 9px;text-align:left}' +
+            'th{background:#f1f5f9;font-weight:600;color:#334155}' +
+            'tr:nth-child(even) td{background:#fafcfe}' +
             'td.n{text-align:right;font-variant-numeric:tabular-nums}' +
-            '.grid{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0}' +
-            '.box{flex:1 1 120px;border-radius:8px;padding:12px;color:#fff}' +
-            '.box .v{font-size:26px;font-weight:700;line-height:1}.box .l{font-size:11px;text-transform:uppercase;opacity:.9;margin-top:4px}' +
+            '.grid{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}' +
+            '.box{flex:1 1 120px;border-radius:8px;padding:12px 14px;color:#fff;min-width:110px}' +
+            '.box .v{font-size:27px;font-weight:700;line-height:1}' +
+            '.box .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;opacity:.92;margin-top:5px}' +
             '.good{background:#238a4c}.mid{background:#a34d00}.bad{background:#ad1100}.neutral{background:#0a67a0}' +
-            '.guide{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px 18px;margin:12px 0}' +
+            '.guide{background:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #0a67a0;border-radius:6px;padding:12px 16px;margin:10px 0}' +
+            '.guide strong{color:#0a3d5c}' +
             '.guide ol{margin:6px 0 0;padding-left:20px}.guide li{margin:4px 0}' +
-            '@media print{body{padding:12mm}h2{page-break-after:avoid}table,.grid{page-break-inside:avoid}}' +
+            '.foot{margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:10.5px}' +
+            '@media print{body{padding:14mm}h2{page-break-after:avoid}table,.grid,.guide{page-break-inside:avoid}}' +
             '</style>';
+    },
+
+    // Texto que explica qué mide cada widget — va bajo el título del reporte.
+    _widgetDescriptions: {
+        flota: 'Distribución de la flota seleccionada por estado operativo en el momento de la consulta: vehículos activos (con señal en las últimas horas), en movimiento, estacionados con motor detenido, y sin conexión al servidor. Se calcula a partir del árbol Online de PILOT, sin generar reportes.',
+        gps: 'Vehículos sin comunicación con el servidor, agrupados por el tiempo transcurrido desde su última señal recibida. Sirve para detectar equipos caídos, con problemas de antena, o vehículos guardados hace días. Un vehículo puede estar "sin señal" por batería baja, zona sin cobertura, o manipulación del equipo.',
+        alertas: 'Conteo de incidencias por categoría en el período. Accidentes: eventos de colisión detectados por el acelerómetro (últimos 30 días). Ralentí excesivo: vehículos con tiempo de motor encendido detenido sobre el umbral configurado. Requiere mantención: vehículos con inspección o servicio vencido/pendiente según el módulo Técnico-Operacional de PILOT.',
+        top5km: 'Ranking de vehículos por kilómetros recorridos en el período. Útil para identificar los vehículos con mayor desgaste, planificar mantenciones por kilometraje, y detectar uso fuera de lo esperado. La distancia se calcula por GPS tramo a tramo (fuente: /api/v3/vehicles/trips).',
+        eco: 'Puntaje de conducción segura por vehículo (0-100) del Fleet ECO report de PILOT, que penaliza ralentí excesivo, exceso de velocidad, frenadas y aceleraciones bruscas. Se muestra el rating actual y el del período anterior para ver la tendencia. Un rating negativo indica una cantidad muy alta de infracciones.'
     },
 
     _reportHeader: function (title, rangeDays) {
@@ -498,11 +566,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
+        var desc = this._widgetDescriptions[which];
+        var descHtml = desc ? '<p class="desc">' + l(desc) + '</p>' : '';
+
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
             '</title>' + this._reportStyles() + '</head><body>' +
-            this._reportHeader(title, days) + body +
-            '<p class="sub" style="margin-top:24px">' +
-            l('Para exportar: Ctrl+P → Guardar como PDF.') + '</p></body></html>';
+            this._reportHeader(title, days) + descHtml + body +
+            '<div class="foot">' +
+            l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. Para el detalle completo por evento, exporta el Excel desde el panel Informes de PILOT (ver la guía en el Golden Report).') +
+            '</div></body></html>';
     },
 
     // Golden Report — resumen de todo el panel + guía para el Excel de PILOT.
@@ -520,8 +592,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             this._reportStyles() + '</head><body>' +
             this._reportHeader('Golden Report — ' + l('Resumen semanal de flota'), 7);
 
+        s += '<p class="lead">' + l('Este documento resume el estado de la flota de la última semana en una sola vista: disponibilidad operativa, conectividad, alertas, kilometraje y conducción segura. Al final incluye una guía para obtener el detalle completo ("molido") exportable desde los paneles de PILOT.') + '</p>';
+
         // Resumen ejecutivo en cajas
-        s += '<h2>' + l('Resumen') + '</h2><div class="grid">' +
+        s += '<h2>' + l('Resumen') + '</h2>' +
+            '<p class="desc">' + l('Fotografía de la flota en el momento de generar el reporte.') + '</p>' +
+            '<div class="grid">' +
             '<div class="box neutral"><div class="v">' + (f.total || 0) + '</div><div class="l">' + l('Vehículos') + '</div></div>' +
             '<div class="box good"><div class="v">' + (f.moving || 0) + '</div><div class="l">' + l('En movimiento') + '</div></div>' +
             '<div class="box bad"><div class="v">' + (f.offline || 0) + '</div><div class="l">' + l('Sin conexión') + '</div></div>' +
@@ -578,8 +654,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '<li>' + l('Panel') + ' <em>' + l('Mensajes') + '</em> o <em>' + l('Eventos') + '</em> ' +
             l('para el detalle por evento (desconexión, ralentí, conducción brusca), filtrando por tipo y rango.') + '</li></ol></div>';
 
-        s += '<p class="sub" style="margin-top:24px">' + l('Para exportar este resumen: Ctrl+P → Guardar como PDF.') + '</p>';
-        s += '</body></html>';
+        s += '<div class="foot">' +
+            l('Golden Report generado por el Dashboard sobre datos de PILOT Telematics. Los valores corresponden a la selección de vehículos activa y a la ventana de la última semana. Usa el botón "Imprimir / Guardar PDF" del visor para guardar una copia.') +
+            '</div></body></html>';
         return s;
     },
 
@@ -1601,9 +1678,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // vira de azul a naranja de alerta. Las beta y las que fallaron (N/D)
         // no cuentan para esto.
         var idleMin = (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).idleThresholdMin) || 120;
+        // hasAlert vira toda la card a naranja — reservado para incidencias
+        // GRAVES (accidentes, mantención vencida). Ralentí es informativo:
+        // muestra su número pero no dispara el fondo de alerta.
         var hasAlert = (typeof accidentes === 'number' && accidentes > 0) ||
-                       (typeof mantencion === 'number' && mantencion > 0) ||
-                       (typeof ralenti === 'number' && ralenti > 0);
+                       (typeof mantencion === 'number' && mantencion > 0);
         var gridCls = 'promatic_dashboard_enhancer-stat-card-grid' +
             (hasAlert ? ' promatic_dashboard_enhancer-stat-card-grid--alert' : '');
 

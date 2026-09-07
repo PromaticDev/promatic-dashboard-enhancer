@@ -272,6 +272,86 @@
     border-color: var(--g7);
 }
 
+/* ===== Modal de reporte (Exportar / Golden Report) ===== */
+.promatic_dashboard_enhancer-report-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(15, 23, 42, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.promatic_dashboard_enhancer-report-modal__box {
+    background: #fff;
+    border-radius: 10px;
+    width: 900px;
+    max-width: 100%;
+    height: 88vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+.promatic_dashboard_enhancer-report-modal__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.promatic_dashboard_enhancer-report-modal__title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--g7);
+    text-transform: uppercase;
+    letter-spacing: .3px;
+}
+
+.promatic_dashboard_enhancer-report-modal__actions {
+    display: flex;
+    gap: 8px;
+}
+
+.promatic_dashboard_enhancer-report-modal__btn {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--g4);
+    background: #fff;
+    color: var(--g6);
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-report-modal__btn:hover {
+    background: var(--g0);
+}
+
+.promatic_dashboard_enhancer-report-modal__btn--primary {
+    background: var(--g6);
+    border-color: var(--g6);
+    color: #fff;
+}
+
+.promatic_dashboard_enhancer-report-modal__btn--primary:hover {
+    background: var(--g7);
+    border-color: var(--g7);
+}
+
+.promatic_dashboard_enhancer-report-modal__frame {
+    flex: 1 1 auto;
+    width: 100%;
+    border: 0;
+    background: #fff;
+}
+
 /* ===== Skeleton de carga (widgets con primer fetch lento) =====
    Barras grises con la forma del contenido + shimmer. skeletonMarkup() en
    Module.js arma la estructura; acá van los estilos y las variantes. */
