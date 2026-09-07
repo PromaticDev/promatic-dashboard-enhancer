@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.9.4',
-    moduleBuild: '2026-09-07-1757',
+    version: '0.9.5',
+    moduleBuild: '2026-09-07-1759',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -337,7 +337,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         { cls: 'promatic_dashboard_enhancer-export-card__title', html: l('Golden Report') },
                         {
                             cls: 'promatic_dashboard_enhancer-export-card__hint',
-                            html: l('Resumen semanal de todo el panel + guía para el Excel de PILOT')
+                            html: l('Resumen semanal de todo el panel + guía para ver la información al detalle en PILOT')
                         },
                         {
                             tag: 'button', type: 'button',
@@ -585,7 +585,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '</title>' + this._reportStyles() + '</head><body>' +
             this._reportHeader(title, days) + descHtml + body +
             '<div class="foot">' +
-            l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. Para el detalle completo por evento, exporta el Excel desde el panel Informes de PILOT (ver la guía en el Golden Report).') +
+            l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. Para ver la información al detalle por evento, revisa el panel Informes de PILOT (ver la guía en el Golden Report).') +
             '</div></body></html>';
     },
 
@@ -604,7 +604,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             this._reportStyles() + '</head><body>' +
             this._reportHeader('Golden Report — ' + l('Resumen semanal de flota'), 7);
 
-        s += '<p class="lead">' + l('Este documento resume el estado de la flota de la última semana en una sola vista: disponibilidad operativa, conectividad, alertas, kilometraje y conducción segura. Al final incluye una guía para obtener el detalle completo ("molido") exportable desde los paneles de PILOT.') + '</p>';
+        s += '<p class="lead">' + l('Este documento resume el estado de la flota de la última semana en una sola vista: disponibilidad operativa, conectividad, alertas, kilometraje y conducción segura. Al final incluye una guía para ver la información al detalle desde los paneles de PILOT.') + '</p>';
 
         // Resumen ejecutivo en cajas
         s += '<h2>' + l('Resumen') + '</h2>' +
@@ -650,7 +650,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         // Guía para el Excel de PILOT
-        s += '<h2>' + l('Cómo obtener el detalle ("molido") desde PILOT') + '</h2>' +
+        s += '<h2>' + l('Para ver la información al detalle en PILOT') + '</h2>' +
             '<div class="guide"><strong>' + l('Informe de Kilometraje') + '</strong><ol>' +
             '<li>' + l('En PILOT, abre el panel lateral') + ' <em>' + l('Informes') + '</em>.</li>' +
             '<li>' + l('Selecciona los vehículos o la carpeta en el árbol de objetos.') + '</li>' +
