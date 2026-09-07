@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.12.3',
-    moduleBuild: '2026-09-07-1914',
+    version: '0.12.4',
+    moduleBuild: '2026-09-07-1921',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -795,19 +795,34 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             margin: [0, 4, 0, 4]
         };
     },
+    // pdfMake solo pinta fondo con `fillColor` en celdas de TABLA (no en
+    // columns/stack sueltos). Las cajas de score van como una tabla de 1 fila,
+    // una celda por caja, con el color como fillColor de la celda.
     _pdfBoxes: function (items) { // [{v, l, color}]
+        var row = items.map(function (it) {
+            return {
+                fillColor: it.color,
+                margin: [6, 8, 6, 8],
+                stack: [
+                    { text: String(it.v), fontSize: 20, bold: true, color: '#ffffff' },
+                    { text: it.l, fontSize: 7, color: '#ffffff', characterSpacing: 0.3, margin: [0, 3, 0, 0] }
+                ]
+            };
+        });
         return {
-            columns: items.map(function (it) {
-                return {
-                    width: '*',
-                    stack: [
-                        { text: String(it.v), fontSize: 20, bold: true, color: '#fff' },
-                        { text: it.l, fontSize: 7, color: '#fff', characterSpacing: 0.3 }
-                    ],
-                    fillColor: it.color, margin: [8, 8, 8, 8]
-                };
-            }),
-            columnGap: 6, margin: [0, 4, 0, 6]
+            table: {
+                widths: items.map(function () { return '*'; }),
+                body: [row]
+            },
+            // Sin líneas de tabla — solo los rellenos.
+            layout: {
+                hLineWidth: function () { return 0; },
+                vLineWidth: function () { return 6; },
+                vLineColor: function () { return '#ffffff'; },
+                paddingLeft: function () { return 0; },
+                paddingRight: function () { return 0; }
+            },
+            margin: [0, 4, 0, 8]
         };
     },
 
