@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.7.2',
-    moduleBuild: '2026-09-07-1618',
+    version: '0.7.3',
+    moduleBuild: '2026-09-07-1633',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -364,7 +364,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     skeleton: 'chips'
                 }),
                 this.cardMarkup('top5km', {
-                    title: l('Vehículos con Kilometraje en Exceso'),
+                    title: l('Vehículos con Exceso de Kilometraje'),
                     hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: /api/v3/vehicles/trips, con respaldo al reporte de kilometraje.'),
                     footerLabel: l('Abrir reporte de kilometraje'),
                     skeleton: 'ranking'
@@ -585,7 +585,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     footerLabel: l('Abrir árbol de flota')
                 }),
                 this.cardMarkup('top5km', {
-                    title: l('Vehículos con Kilometraje en Exceso'), meta: 'rt=4',
+                    title: l('Vehículos con Exceso de Kilometraje'), meta: 'rt=4',
                     footerLabel: l('Abrir reporte de kilometraje')
                 })
             ]),
