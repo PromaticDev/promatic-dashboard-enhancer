@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.11.2',
-    moduleBuild: '2026-09-07-1839',
+    version: '0.12.0',
+    moduleBuild: '2026-09-07-1846',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -60,7 +60,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             'Ext.panel.Panel';
 
         return Ext.create(NavTabClass, {
-            title: l('Promatic Dashboard'),
+            title: l('Dashboard Enhancer'),
             iconCls: 'fa fa-th-large',
             iconAlign: 'top',
             minimized: true,
@@ -1698,6 +1698,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         setInterval(tick, 1000);
     },
 
+    // moduleBuild "2026-09-07-1839" → "7 sep 2026" (fecha legible, sin la hora
+    // — no hace falta exponer el minuto exacto de publicación).
+    _buildDateLabel: function () {
+        var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(this.moduleBuild || '');
+        if (!m) { return this.moduleBuild || ''; }
+        var meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+        return Number(m[3]) + ' ' + (meses[Number(m[2]) - 1] || m[2]) + ' ' + m[1];
+    },
+
     renderLogo: function () {
         this.updateCardBody('logo', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-logo',
@@ -1706,7 +1715,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 {
                     tag: 'span',
                     cls: 'promatic_dashboard_enhancer-version',
-                    html: 'v' + this.version + ' — build ' + this.moduleBuild
+                    html: 'v' + this.version + ' · ' + this._buildDateLabel()
                 }
             ]
         }));
