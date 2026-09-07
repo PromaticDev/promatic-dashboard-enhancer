@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.7.3',
-    moduleBuild: '2026-09-07-1633',
+    version: '0.8.0',
+    moduleBuild: '2026-09-07-1649',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -421,6 +421,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var shell = [
             { cls: 'promatic_dashboard_enhancer-shell-4col', cn: [colLeft, colMid, colMap, colRight] },
+            // Barra "molido por carpeta" del Safety Score — una cajita de color
+            // por carpeta seleccionada, horizontal, justo sobre el footer de
+            // controles. La llena renderEcoScore → renderEcoFolderBar.
+            { id: 'promatic_dashboard_enhancer-eco-folder-bar', cls: 'promatic_dashboard_enhancer-eco-folder-bar', cn: [] },
             this.controlsBarMarkup()
         ];
 
@@ -1374,6 +1378,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (rows.length === 0) {
             this.updateCardBody('eco_score',
                 l('El Fleet ECO report no devolvió datos para el alcance actual.'), 0, true);
+            this.renderEcoFolderBar([], null);
             return;
         }
 
@@ -1384,54 +1389,58 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return Math.round(s / arr.length);
         };
 
+        // Score clamp a 0-100 para las ruedas (report_type=223 puede dar <0).
+        var clamp = function (n) { return Math.max(0, Math.min(100, n)); };
+
         var globalScore = avg(rows, 'cur');
         var globalPrev = avg(rows, 'prev');
 
-        // Caja de carpeta: si el dropdown del mapa tiene una carpeta elegida,
-        // filtra por los agent_ids de esa carpeta cruzados por nombre; si no,
-        // usa el grupo del reporte con más vehículos (o toda la muestra).
-        var folderRows = rows;
-        var folderLabel = l('Toda la selección');
         var onlineTree = this.getOnlineTree();
-        if (this._mapFolderFilter && onlineTree) {
-            var store = onlineTree.getStore();
-            var folder = store.getNodeById ? store.getNodeById(this._mapFolderFilter) : null;
-            if (folder) {
-                folderLabel = folder.get('text') || folder.get('name') || l('Carpeta');
-                var names = {};
-                folder.cascadeBy(function (nd) {
-                    if (nd !== folder && nd.get('agentid')) { names[String(nd.get('name'))] = true; }
-                });
-                var fr = rows.filter(function (x) { return names[String(x.name)]; });
-                if (fr.length > 0) { folderRows = fr; }
-            }
-        } else {
-            // Sin carpeta: si el reporte trae varios grupos, mostrar el más grande.
-            var byGroup = {};
-            for (var r = 0; r < rows.length; r++) {
-                (byGroup[rows[r].group] = byGroup[rows[r].group] || []).push(rows[r]);
-            }
-            var biggest = null;
-            for (var gg in byGroup) {
-                if (byGroup.hasOwnProperty(gg) && (!biggest || byGroup[gg].length > byGroup[biggest].length)) {
-                    biggest = gg;
+        var store = onlineTree && onlineTree.getStore && onlineTree.getStore();
+
+        // --- Agrupar filas del reporte por carpeta del árbol Main ---------
+        // El reporte agrupa por su propio `group` (nombre de grupo de PILOT),
+        // que puede no coincidir con las carpetas del árbol. Cruzamos por
+        // nombre de vehículo: para cada carpeta con hojas seleccionadas,
+        // qué filas del reporte le corresponden.
+        var folderStats = [];   // [{ id, label, rows[], score }]
+        var folderOpts = onlineTree ? this.getMapFolderOptions(onlineTree) : [];
+        for (var fo = 0; fo < folderOpts.length; fo++) {
+            var fNode = store && store.getNodeById ? store.getNodeById(folderOpts[fo].value) : null;
+            if (!fNode) { continue; }
+            var fNames = {};
+            fNode.cascadeBy(function (nd) {
+                if (nd !== fNode && nd.get('agentid')) { fNames[String(nd.get('name'))] = true; }
+            });
+            var fRows = rows.filter(function (x) { return fNames[String(x.name)]; });
+            if (fRows.length === 0) { continue; }
+            folderStats.push({
+                id: folderOpts[fo].value,
+                label: folderOpts[fo].label,
+                rows: fRows,
+                score: avg(fRows, 'cur')
+            });
+        }
+
+        // --- Rueda "Específico": solo si hay carpeta elegida en el dropdown ---
+        var specificWheel = null;
+        if (this._mapFolderFilter) {
+            for (var fs = 0; fs < folderStats.length; fs++) {
+                if (String(folderStats[fs].id) === String(this._mapFolderFilter)) {
+                    specificWheel = folderStats[fs];
+                    break;
                 }
             }
-            if (biggest && byGroup[biggest].length < rows.length) {
-                folderRows = byGroup[biggest];
-                folderLabel = biggest;
-            }
         }
-        var folderScore = avg(folderRows, 'cur');
 
         var sorted = rows.slice().sort(function (a, b) { return b.cur - a.cur; });
         var top3 = sorted.slice(0, 3);
         var bottom3 = sorted.slice(-3).reverse();
 
-        var scoreClass = function (sc) {
-            if (sc >= 80) { return 'promatic_dashboard_enhancer-eco-box--good'; }
-            if (sc >= 40) { return 'promatic_dashboard_enhancer-eco-box--mid'; }
-            return 'promatic_dashboard_enhancer-eco-box--bad';
+        var scoreMod = function (sc) {
+            if (sc >= 75) { return 'good'; }
+            if (sc >= 45) { return 'mid'; }
+            return 'bad';
         };
         var arrow = function (cur, prev) {
             if (!isFinite(prev)) { return ''; }
@@ -1440,44 +1449,105 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return ' =';
         };
 
-        var bigBox = function (label, sc, sub) {
+        // Rueda donut SVG. r=34, circунf ≈ 213.6; el arco "lleno" es
+        // (score/100) del total. Color por umbral, número blanco al centro
+        // sobre un disco de color.
+        var wheel = function (label, score, sub) {
+            var pct = clamp(score);
+            var C = 2 * Math.PI * 34;
+            var filled = (pct / 100) * C;
+            var mod = scoreMod(pct);
             return {
-                cls: 'promatic_dashboard_enhancer-eco-box ' + scoreClass(sc),
+                cls: 'promatic_dashboard_enhancer-eco-wheel promatic_dashboard_enhancer-eco-wheel--' + mod,
                 cn: [
-                    { cls: 'promatic_dashboard_enhancer-eco-box__score', html: sc + '%' },
-                    { cls: 'promatic_dashboard_enhancer-eco-box__label', html: label },
-                    { cls: 'promatic_dashboard_enhancer-eco-box__sub', html: sub || '' }
+                    { tag: 'svg', cls: 'promatic_dashboard_enhancer-eco-wheel__svg',
+                      viewBox: '0 0 80 80', width: '96', height: '96', cn: [
+                        { tag: 'circle', cx: '40', cy: '40', r: '34', fill: 'none',
+                          'stroke-width': '10', cls: 'promatic_dashboard_enhancer-eco-wheel__track' },
+                        { tag: 'circle', cx: '40', cy: '40', r: '34', fill: 'none',
+                          'stroke-width': '10', 'stroke-linecap': 'round',
+                          transform: 'rotate(-90 40 40)',
+                          'stroke-dasharray': filled.toFixed(1) + ' ' + C.toFixed(1),
+                          cls: 'promatic_dashboard_enhancer-eco-wheel__arc' }
+                      ] },
+                    { cls: 'promatic_dashboard_enhancer-eco-wheel__center', cn: [
+                        { cls: 'promatic_dashboard_enhancer-eco-wheel__num', html: String(score) },
+                        { cls: 'promatic_dashboard_enhancer-eco-wheel__of', html: l('de 100') }
+                    ] },
+                    { cls: 'promatic_dashboard_enhancer-eco-wheel__label', html: label },
+                    sub ? { cls: 'promatic_dashboard_enhancer-eco-wheel__sub', html: sub } : { cls: 'promatic_dashboard_enhancer-eco-wheel__sub' }
                 ]
             };
         };
-        var listBox = function (label, list) {
-            var cn = [{ cls: 'promatic_dashboard_enhancer-eco-box__label', html: label }];
-            for (var i = 0; i < list.length; i++) {
-                cn.push({
-                    cls: 'promatic_dashboard_enhancer-eco-rank',
-                    cn: [
-                        { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-rank__name', html: me.displayName(list[i].name) },
-                        { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-rank__score',
-                          html: list[i].cur + '%' + arrow(list[i].cur, list[i].prev) }
-                    ]
-                });
-            }
-            return { cls: 'promatic_dashboard_enhancer-eco-box', cn: cn };
+
+        // Caja de color completo, texto blanco — top 3 mejor / peor.
+        var rankBox = function (mod, item) {
+            return {
+                cls: 'promatic_dashboard_enhancer-eco-chip promatic_dashboard_enhancer-eco-chip--' + mod,
+                cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-chip__name', html: me.displayName(item.name) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-chip__score',
+                      html: item.cur + arrow(item.cur, item.prev) }
+                ]
+            };
+        };
+        var rankGroup = function (label, list, mod) {
+            var cn = [{ cls: 'promatic_dashboard_enhancer-eco-ranklabel', html: label }];
+            for (var i = 0; i < list.length; i++) { cn.push(rankBox(mod, list[i])); }
+            return { cls: 'promatic_dashboard_enhancer-eco-rankgroup', cn: cn };
         };
 
         console.log('[promatic_dashboard_enhancer] eco score (report_type=223): ' + rows.length +
-            ' vehículos, ' + days + 'd, global=' + globalScore + '% (previo ' + globalPrev + '%)');
+            ' vehículos, ' + days + 'd, global=' + globalScore + '% (previo ' + globalPrev +
+            '%), ' + folderStats.length + ' carpetas');
+
+        var wheels = [wheel(l('Global'), globalScore,
+            rows.length + ' ' + l('vehículos') + ' · ' + l('previo') + ' ' + globalPrev + '%')];
+        if (specificWheel) {
+            wheels.push(wheel(specificWheel.label, specificWheel.score,
+                specificWheel.rows.length + ' ' + l('vehículos')));
+        }
 
         this.updateCardBody('eco_score', Ext.DomHelper.markup({
-            cls: 'promatic_dashboard_enhancer-eco-grid',
+            cls: 'promatic_dashboard_enhancer-eco-body' +
+                (specificWheel ? ' promatic_dashboard_enhancer-eco-body--2wheels' : ''),
             cn: [
-                bigBox(l('Global'), globalScore, rows.length + ' ' + l('vehículos') + ' · ' +
-                    l('previo') + ' ' + globalPrev + '%'),
-                bigBox(folderLabel, folderScore, folderRows.length + ' ' + l('vehículos')),
-                listBox(l('Mejores'), top3),
-                listBox(l('Peores'), bottom3)
+                { cls: 'promatic_dashboard_enhancer-eco-wheels', cn: wheels },
+                { cls: 'promatic_dashboard_enhancer-eco-ranks', cn: [
+                    rankGroup(l('Mejores'), top3, 'good'),
+                    rankGroup(l('Peores'), bottom3, 'bad')
+                ] }
             ]
         }), 0, true);
+
+        // Barra "molido por carpeta" sobre el footer.
+        this.renderEcoFolderBar(folderStats, scoreMod);
+    },
+
+    // Barra horizontal de cajitas de color, una por carpeta seleccionada.
+    // Vive en #promatic_dashboard_enhancer-eco-folder-bar (entre el grid y el
+    // footer de controles). Se oculta si hay 0 o 1 carpeta.
+    renderEcoFolderBar: function (folderStats, scoreMod) {
+        var bar = Ext.get('promatic_dashboard_enhancer-eco-folder-bar');
+        if (!bar) { return; }
+        if (!folderStats || folderStats.length < 2) {
+            bar.dom.innerHTML = '';
+            bar.setStyle('display', 'none');
+            return;
+        }
+        bar.setStyle('display', 'flex');
+        var cells = [{ cls: 'promatic_dashboard_enhancer-eco-folder-bar__title', html: l('Safety Score por carpeta') }];
+        for (var i = 0; i < folderStats.length; i++) {
+            var f = folderStats[i];
+            cells.push({
+                cls: 'promatic_dashboard_enhancer-eco-folder-cell promatic_dashboard_enhancer-eco-folder-cell--' + scoreMod(f.score),
+                cn: [
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-folder-cell__name', html: Ext.String.htmlEncode(f.label) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-folder-cell__score', html: String(f.score) }
+                ]
+            });
+        }
+        bar.dom.innerHTML = Ext.DomHelper.markup({ cn: cells });
     },
 
     // Hotspots de desconexión (card 'hotspots') — heatmap sobre un
@@ -1611,21 +1681,35 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     // Lista de { value, label } de las carpetas del árbol "Principal" que
-    // tienen al menos una hoja con agentid. value = id del nodo carpeta.
+    // tienen al menos una hoja SELECCIONADA (checked) en el panel Main.
+    // value = id del nodo carpeta. Si el alcance es "toda la flota" (no
+    // pilot-selection), cae a "carpetas con ≥1 hoja con agentid".
     getMapFolderOptions: function (onlineTree) {
         var store = onlineTree && onlineTree.getStore && onlineTree.getStore();
         var root = store && store.getRoot && store.getRoot();
         if (!root) { return []; }
+
+        var scopeAll = this.effectiveFleetScope() !== 'pilot-selection';
+        // Set de agent_ids seleccionados en Main (si aplica).
+        var selected = null;
+        if (!scopeAll) {
+            selected = {};
+            var ids = this.getPilotSelectionIds(onlineTree) || [];
+            for (var i = 0; i < ids.length; i++) { selected[String(ids[i])] = true; }
+        }
+
         var out = [];
         root.cascadeBy(function (node) {
             if (node === root) { return; }
             if (node.get('agentid')) { return; } // hoja, no carpeta
-            // ¿tiene al menos un descendiente hoja con agentid?
-            var hasLeaf = false;
+            var hasRelevantLeaf = false;
             node.cascadeBy(function (c) {
-                if (!hasLeaf && c !== node && c.get('agentid')) { hasLeaf = true; }
+                if (hasRelevantLeaf || c === node) { return; }
+                var aid = c.get('agentid');
+                if (!aid) { return; }
+                if (scopeAll || selected[String(aid)]) { hasRelevantLeaf = true; }
             });
-            if (hasLeaf) {
+            if (hasRelevantLeaf) {
                 out.push({ value: node.getId(), label: node.get('text') || node.get('name') || l('(carpeta)') });
             }
         });
