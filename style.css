@@ -777,6 +777,22 @@
     filter: brightness(1.08);
 }
 
+/* Tarjeta con incidencias y vehículos identificados — clic abre esos
+   vehículos en el panel Informes de PILOT. */
+.promatic_dashboard_enhancer-stat-card--clickable {
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-stat-card--clickable:hover {
+    filter: brightness(1.14);
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
+}
+
+/* Las tarjetas SIN incidencia (o beta) no invitan al clic. */
+.promatic_dashboard_enhancer-stat-card:not(.promatic_dashboard_enhancer-stat-card--clickable) {
+    cursor: default;
+}
+
 .promatic_dashboard_enhancer-stat-card__icon {
     position: absolute;
     top: 50%;

@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.9.5',
-    moduleBuild: '2026-09-07-1759',
+    version: '0.10.0',
+    moduleBuild: '2026-09-07-1815',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -103,6 +103,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     fn: function () {
                         me._lastManualRefresh = new Date();
                         me.bindKmReportLinks(panel);
+                        me.bindAlertReportLinks(panel);
                         me.bindControlsBar(panel);
                         me.bindExportBlock(panel);
                         me.bindFleetUpdates();
@@ -690,8 +691,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cn: [
                 this.cardMarkup('alertas_generales', {
                     title: l('Alertas Generales'),
-                    hint: l('Accidentes: eventos de los últimos 30 días. Requiere mantención: recordatorios por vehículo configurados en PILOT. Las categorías "beta" aún no están conectadas.'),
-                    footerLabel: l('Abrir alertas'),
+                    hint: l('Accidentes: eventos de los últimos 30 días. Requiere mantención: recordatorios por vehículo configurados en PILOT. Las categorías "beta" aún no están conectadas. Cada tarjeta con incidencias abre el informe correspondiente en PILOT.'),
+                    noFooter: true,
                     skeleton: 'stats'
                 })
             ]
@@ -748,7 +749,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 this.cardMarkup('hotspots', {
                     title: l('Ubicación de la Flota'),
                     hint: l('Puntos de calor con la última posición GPS de los vehículos. El menú de arriba filtra por carpeta del panel "Principal".'),
-                    footerLabel: l('Abrir mapa'),
+                    noFooter: true,
                     skeleton: 'map',
                     headExtra: {
                         tag: 'select',
@@ -1527,9 +1528,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var start = new Date();
             start.setDate(start.getDate() - 30);
             var fmt = function (d) { return d.toISOString().slice(0, 10); };
+            me._alertRange = { start: start, stop: stop };
 
-            var accidentes = me.fetchEventCount(csv, 29, fmt(start), fmt(stop))
-                .catch(function (err) { me.widgetErrorCode('ALERT-ACC', err); return null; });
+            // Accidentes: en vez del conteo, traemos los eventos (limit alto)
+            // para quedarnos con los agent_ids afectados — el click de la
+            // tarjeta abre el informe de esos vehículos en ese rango.
+            var accidentes = me.fetchEventVehicles(csv, 29, fmt(start), fmt(stop))
+                .then(function (ids) {
+                    me._alertAccidentesIds = ids;
+                    return ids.length;
+                })
+                .catch(function (err) { me.widgetErrorCode('ALERT-ACC', err); me._alertAccidentesIds = []; return null; });
 
             var mantencion = me.fetchMantencionCount(vehIds)
                 .catch(function (err) { me.widgetErrorCode('ALERT-MANT', err); return null; });
@@ -1544,25 +1553,67 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
+    // Como fetchEventCount pero devuelve la lista de agent_ids distintos que
+    // aparecen en los eventos del tipo/rango — para el link "abrir informe".
+    fetchEventVehicles: function (vehIdsCsv, type, dateStart, dateStop) {
+        var qs = 'cmd=search&veh=' + encodeURIComponent(vehIdsCsv) +
+            '&type=' + encodeURIComponent(type) +
+            '&date_start=' + encodeURIComponent(dateStart) +
+            '&date_stop=' + encodeURIComponent(dateStop) +
+            '&limit=1000&page=1&start=0';
+        return fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include' })
+            .then(function (resp) {
+                if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                return resp.json();
+            })
+            .then(function (data) {
+                var items = (data && data.items) || [];
+                var seen = {}, ids = [];
+                for (var i = 0; i < items.length; i++) {
+                    var aid = items[i].agent_id || items[i].agentid || items[i].veh || items[i].object_id;
+                    if (aid != null && !seen[aid]) { seen[aid] = 1; ids.push(Number(aid)); }
+                }
+                return ids;
+            });
+    },
+
     // Ralentí excesivo: vehículos con Excess Idle (c1 del report_type=223, en
     // segundos) sobre ecoScore.idleThresholdMin minutos en la ventana. Usa la
     // respuesta ya cacheada por loadEcoScore — no dispara otra llamada.
     refreshRalentiAlert: function () {
         var resp = this._lastEcoResp;
-        if (!resp || !resp.data) { this._alertRalenti = null; this.renderAlertasGenerales(); return; }
+        if (!resp || !resp.data) { this._alertRalenti = null; this._alertRalentiIds = []; this.renderAlertasGenerales(); return; }
         var cfg = (this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore;
         var thresholdSec = (cfg.idleThresholdMin || 120) * 60;
-        var n = 0;
+
+        // Mapa nombre→agentid del árbol para recuperar los ids (el reporte 223
+        // agrupa por patente, no trae agent_id).
+        var nameToId = {};
+        var onlineTree = this.getOnlineTree();
+        if (onlineTree) {
+            var recs = this.getScopedFleetRecords(onlineTree);
+            for (var r = 0; r < recs.length; r++) {
+                var nm = recs[r].get('name');
+                if (nm) { nameToId[String(nm)] = recs[r].get('agentid'); }
+            }
+        }
+
+        var n = 0, ids = [];
         for (var g in resp.data) {
             if (!resp.data.hasOwnProperty(g)) { continue; }
             var vehs = resp.data[g];
             for (var p in vehs) {
                 if (!vehs.hasOwnProperty(p)) { continue; }
                 var c = vehs[p];
-                if (c && c.length > 1 && Number(c[1]) >= thresholdSec) { n++; }
+                if (c && c.length > 1 && Number(c[1]) >= thresholdSec) {
+                    n++;
+                    var id = nameToId[String(c[0] || p)];
+                    if (id != null) { ids.push(Number(id)); }
+                }
             }
         }
         this._alertRalenti = n;
+        this._alertRalentiIds = ids;
         this.renderAlertasGenerales();
     },
 
@@ -1659,7 +1710,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         // count: número (conectada), null/undefined (falló → "N/D"),
         // o beta:true (categoría futura → badge "beta", sin número).
-        var card = function (bg, title, count, iconSvg, titleAttr, isBeta, iconCls) {
+        // vehIds: agent_ids afectados — si hay incidencia y hay ids, la
+        // tarjeta es clicable y abre el panel Informes con esos vehículos
+        // marcados (el usuario elige el informe).
+        var card = function (bg, title, count, iconSvg, titleAttr, isBeta, iconCls, vehIds) {
             var body;
             if (isBeta) {
                 body = { cls: 'promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta', html: l('beta') };
@@ -1668,22 +1722,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             } else {
                 body = { cls: 'promatic_dashboard_enhancer-stat-card__count', html: String(count) };
             }
-            // La respiración del ícono de fondo solo tiene sentido cuando
-            // la card reporta una incidencia real (count > 0) — pedido de
-            // Ana, pauta 4 sep: "no aportan en nada" si están siempre
-            // animadas. Las demás quedan quietas, con hover simple (CSS).
             var hasIncident = !isBeta && typeof count === 'number' && count > 0;
-            return {
-                tag: 'a', href: '#', style: 'background:' + bg, title: titleAttr,
+            var clickable = hasIncident && vehIds && vehIds.length;
+            var spec = {
+                tag: 'a', href: '#',
+                style: 'background:' + bg,
+                title: clickable ? (titleAttr + ' — ' + l('clic: abre estos vehículos en el panel Informes')) : titleAttr,
                 cls: 'promatic_dashboard_enhancer-stat-card' +
                     (isBeta ? ' promatic_dashboard_enhancer-stat-card--beta' : '') +
-                    (hasIncident ? ' promatic_dashboard_enhancer-stat-card--has-alert' : ''),
+                    (hasIncident ? ' promatic_dashboard_enhancer-stat-card--has-alert' : '') +
+                    (clickable ? ' promatic_dashboard_enhancer-stat-card--clickable' : ''),
                 cn: [
                     { tag: 'span', cls: 'promatic_dashboard_enhancer-stat-card__icon' + (iconCls ? ' ' + iconCls : ''), html: iconSvg },
                     { cls: 'promatic_dashboard_enhancer-stat-card__title', html: title },
                     body
                 ]
             };
+            if (clickable) { spec['data-alert-ids'] = vehIds.join(','); }
+            return spec;
         };
 
         // Si alguna categoría CONECTADA tiene incidencias (> 0), la card entera
@@ -1702,11 +1758,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: gridCls,
             cn: [
                 card('var(--g6)', l('Accidentes'), accidentes, svgAccidente,
-                    l('Accidentes — events.php type=29, últimos 30 días'), false, 'pde_alert-accidentes'),
+                    l('Accidentes — eventos de los últimos 30 días'), false, 'pde_alert-accidentes',
+                    this._alertAccidentesIds || []),
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
                     l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion'),
                 card('var(--g6)', l('Ralentí excesivo'), ralenti, svgRalenti,
-                    l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período (Fleet ECO report)'), false, 'pde_alert-ralenti'),
+                    l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti',
+                    this._alertRalentiIds || []),
                 card('var(--g7)', l('Inconsistencias en Carga'), null, svgCombustible,
                     l('Carga de combustible fuera de lo esperado — pendiente de conexión'), true, 'pde_alert-inconsistencias'),
                 card('var(--g6)', l('Drenaje de Combustible'), null, svgCombustible,
@@ -3153,6 +3211,64 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         } else {
             afterReportStore();
         }
+    },
+
+    // Alertas Generales: click de una tarjeta con incidencias. NO existe un
+    // report_type confirmado para "accidentes" ni un informe de ralentí que
+    // no requiera group=6 — así que en vez de disparar un informe puntual,
+    // abrimos el panel de Informes con SOLO esos vehículos ya marcados en el
+    // árbol de objetos, y el usuario elige el informe. Es el mejor esfuerzo
+    // hasta tener una ventana de detalle de alertas propia (feature futura).
+    bindAlertReportLinks: function (panel) {
+        var me = this;
+        var el = panel && panel.getEl && panel.getEl();
+        if (!el || el._alertReportBound) { return; }
+        el._alertReportBound = true;
+        el.on('click', function (e) {
+            var a = e.getTarget('[data-alert-ids]', 8, true);
+            if (!a) { return; }
+            e.preventDefault();
+            var raw = a.getAttribute('data-alert-ids');
+            var ids = (raw || '').split(',').map(Number).filter(function (n) { return !isNaN(n) && n > 0; });
+            if (!ids.length) { return; }
+            me.selectVehiclesInReports(ids);
+        });
+    },
+
+    // Activa el tab Informes y marca solo `ids` en el árbol de objetos, sin
+    // elegir report_type ni submitear. Reusa el whenObjectsReady de
+    // runNativeReport vía una versión mínima inline.
+    selectVehiclesInReports: function (ids) {
+        var me = this;
+        if (!this.activateReportsTab()) {
+            console.warn('[promatic_dashboard_enhancer] selectVehiclesInReports: no se pudo activar Informes');
+            return;
+        }
+        var want = ids.map(Number);
+        var attempt = 0;
+        var tryMark = function () {
+            var reports = window.skeleton && skeleton.navigation && skeleton.navigation.reports;
+            var tree = reports && reports.down && reports.down('#reports_objects_tree');
+            var store = tree && tree.getStore && tree.getStore();
+            if (!store || store.getCount() === 0) {
+                if (attempt++ < 30) { Ext.defer(tryMark, 250); }
+                else { console.warn('[promatic_dashboard_enhancer] selectVehiclesInReports: árbol de objetos no cargó'); }
+                if (store && store.getCount() === 0 && attempt === 1) { try { store.load(); } catch (e) {} }
+                return;
+            }
+            var marked = 0;
+            store.getRoot().cascadeBy(function (node) {
+                var vid = node.get('vehid');
+                if (vid != null) {
+                    var on = want.indexOf(Number(vid)) !== -1;
+                    node.set('checked', on);
+                    if (on) { marked++; }
+                }
+            });
+            console.log('[promatic_dashboard_enhancer] selectVehiclesInReports: ' + marked + '/' + want.length +
+                ' vehículos marcados en el panel Informes — elige el informe a generar');
+        };
+        Ext.defer(tryMark, 200);
     },
 
     // -----------------------------------------------------------------------

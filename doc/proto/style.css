@@ -228,6 +228,141 @@
     text-align: center;
 }
 
+.promatic_dashboard_enhancer-export-card__hint {
+    font-size: 10px;
+    color: var(--g5);
+    line-height: 1.35;
+}
+
+.promatic_dashboard_enhancer-export-card__select {
+    width: 100%;
+    font-size: 12px;
+    color: var(--g7);
+    padding: 5px 6px;
+    border: 1px solid var(--g3);
+    border-radius: 5px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-export-card__btn {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--g6);
+    border: 1px solid var(--g4);
+    border-radius: 5px;
+    padding: 6px 10px;
+    background: #fff;
+    cursor: pointer;
+    text-align: center;
+}
+
+.promatic_dashboard_enhancer-export-card__btn:hover {
+    background: var(--g0);
+}
+
+.promatic_dashboard_enhancer-export-card__btn--primary {
+    background: var(--g6);
+    border-color: var(--g6);
+    color: #fff;
+}
+
+.promatic_dashboard_enhancer-export-card__btn--primary:hover {
+    background: var(--g7);
+    border-color: var(--g7);
+}
+
+/* ===== Modal de reporte (Exportar / Golden Report) ===== */
+.promatic_dashboard_enhancer-report-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(15, 23, 42, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.promatic_dashboard_enhancer-report-modal__box {
+    background: #fff;
+    border-radius: 10px;
+    width: 900px;
+    max-width: 100%;
+    height: 88vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+.promatic_dashboard_enhancer-report-modal__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.promatic_dashboard_enhancer-report-modal__title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--g7);
+    text-transform: uppercase;
+    letter-spacing: .3px;
+}
+
+.promatic_dashboard_enhancer-report-modal__actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* !important en todas las props: el CSS global de PILOT pisa los <button>
+   (los deja invisibles hasta el hover). Mismo tratamiento que .stat__label —
+   ver spec/api.md. */
+.promatic_dashboard_enhancer-report-modal__btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    font: 600 12.5px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif !important;
+    padding: 8px 14px !important;
+    border-radius: 5px !important;
+    border: 1px solid var(--g4) !important;
+    background: #fff !important;
+    color: var(--g6) !important;
+    cursor: pointer !important;
+    text-decoration: none !important;
+    box-shadow: none !important;
+    text-transform: none !important;
+    min-width: 0 !important;
+    height: auto !important;
+    opacity: 1 !important;
+}
+
+.promatic_dashboard_enhancer-report-modal__btn:hover {
+    background: var(--g0) !important;
+}
+
+.promatic_dashboard_enhancer-report-modal__btn--primary {
+    background: var(--g6) !important;
+    border-color: var(--g6) !important;
+    color: #fff !important;
+}
+
+.promatic_dashboard_enhancer-report-modal__btn--primary:hover {
+    background: var(--g7) !important;
+    border-color: var(--g7) !important;
+}
+
+.promatic_dashboard_enhancer-report-modal__frame {
+    flex: 1 1 auto;
+    width: 100%;
+    border: 0;
+    background: #fff;
+}
+
 /* ===== Skeleton de carga (widgets con primer fetch lento) =====
    Barras grises con la forma del contenido + shimmer. skeletonMarkup() en
    Module.js arma la estructura; acá van los estilos y las variantes. */
@@ -453,6 +588,7 @@
 #promatic_dashboard_enhancer-card-body-gps_signal {
     container-type: inline-size;
     container-name: gpssignal;
+    overflow-y: hidden;
 }
 
 .promatic_dashboard_enhancer-signal-body {
@@ -615,6 +751,14 @@
     gap: 8px;
 }
 
+/* Alertas Generales vive en la columna izquierda (sin alto fijo) — la card
+   debe crecer con sus 7 tarjetas, no scrollear. Se anula el overflow-y:auto
+   del body genérico y se deja que el contenido defina el alto. */
+#promatic_dashboard_enhancer-card-body-alertas_generales {
+    overflow-y: visible;
+    flex: 0 0 auto;
+}
+
 .promatic_dashboard_enhancer-stat-card {
     position: relative;
     border-radius: 10px;
@@ -631,6 +775,22 @@
 
 .promatic_dashboard_enhancer-stat-card:hover {
     filter: brightness(1.08);
+}
+
+/* Tarjeta con incidencias y vehículos identificados — clic abre esos
+   vehículos en el panel Informes de PILOT. */
+.promatic_dashboard_enhancer-stat-card--clickable {
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-stat-card--clickable:hover {
+    filter: brightness(1.14);
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
+}
+
+/* Las tarjetas SIN incidencia (o beta) no invitan al clic. */
+.promatic_dashboard_enhancer-stat-card:not(.promatic_dashboard_enhancer-stat-card--clickable) {
+    cursor: default;
 }
 
 .promatic_dashboard_enhancer-stat-card__icon {
@@ -811,6 +971,180 @@
     color: var(--g5);
     text-transform: uppercase;
     letter-spacing: .2px;
+}
+
+/* ===== Safety Score (ECO) — card 'eco_score' ===== */
+/* Paleta de estado — color completo, texto blanco (pedido del usuario). */
+.promatic_dashboard_enhancer-eco-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.promatic_dashboard_enhancer-eco-wheels {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.promatic_dashboard_enhancer-eco-wheel {
+    flex: 1 1 0;
+    max-width: 180px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    position: relative;
+}
+
+.promatic_dashboard_enhancer-eco-wheel__svg {
+    display: block;
+}
+
+.promatic_dashboard_enhancer-eco-wheel__track {
+    stroke: var(--g1);
+}
+
+.promatic_dashboard_enhancer-eco-wheel--good .promatic_dashboard_enhancer-eco-wheel__arc {
+    stroke: var(--status-ok-strong);
+}
+
+.promatic_dashboard_enhancer-eco-wheel--mid .promatic_dashboard_enhancer-eco-wheel__arc {
+    stroke: var(--status-alert-strong);
+}
+
+.promatic_dashboard_enhancer-eco-wheel--bad .promatic_dashboard_enhancer-eco-wheel__arc {
+    stroke: var(--status-danger-strong);
+}
+
+.promatic_dashboard_enhancer-eco-wheel__center {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 96px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.promatic_dashboard_enhancer-eco-wheel__num {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.promatic_dashboard_enhancer-eco-wheel--good .promatic_dashboard_enhancer-eco-wheel__num {
+    color: var(--status-ok-strong);
+}
+
+.promatic_dashboard_enhancer-eco-wheel--mid .promatic_dashboard_enhancer-eco-wheel__num {
+    color: var(--status-alert-strong);
+}
+
+.promatic_dashboard_enhancer-eco-wheel--bad .promatic_dashboard_enhancer-eco-wheel__num {
+    color: var(--status-danger-strong);
+}
+
+.promatic_dashboard_enhancer-eco-wheel__of {
+    font-size: 9px;
+    color: var(--g4);
+    text-transform: uppercase;
+    letter-spacing: .3px;
+}
+
+.promatic_dashboard_enhancer-eco-wheel__label {
+    margin-top: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--g7);
+    text-transform: uppercase;
+    letter-spacing: .2px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.promatic_dashboard_enhancer-eco-wheel__sub {
+    font-size: 10px;
+    color: var(--g4);
+    min-height: 12px;
+}
+
+/* Ranking horizontal de 5 cajas (2 mejores + mediana + 2 peores). Cada caja:
+   valor semanal grande + nombre, y debajo un rectángulo con el valor anterior.
+   Color completo por umbral, texto blanco. */
+.promatic_dashboard_enhancer-eco-cells {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+}
+
+.promatic_dashboard_enhancer-eco-cell {
+    display: flex;
+    flex-direction: column;
+    border-radius: 6px;
+    overflow: hidden;
+    color: #fff;
+}
+
+.promatic_dashboard_enhancer-eco-cell--good {
+    background: var(--status-ok-strong);
+}
+
+.promatic_dashboard_enhancer-eco-cell--mid {
+    background: var(--status-alert-strong);
+}
+
+.promatic_dashboard_enhancer-eco-cell--bad {
+    background: var(--status-danger-strong);
+}
+
+.promatic_dashboard_enhancer-eco-cell__top {
+    padding: 8px 6px 6px;
+    text-align: center;
+}
+
+.promatic_dashboard_enhancer-eco-cell__val {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.promatic_dashboard_enhancer-eco-cell__name {
+    font-size: 10px;
+    opacity: .9;
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.promatic_dashboard_enhancer-eco-cell__prev {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 6px;
+    background: rgba(0, 0, 0, 0.22);
+    font-size: 10px;
+}
+
+.promatic_dashboard_enhancer-eco-cell__prevlbl {
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    opacity: .8;
+}
+
+.promatic_dashboard_enhancer-eco-cell__prevval {
+    font-weight: 700;
+}
+
+/* Contenedor reservado sobre el footer — vacío por ahora (widgets futuros). */
+.promatic_dashboard_enhancer-eco-folder-bar {
+    display: none;
 }
 
 /* ===== Vehículos con más KM (card 'top5km') — barra apilada + ranking ===== */
@@ -1067,4 +1401,25 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
 .promatic_dashboard_enhancer-ctrl-btn--busy {
     opacity: 0.6;
     pointer-events: none;
+}
+
+/* El head del mapa lleva un <select> — centrar verticalmente y permitir
+   wrap si el nombre de carpeta es largo. */
+#promatic_dashboard_enhancer-card-hotspots .promatic_dashboard_enhancer-card__head {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Dropdown de carpeta sobre el mapa "Ubicación de la Flota" — vive en el
+   head de la card, alineado a la derecha. */
+.promatic_dashboard_enhancer-map-folder {
+    margin-left: auto;
+    max-width: 55%;
+    padding: 3px 6px;
+    font-size: 0.78rem;
+    color: var(--g7);
+    background: #fff;
+    border: 1px solid var(--g2);
+    border-radius: 4px;
+    cursor: pointer;
 }
