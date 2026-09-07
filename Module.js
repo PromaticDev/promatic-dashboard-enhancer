@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.5.1',
-    moduleBuild: '2026-09-07-1040',
+    moduleBuild: '2026-09-07-1114',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -237,13 +237,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // card — pasa sobre todo con los que se pintan de una desde
     // buildMainPanel (reloj, logo), antes de que Ext termine de montar el
     // panel y agregarlo a skeleton.navigation. Tope fijo, nunca infinito.
-    updateCardBody: function (id, html, attempt) {
+    // optional=true: la card puede legítimamente no estar montada en el shell
+    // actual (p.ej. 'flota', retirada de RAC en FR-0009 pero cuyo refresh sigue
+    // corriendo para cuando LOP se monte) — no reintenta ni avisa si falta.
+    updateCardBody: function (id, html, attempt, optional) {
         attempt = attempt || 0;
         var el = Ext.get('promatic_dashboard_enhancer-card-body-' + id);
         if (el) {
             el.setHtml(html);
+        } else if (optional) {
+            return;
         } else if (attempt < 60) {
-            Ext.defer(this.updateCardBody, 300, this, [id, html, attempt + 1]);
+            Ext.defer(this.updateCardBody, 300, this, [id, html, attempt + 1, optional]);
         } else {
             console.warn('[promatic_dashboard_enhancer] updateCardBody("' + id +
                 '"): la card no apareció en el DOM tras 18s.');
@@ -939,7 +944,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 msgSel = l('Selecciona vehículos en el panel "Principal" para ver el resumen.');
             }
             if (this.summaryBar) { this.summaryBar.update(msgSel); }
-            this.updateCardBody('flota', msgSel);
+            this.updateCardBody('flota', msgSel, 0, true);
             this.updateCardBody('gps_signal', msgSel);
             return;
         }
@@ -1470,7 +1475,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     { tag: 'div', cls: 'promatic_dashboard_enhancer-fleet-quadrant__lbl', html: l('Sin conexión') }
                 ] }
             ]
-        }));
+        }), 0, true);
     },
 
     updateSummary: function (total, online) {
