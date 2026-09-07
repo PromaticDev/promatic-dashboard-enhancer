@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.8.0',
-    moduleBuild: '2026-09-07-1649',
+    version: '0.8.1',
+    moduleBuild: '2026-09-07-1706',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -421,9 +421,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var shell = [
             { cls: 'promatic_dashboard_enhancer-shell-4col', cn: [colLeft, colMid, colMap, colRight] },
-            // Barra "molido por carpeta" del Safety Score — una cajita de color
-            // por carpeta seleccionada, horizontal, justo sobre el footer de
-            // controles. La llena renderEcoScore → renderEcoFolderBar.
+            // Contenedor reservado sobre el footer de controles — para widgets
+            // horizontales sueltos futuros (el usuario planea agregar varios).
             { id: 'promatic_dashboard_enhancer-eco-folder-bar', cls: 'promatic_dashboard_enhancer-eco-folder-bar', cn: [] },
             this.controlsBarMarkup()
         ];
@@ -1378,7 +1377,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (rows.length === 0) {
             this.updateCardBody('eco_score',
                 l('El Fleet ECO report no devolvió datos para el alcance actual.'), 0, true);
-            this.renderEcoFolderBar([], null);
             return;
         }
 
@@ -1434,8 +1432,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         var sorted = rows.slice().sort(function (a, b) { return b.cur - a.cur; });
-        var top3 = sorted.slice(0, 3);
-        var bottom3 = sorted.slice(-3).reverse();
+
+        // Ranking de 5 cajas (impar): 2 mejores + mediana + 2 peores.
+        // Si hay < 5 vehículos, se muestran los que haya sin repetir.
+        var rankFive = [];
+        if (sorted.length <= 5) {
+            rankFive = sorted.slice();
+        } else {
+            var mid = sorted[Math.floor(sorted.length / 2)];
+            rankFive = [sorted[0], sorted[1], mid, sorted[sorted.length - 2], sorted[sorted.length - 1]];
+        }
 
         var scoreMod = function (sc) {
             if (sc >= 75) { return 'good'; }
@@ -1480,21 +1486,25 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             };
         };
 
-        // Caja de color completo, texto blanco — top 3 mejor / peor.
-        var rankBox = function (mod, item) {
+        // Caja del ranking horizontal: valor semanal grande arriba + nombre,
+        // y debajo un rectángulo con el valor de la semana anterior.
+        // Color completo por umbral, texto blanco.
+        var rankCell = function (item) {
+            var mod = scoreMod(item.cur);
             return {
-                cls: 'promatic_dashboard_enhancer-eco-chip promatic_dashboard_enhancer-eco-chip--' + mod,
+                cls: 'promatic_dashboard_enhancer-eco-cell promatic_dashboard_enhancer-eco-cell--' + mod,
                 cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-chip__name', html: me.displayName(item.name) },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-chip__score',
-                      html: item.cur + arrow(item.cur, item.prev) }
+                    { cls: 'promatic_dashboard_enhancer-eco-cell__top', cn: [
+                        { cls: 'promatic_dashboard_enhancer-eco-cell__val', html: String(item.cur) },
+                        { cls: 'promatic_dashboard_enhancer-eco-cell__name', html: me.displayName(item.name) }
+                    ] },
+                    { cls: 'promatic_dashboard_enhancer-eco-cell__prev', cn: [
+                        { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-cell__prevlbl', html: l('antes') },
+                        { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-cell__prevval',
+                          html: isFinite(item.prev) ? String(item.prev) : '—' }
+                    ] }
                 ]
             };
-        };
-        var rankGroup = function (label, list, mod) {
-            var cn = [{ cls: 'promatic_dashboard_enhancer-eco-ranklabel', html: label }];
-            for (var i = 0; i < list.length; i++) { cn.push(rankBox(mod, list[i])); }
-            return { cls: 'promatic_dashboard_enhancer-eco-rankgroup', cn: cn };
         };
 
         console.log('[promatic_dashboard_enhancer] eco score (report_type=223): ' + rows.length +
@@ -1508,46 +1518,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 specificWheel.rows.length + ' ' + l('vehículos')));
         }
 
+        var rankCells = [];
+        for (var rc = 0; rc < rankFive.length; rc++) { rankCells.push(rankCell(rankFive[rc])); }
+
         this.updateCardBody('eco_score', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-eco-body' +
                 (specificWheel ? ' promatic_dashboard_enhancer-eco-body--2wheels' : ''),
             cn: [
                 { cls: 'promatic_dashboard_enhancer-eco-wheels', cn: wheels },
-                { cls: 'promatic_dashboard_enhancer-eco-ranks', cn: [
-                    rankGroup(l('Mejores'), top3, 'good'),
-                    rankGroup(l('Peores'), bottom3, 'bad')
-                ] }
+                { cls: 'promatic_dashboard_enhancer-eco-cells', cn: rankCells }
             ]
         }), 0, true);
 
-        // Barra "molido por carpeta" sobre el footer.
-        this.renderEcoFolderBar(folderStats, scoreMod);
-    },
-
-    // Barra horizontal de cajitas de color, una por carpeta seleccionada.
-    // Vive en #promatic_dashboard_enhancer-eco-folder-bar (entre el grid y el
-    // footer de controles). Se oculta si hay 0 o 1 carpeta.
-    renderEcoFolderBar: function (folderStats, scoreMod) {
-        var bar = Ext.get('promatic_dashboard_enhancer-eco-folder-bar');
-        if (!bar) { return; }
-        if (!folderStats || folderStats.length < 2) {
-            bar.dom.innerHTML = '';
-            bar.setStyle('display', 'none');
-            return;
-        }
-        bar.setStyle('display', 'flex');
-        var cells = [{ cls: 'promatic_dashboard_enhancer-eco-folder-bar__title', html: l('Safety Score por carpeta') }];
-        for (var i = 0; i < folderStats.length; i++) {
-            var f = folderStats[i];
-            cells.push({
-                cls: 'promatic_dashboard_enhancer-eco-folder-cell promatic_dashboard_enhancer-eco-folder-cell--' + scoreMod(f.score),
-                cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-folder-cell__name', html: Ext.String.htmlEncode(f.label) },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-folder-cell__score', html: String(f.score) }
-                ]
-            });
-        }
-        bar.dom.innerHTML = Ext.DomHelper.markup({ cn: cells });
+        // La barra "molido por carpeta" se retiró (7 sep) — el contenedor
+        // #promatic_dashboard_enhancer-eco-folder-bar queda vacío/oculto,
+        // reservado para widgets sueltos futuros.
     },
 
     // Hotspots de desconexión (card 'hotspots') — heatmap sobre un

@@ -915,106 +915,77 @@
     min-height: 12px;
 }
 
-/* Top 3 mejor / peor — cajas de color completo, texto blanco. */
-.promatic_dashboard_enhancer-eco-ranks {
+/* Ranking horizontal de 5 cajas (2 mejores + mediana + 2 peores). Cada caja:
+   valor semanal grande + nombre, y debajo un rectángulo con el valor anterior.
+   Color completo por umbral, texto blanco. */
+.promatic_dashboard_enhancer-eco-cells {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
 }
 
-.promatic_dashboard_enhancer-eco-rankgroup {
+.promatic_dashboard_enhancer-eco-cell {
     display: flex;
     flex-direction: column;
-    gap: 5px;
-}
-
-.promatic_dashboard_enhancer-eco-ranklabel {
-    font-size: 11px;
-    color: var(--g5);
-    text-transform: uppercase;
-    letter-spacing: .2px;
-}
-
-.promatic_dashboard_enhancer-eco-chip {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 9px;
-    border-radius: 5px;
-    font-size: 12px;
+    border-radius: 6px;
+    overflow: hidden;
     color: #fff;
 }
 
-.promatic_dashboard_enhancer-eco-chip--good {
+.promatic_dashboard_enhancer-eco-cell--good {
     background: var(--status-ok-strong);
 }
 
-.promatic_dashboard_enhancer-eco-chip--bad {
+.promatic_dashboard_enhancer-eco-cell--mid {
+    background: var(--status-alert-strong);
+}
+
+.promatic_dashboard_enhancer-eco-cell--bad {
     background: var(--status-danger-strong);
 }
 
-.promatic_dashboard_enhancer-eco-chip__name {
+.promatic_dashboard_enhancer-eco-cell__top {
+    padding: 8px 6px 6px;
+    text-align: center;
+}
+
+.promatic_dashboard_enhancer-eco-cell__val {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.promatic_dashboard_enhancer-eco-cell__name {
+    font-size: 10px;
+    opacity: .9;
+    margin-top: 3px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.promatic_dashboard_enhancer-eco-chip__score {
-    font-weight: 700;
-    flex-shrink: 0;
-}
-
-/* Barra "Safety Score por carpeta" — horizontal, sobre el footer de controles. */
-.promatic_dashboard_enhancer-eco-folder-bar {
-    display: none;
-    flex-wrap: wrap;
+.promatic_dashboard_enhancer-eco-cell__prev {
+    display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 16px;
-    padding: 8px 12px;
-    background: #F8FAFC;
-    border-radius: 6px;
+    padding: 3px 6px;
+    background: rgba(0, 0, 0, 0.22);
+    font-size: 10px;
 }
 
-.promatic_dashboard_enhancer-eco-folder-bar__title {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--g5);
+.promatic_dashboard_enhancer-eco-cell__prevlbl {
     text-transform: uppercase;
     letter-spacing: .3px;
-    margin-right: 4px;
+    opacity: .8;
 }
 
-.promatic_dashboard_enhancer-eco-folder-cell {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    border-radius: 5px;
-    color: #fff;
-    font-size: 12px;
-}
-
-.promatic_dashboard_enhancer-eco-folder-cell--good {
-    background: var(--status-ok-strong);
-}
-
-.promatic_dashboard_enhancer-eco-folder-cell--mid {
-    background: var(--status-alert-strong);
-}
-
-.promatic_dashboard_enhancer-eco-folder-cell--bad {
-    background: var(--status-danger-strong);
-}
-
-.promatic_dashboard_enhancer-eco-folder-cell__name {
-    font-weight: 500;
-}
-
-.promatic_dashboard_enhancer-eco-folder-cell__score {
+.promatic_dashboard_enhancer-eco-cell__prevval {
     font-weight: 700;
-    font-size: 14px;
+}
+
+/* Contenedor reservado sobre el footer — vacío por ahora (widgets futuros). */
+.promatic_dashboard_enhancer-eco-folder-bar {
+    display: none;
 }
 
 /* ===== Vehículos con más KM (card 'top5km') — barra apilada + ranking ===== */
