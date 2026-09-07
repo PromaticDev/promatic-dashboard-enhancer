@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.7.0',
-    moduleBuild: '2026-09-07-1554',
+    version: '0.7.1',
+    moduleBuild: '2026-09-07-1606',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -25,7 +25,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
         clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' },
         // Safety Score (ECO) — ventana del Fleet ECO report (report_type=223).
-        ecoScore: { windowDays: 8 }
+        ecoScore: { windowDays: 8 },
+        // Privacidad: maskPlates=true reemplaza la patente (que en PILOT suele
+        // ser el "Nombre de Vehículo") por un alias en toda la UI del dashboard.
+        privacy: { maskPlates: true }
     },
 
     initModule: function () {
@@ -618,6 +621,28 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     getOnlineTree: function () {
         return (window.skeleton && skeleton.navigation && skeleton.navigation.online &&
             skeleton.navigation.online.online_tree) || null;
+    },
+
+    // Enmascara la patente para la UI cuando config.privacy.maskPlates está
+    // activo. El "Nombre de Vehículo" en PILOT suele ser la patente literal
+    // (no hay campo separado), así que mostrarla cruda deja googleable un dato
+    // sensible del cliente. Formato: 2 primeras letras + "-" + correlativo de
+    // 2 dígitos, estable dentro de una sesión (mismo nombre → mismo alias).
+    // Si maskPlates está apagado, devuelve el nombre tal cual.
+    _plateAliasMap: null,
+    _plateAliasSeq: 0,
+    displayName: function (name) {
+        var cfg = (this.config && this.config.privacy) || (this.DEFAULT_CONFIG.privacy || {});
+        if (!cfg.maskPlates || !name) { return name || ''; }
+        if (!this._plateAliasMap) { this._plateAliasMap = {}; }
+        var key = String(name);
+        if (this._plateAliasMap[key]) { return this._plateAliasMap[key]; }
+        var letters = (key.replace(/[^A-Za-z]/g, '').slice(0, 2) || 'VH').toUpperCase();
+        this._plateAliasSeq++;
+        var n = this._plateAliasSeq < 10 ? '0' + this._plateAliasSeq : String(this._plateAliasSeq);
+        var alias = letters + '-' + n;
+        this._plateAliasMap[key] = alias;
+        return alias;
     },
 
     // Filtro opcional de alcance de flota — resuelve cuentas donde
@@ -1325,6 +1350,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     // resp: respuesta de reports.php report_type=223.
     renderEcoScore: function (resp, days) {
+        var me = this;
         var groups = (resp && resp.data) || {};
         // Aplana: [{ name, group, idle, over, brake, accel, dist, dur, cur, prev }]
         var rows = [];
@@ -1430,7 +1456,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 cn.push({
                     cls: 'promatic_dashboard_enhancer-eco-rank',
                     cn: [
-                        { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-rank__name', html: list[i].name },
+                        { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-rank__name', html: me.displayName(list[i].name) },
                         { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-rank__score',
                           html: list[i].cur + '%' + arrow(list[i].cur, list[i].prev) }
                     ]
@@ -2367,7 +2393,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 cls: 'promatic_dashboard_enhancer-stacked-seg',
                 style: 'height:' + segPct.toFixed(1) + '%;background:' +
                     (flatColor ? 'var(--g4)' : segColors[a % segColors.length]),
-                title: Ext.String.htmlEncode(ascending[a].name) + ' — ' + ascending[a].km.toFixed(0) + 'km'
+                title: Ext.String.htmlEncode(this.displayName(ascending[a].name)) + ' — ' + ascending[a].km.toFixed(0) + 'km'
             });
         }
 
@@ -2382,7 +2408,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var row = {
                 tag: hasId ? 'a' : 'div', cls: rowCls,
                 cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-rank-name', html: Ext.String.htmlEncode(item.name) },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-rank-name', html: Ext.String.htmlEncode(this.displayName(item.name)) },
                     { cls: 'promatic_dashboard_enhancer-rank-track', cn: [
                         { cls: 'promatic_dashboard_enhancer-rank-fill', style: 'width:' + (item.km / maxKm * 100).toFixed(0) + '%' }
                     ] },
@@ -2392,7 +2418,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             };
             if (hasId) {
                 row.href = '#';
-                row.title = l('Ver informe de kilómetros de') + ' ' + Ext.String.htmlEncode(item.name);
+                row.title = l('Ver informe de kilómetros de') + ' ' + Ext.String.htmlEncode(this.displayName(item.name));
                 row['data-km-report'] = String(item.id);
                 row['data-km-start'] = String(startMs);
                 row['data-km-stop'] = String(stopMs);
