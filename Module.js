@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.6.0',
-    moduleBuild: '2026-09-07-1523',
+    version: '0.7.0',
+    moduleBuild: '2026-09-07-1554',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -23,7 +23,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // tope de seguridad para no disparar jobs async en flotas enormes.
         fleet: { scope: 'pilot-selection', maxVehicles: 500 },
         // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
-        clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' }
+        clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' },
+        // Safety Score (ECO) — ventana del Fleet ECO report (report_type=223).
+        ecoScore: { windowDays: 8 }
     },
 
     initModule: function () {
@@ -99,6 +101,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me.bindFleetUpdates();
                         me.loadTop5KmData();
                         me.loadAlertasGenerales();
+                        me.loadEcoScore();
                         // Mapa de hotspots: instancia propia dentro de un
                         // Ext.panel.Panel (patrón examples/airports/Map.js,
                         // BR-PILOT-0007). buildHotspotsMapPanel monta el panel
@@ -368,6 +371,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     hint: l('Vehículos seleccionados en el panel "Principal": activos, en movimiento, estacionados y sin conexión. Se actualiza en vivo con el árbol Online.'),
                     noFooter: true,
                     skeleton: 'donut'
+                }),
+                this.cardMarkup('eco_score', {
+                    title: l('Safety Score (ECO)'),
+                    hint: l('Puntaje de conducción segura por evento de manejo brusco (frenadas/aceleraciones/curvas bruscas, idling), normalizado por km. 100 = sin eventos. Fuente: events.php type=24, ventana configurable.'),
+                    noFooter: true,
+                    skeleton: 'donut'
                 })
             ]
         };
@@ -492,10 +501,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.showCardSkeleton('gps_signal', 'chips');
         this.showCardSkeleton('top5km', 'ranking');
         this.showCardSkeleton('flota', 'donut');
+        this.showCardSkeleton('eco_score', 'donut');
         this.showCardSkeleton('alertas_generales', 'stats');
         this.refreshFleetStore();
         this.loadTop5KmData();
         this.loadAlertasGenerales();
+        this.loadEcoScore();
         // El dropdown puede tener carpetas nuevas si cambió la selección.
         this.populateMapFolderDropdown();
         this.loadFleetHeatmap();
@@ -883,6 +894,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me._selectionTimer = null;
                     me.refreshFleetStore();
                     me.loadTop5KmData();
+                    me.loadEcoScore();
                     me.populateMapFolderDropdown();
                     me.loadFleetHeatmap();
                 }, 600);
@@ -1253,6 +1265,195 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }));
     },
 
+    // -----------------------------------------------------------------------
+    // Safety Score (ECO) — card 'eco_score'.
+    //
+    // Fuente REAL: reports.php report_type=223 (group=6) = "Fleet ECO report"
+    // nativo de PILOT (el que ve Ana en el panel Informes). Request/schema
+    // capturados en vivo 7 sep — ver spec/api.md §"Fleet ECO report".
+    //
+    // Respuesta: { data: { "<grupo>": { "<patente>": [c0..c8] } } }
+    //   c0 = patente                 c5 = distancia (km)
+    //   c1 = Excess Idle (segundos)  c6 = Duration (segundos)
+    //   c2 = Over Speed (segundos)   c7 = Current Rating (% 0-100, puede ser <0)
+    //   c3 = Harsh Brake (conteo)    c8 = Previous Rating (%)
+    //   c4 = Harsh Accel (conteo)
+    //
+    // El widget muestra un grid de 4 cajas: Global (promedio de Current Rating),
+    // Flota/Carpeta (promedio de la carpeta del dropdown del mapa, o toda la
+    // selección), Top 3 mejor y Top 3 peor por Current Rating.
+    // -----------------------------------------------------------------------
+    loadEcoScore: function () {
+        var me = this;
+        var cfg = (me.config && me.config.ecoScore) || (me.DEFAULT_CONFIG.ecoScore || {});
+        var days = cfg.windowDays || 8;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            var stop = new Date();
+            var start = new Date();
+            start.setDate(start.getDate() - days);
+
+            // Reusa el cuerpo estándar de reports.php (buildReportBody) y solo
+            // sobrescribe group=6 y report_type=223 (Fleet ECO report).
+            var body = me.buildReportBody(223, vehIds.join(','), start, stop)
+                .replace(/(^|&)group=1(&|$)/, '$1group=6$2');
+
+            var ctrl = new AbortController();
+            var to = setTimeout(function () { ctrl.abort(); }, 25000);
+
+            fetch('/backend/ax/reports.php', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body,
+                signal: ctrl.signal
+            })
+                .then(function (resp) {
+                    if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                    return resp.json();
+                })
+                .then(function (data) {
+                    me.renderEcoScore(data, days);
+                })
+                .catch(function (err) {
+                    var code = me.widgetErrorCode('ECO-SCORE', err);
+                    me.updateCardBody('eco_score', l('No se pudo cargar el Safety Score.') + ' (' + code + ')', 0, true);
+                })
+                .finally(function () { clearTimeout(to); });
+        });
+    },
+
+    // resp: respuesta de reports.php report_type=223.
+    renderEcoScore: function (resp, days) {
+        var groups = (resp && resp.data) || {};
+        // Aplana: [{ name, group, idle, over, brake, accel, dist, dur, cur, prev }]
+        var rows = [];
+        for (var gName in groups) {
+            if (!groups.hasOwnProperty(gName)) { continue; }
+            var vehs = groups[gName];
+            for (var pat in vehs) {
+                if (!vehs.hasOwnProperty(pat)) { continue; }
+                var c = vehs[pat];
+                if (!c || c.length < 9) { continue; }
+                rows.push({
+                    name: c[0] || pat, group: gName,
+                    idle: Number(c[1]) || 0, over: Number(c[2]) || 0,
+                    brake: Number(c[3]) || 0, accel: Number(c[4]) || 0,
+                    dist: Number(c[5]) || 0, dur: Number(c[6]) || 0,
+                    cur: Number(c[7]), prev: Number(c[8])
+                });
+            }
+        }
+
+        if (rows.length === 0) {
+            this.updateCardBody('eco_score',
+                l('El Fleet ECO report no devolvió datos para el alcance actual.'), 0, true);
+            return;
+        }
+
+        var avg = function (arr, field) {
+            if (arr.length === 0) { return 0; }
+            var s = 0;
+            for (var i = 0; i < arr.length; i++) { s += arr[i][field]; }
+            return Math.round(s / arr.length);
+        };
+
+        var globalScore = avg(rows, 'cur');
+        var globalPrev = avg(rows, 'prev');
+
+        // Caja de carpeta: si el dropdown del mapa tiene una carpeta elegida,
+        // filtra por los agent_ids de esa carpeta cruzados por nombre; si no,
+        // usa el grupo del reporte con más vehículos (o toda la muestra).
+        var folderRows = rows;
+        var folderLabel = l('Toda la selección');
+        var onlineTree = this.getOnlineTree();
+        if (this._mapFolderFilter && onlineTree) {
+            var store = onlineTree.getStore();
+            var folder = store.getNodeById ? store.getNodeById(this._mapFolderFilter) : null;
+            if (folder) {
+                folderLabel = folder.get('text') || folder.get('name') || l('Carpeta');
+                var names = {};
+                folder.cascadeBy(function (nd) {
+                    if (nd !== folder && nd.get('agentid')) { names[String(nd.get('name'))] = true; }
+                });
+                var fr = rows.filter(function (x) { return names[String(x.name)]; });
+                if (fr.length > 0) { folderRows = fr; }
+            }
+        } else {
+            // Sin carpeta: si el reporte trae varios grupos, mostrar el más grande.
+            var byGroup = {};
+            for (var r = 0; r < rows.length; r++) {
+                (byGroup[rows[r].group] = byGroup[rows[r].group] || []).push(rows[r]);
+            }
+            var biggest = null;
+            for (var gg in byGroup) {
+                if (byGroup.hasOwnProperty(gg) && (!biggest || byGroup[gg].length > byGroup[biggest].length)) {
+                    biggest = gg;
+                }
+            }
+            if (biggest && byGroup[biggest].length < rows.length) {
+                folderRows = byGroup[biggest];
+                folderLabel = biggest;
+            }
+        }
+        var folderScore = avg(folderRows, 'cur');
+
+        var sorted = rows.slice().sort(function (a, b) { return b.cur - a.cur; });
+        var top3 = sorted.slice(0, 3);
+        var bottom3 = sorted.slice(-3).reverse();
+
+        var scoreClass = function (sc) {
+            if (sc >= 80) { return 'promatic_dashboard_enhancer-eco-box--good'; }
+            if (sc >= 40) { return 'promatic_dashboard_enhancer-eco-box--mid'; }
+            return 'promatic_dashboard_enhancer-eco-box--bad';
+        };
+        var arrow = function (cur, prev) {
+            if (!isFinite(prev)) { return ''; }
+            if (cur > prev + 1) { return ' ▲'; }
+            if (cur < prev - 1) { return ' ▼'; }
+            return ' =';
+        };
+
+        var bigBox = function (label, sc, sub) {
+            return {
+                cls: 'promatic_dashboard_enhancer-eco-box ' + scoreClass(sc),
+                cn: [
+                    { cls: 'promatic_dashboard_enhancer-eco-box__score', html: sc + '%' },
+                    { cls: 'promatic_dashboard_enhancer-eco-box__label', html: label },
+                    { cls: 'promatic_dashboard_enhancer-eco-box__sub', html: sub || '' }
+                ]
+            };
+        };
+        var listBox = function (label, list) {
+            var cn = [{ cls: 'promatic_dashboard_enhancer-eco-box__label', html: label }];
+            for (var i = 0; i < list.length; i++) {
+                cn.push({
+                    cls: 'promatic_dashboard_enhancer-eco-rank',
+                    cn: [
+                        { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-rank__name', html: list[i].name },
+                        { tag: 'span', cls: 'promatic_dashboard_enhancer-eco-rank__score',
+                          html: list[i].cur + '%' + arrow(list[i].cur, list[i].prev) }
+                    ]
+                });
+            }
+            return { cls: 'promatic_dashboard_enhancer-eco-box', cn: cn };
+        };
+
+        console.log('[promatic_dashboard_enhancer] eco score (report_type=223): ' + rows.length +
+            ' vehículos, ' + days + 'd, global=' + globalScore + '% (previo ' + globalPrev + '%)');
+
+        this.updateCardBody('eco_score', Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-eco-grid',
+            cn: [
+                bigBox(l('Global'), globalScore, rows.length + ' ' + l('vehículos') + ' · ' +
+                    l('previo') + ' ' + globalPrev + '%'),
+                bigBox(folderLabel, folderScore, folderRows.length + ' ' + l('vehículos')),
+                listBox(l('Mejores'), top3),
+                listBox(l('Peores'), bottom3)
+            ]
+        }), 0, true);
+    },
+
     // Hotspots de desconexión (card 'hotspots') — heatmap sobre un
     // MapContainer PROPIO (instancia nueva, NUNCA window.mapContainer, que es
     // la global del mapa Online — Sergei, respuesta 3 sep punto 4).
@@ -1431,6 +1632,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             sel.addEventListener('change', function () {
                 me._mapFolderFilter = (sel.value === '__all__') ? null : sel.value;
                 me.loadFleetHeatmap();
+                // La caja "Flota/Carpeta" del Safety Score sigue el mismo filtro.
+                me.showCardSkeleton('eco_score', 'donut');
+                me.loadEcoScore();
             });
         }
     },

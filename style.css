@@ -813,6 +813,85 @@
     letter-spacing: .2px;
 }
 
+/* ===== Safety Score (ECO) — card 'eco_score', grid de 4 cajas ===== */
+.promatic_dashboard_enhancer-eco-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.promatic_dashboard_enhancer-eco-box {
+    background: var(--g0);
+    border-radius: 6px;
+    padding: 10px 12px;
+    border-left: 3px solid transparent;
+}
+
+.promatic_dashboard_enhancer-eco-box--good {
+    border-left-color: var(--status-ok-strong);
+}
+
+.promatic_dashboard_enhancer-eco-box--mid {
+    border-left-color: var(--status-warn-strong);
+}
+
+.promatic_dashboard_enhancer-eco-box--bad {
+    border-left-color: var(--status-danger-strong);
+}
+
+.promatic_dashboard_enhancer-eco-box__score {
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1.1;
+    color: var(--g7);
+}
+
+.promatic_dashboard_enhancer-eco-box--good .promatic_dashboard_enhancer-eco-box__score {
+    color: var(--status-ok-strong);
+}
+
+.promatic_dashboard_enhancer-eco-box--mid .promatic_dashboard_enhancer-eco-box__score {
+    color: var(--status-warn-strong);
+}
+
+.promatic_dashboard_enhancer-eco-box--bad .promatic_dashboard_enhancer-eco-box__score {
+    color: var(--status-danger-strong);
+}
+
+.promatic_dashboard_enhancer-eco-box__label {
+    font-size: 11px;
+    color: var(--g5);
+    text-transform: uppercase;
+    letter-spacing: .2px;
+    margin-bottom: 2px;
+}
+
+.promatic_dashboard_enhancer-eco-box__sub {
+    font-size: 10px;
+    color: var(--g4);
+    margin-top: 2px;
+}
+
+.promatic_dashboard_enhancer-eco-rank {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--g6);
+    padding: 2px 0;
+}
+
+.promatic_dashboard_enhancer-eco-rank__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.promatic_dashboard_enhancer-eco-rank__score {
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
 /* ===== Vehículos con más KM (card 'top5km') — barra apilada + ranking ===== */
 .promatic_dashboard_enhancer-km-widget-body {
     display: flex;
