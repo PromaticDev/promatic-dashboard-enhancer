@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.12.0',
-    moduleBuild: '2026-09-07-1846',
+    version: '0.12.1',
+    moduleBuild: '2026-09-07-1858',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1977,9 +1977,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     this._alertAccidentesIds || [], 254),
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
                     l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion'),
+                // Ralentí: sin click por ahora — el informe con el detalle es el
+                // "Fleet ECO report" (report_type=223 group=6), que runNativeReport
+                // no soporta (necesita group=6). Se conecta en FR-0016. La tarjeta
+                // muestra el número pero no es clicable (no pasamos vehIds).
                 card('var(--g6)', l('Ralentí excesivo'), ralenti, svgRalenti,
-                    l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti',
-                    this._alertRalentiIds || []),
+                    l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti'),
                 card('var(--g7)', l('Inconsistencias en Carga'), null, svgCombustible,
                     l('Carga de combustible fuera de lo esperado — pendiente de conexión'), true, 'pde_alert-inconsistencias'),
                 card('var(--g6)', l('Drenaje de Combustible'), null, svgCombustible,

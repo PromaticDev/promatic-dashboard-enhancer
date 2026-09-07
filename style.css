@@ -309,7 +309,7 @@
 .promatic_dashboard_enhancer-report-modal__title {
     font-size: 13px;
     font-weight: 700;
-    color: var(--g7);
+    color: #064368;
     text-transform: uppercase;
     letter-spacing: .3px;
 }
@@ -321,7 +321,8 @@
 
 /* !important en todas las props: el CSS global de PILOT pisa los <button>
    (los deja invisibles hasta el hover). Mismo tratamiento que .stat__label —
-   ver spec/api.md. */
+   ver spec/api.md. Valores hex directos (NO tokens --g*): el modal está en
+   document.body, fuera del contenedor donde se definen los tokens. */
 .promatic_dashboard_enhancer-report-modal__btn {
     display: inline-flex !important;
     align-items: center !important;
@@ -329,9 +330,9 @@
     font: 600 12.5px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif !important;
     padding: 8px 14px !important;
     border-radius: 5px !important;
-    border: 1px solid var(--g4) !important;
+    border: 1px solid #87b3cf !important;
     background: #fff !important;
-    color: var(--g6) !important;
+    color: #0a67a0 !important;
     cursor: pointer !important;
     text-decoration: none !important;
     box-shadow: none !important;
@@ -342,18 +343,21 @@
 }
 
 .promatic_dashboard_enhancer-report-modal__btn:hover {
-    background: var(--g0) !important;
+    background: #f4f6f8 !important;
 }
 
+/* El modal vive en document.body, FUERA de .promatic_dashboard_enhancer-panel
+   donde se definen los tokens --g* — así que var(--g6) no resuelve aquí.
+   Se usan los valores hex directos (mismos que --g6/--g7 en la paleta). */
 .promatic_dashboard_enhancer-report-modal__btn--primary {
-    background: var(--g6) !important;
-    border-color: var(--g6) !important;
+    background: #0a67a0 !important;
+    border-color: #0a67a0 !important;
     color: #fff !important;
 }
 
 .promatic_dashboard_enhancer-report-modal__btn--primary:hover {
-    background: var(--g7) !important;
-    border-color: var(--g7) !important;
+    background: #064368 !important;
+    border-color: #064368 !important;
 }
 
 .promatic_dashboard_enhancer-report-modal__frame {
