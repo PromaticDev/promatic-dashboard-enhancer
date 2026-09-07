@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.12.2',
-    moduleBuild: '2026-09-07-1909',
+    version: '0.12.3',
+    moduleBuild: '2026-09-07-1914',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -417,7 +417,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     '<span class="promatic_dashboard_enhancer-report-modal__title"></span>' +
                     '<span class="promatic_dashboard_enhancer-report-modal__actions">' +
                         pdfBtn +
-                        '<button type="button" data-act="print" class="promatic_dashboard_enhancer-report-modal__btn' + (canPdf ? '' : ' promatic_dashboard_enhancer-report-modal__btn--primary') + '">🖨 ' + l('Imprimir') + '</button>' +
+                        '<button type="button" data-act="print" class="promatic_dashboard_enhancer-report-modal__btn' + (pdfDoc ? '' : ' promatic_dashboard_enhancer-report-modal__btn--primary') + '">🖨 ' + l('Imprimir') + '</button>' +
                         '<button type="button" data-act="close" class="promatic_dashboard_enhancer-report-modal__btn">✕ ' + l('Cerrar') + '</button>' +
                     '</span>' +
                 '</div>' +
