@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.9.3',
-    moduleBuild: '2026-09-07-1754',
+    version: '0.9.4',
+    moduleBuild: '2026-09-07-1757',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -397,8 +397,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 '<div class="promatic_dashboard_enhancer-report-modal__bar">' +
                     '<span class="promatic_dashboard_enhancer-report-modal__title"></span>' +
                     '<span class="promatic_dashboard_enhancer-report-modal__actions">' +
-                        '<button type="button" data-act="print" class="promatic_dashboard_enhancer-report-modal__btn promatic_dashboard_enhancer-report-modal__btn--primary">' + l('Imprimir / Guardar PDF') + '</button>' +
-                        '<button type="button" data-act="close" class="promatic_dashboard_enhancer-report-modal__btn">' + l('Cerrar') + '</button>' +
+                        '<button type="button" data-act="print" class="promatic_dashboard_enhancer-report-modal__btn promatic_dashboard_enhancer-report-modal__btn--primary">🖨 ' + l('Imprimir o guardar PDF') + '</button>' +
+                        '<button type="button" data-act="close" class="promatic_dashboard_enhancer-report-modal__btn">✕ ' + l('Cerrar') + '</button>' +
                     '</span>' +
                 '</div>' +
                 '<iframe class="promatic_dashboard_enhancer-report-modal__frame" title="' + Ext.String.htmlEncode(title || 'Reporte') + '"></iframe>' +
@@ -418,8 +418,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
             if (act === 'close' || ev.target === ov) { me.closeReportModal(); return; }
             if (act === 'print') {
-                try { frame.contentWindow.focus(); frame.contentWindow.print(); }
-                catch (e2) { console.warn('[promatic_dashboard_enhancer] print del iframe falló:', e2); }
+                try {
+                    frame.contentWindow.focus();
+                    // Pequeño respiro para que el layout del iframe esté listo.
+                    setTimeout(function () {
+                        try { frame.contentWindow.print(); }
+                        catch (e3) {
+                            console.warn('[promatic_dashboard_enhancer] print del iframe falló, fallback a window.print:', e3);
+                            window.print();
+                        }
+                    }, 60);
+                } catch (e2) {
+                    console.warn('[promatic_dashboard_enhancer] print del iframe falló:', e2);
+                    window.print();
+                }
             }
         });
         this._reportModalEsc = function (ev) { if (ev.key === 'Escape') { me.closeReportModal(); } };

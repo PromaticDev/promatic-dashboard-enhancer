@@ -319,30 +319,41 @@
     gap: 8px;
 }
 
+/* !important en todas las props: el CSS global de PILOT pisa los <button>
+   (los deja invisibles hasta el hover). Mismo tratamiento que .stat__label —
+   ver spec/api.md. */
 .promatic_dashboard_enhancer-report-modal__btn {
-    font-size: 12px;
-    font-weight: 600;
-    padding: 6px 12px;
-    border-radius: 5px;
-    border: 1px solid var(--g4);
-    background: #fff;
-    color: var(--g6);
-    cursor: pointer;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    font: 600 12.5px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif !important;
+    padding: 8px 14px !important;
+    border-radius: 5px !important;
+    border: 1px solid var(--g4) !important;
+    background: #fff !important;
+    color: var(--g6) !important;
+    cursor: pointer !important;
+    text-decoration: none !important;
+    box-shadow: none !important;
+    text-transform: none !important;
+    min-width: 0 !important;
+    height: auto !important;
+    opacity: 1 !important;
 }
 
 .promatic_dashboard_enhancer-report-modal__btn:hover {
-    background: var(--g0);
+    background: var(--g0) !important;
 }
 
 .promatic_dashboard_enhancer-report-modal__btn--primary {
-    background: var(--g6);
-    border-color: var(--g6);
-    color: #fff;
+    background: var(--g6) !important;
+    border-color: var(--g6) !important;
+    color: #fff !important;
 }
 
 .promatic_dashboard_enhancer-report-modal__btn--primary:hover {
-    background: var(--g7);
-    border-color: var(--g7);
+    background: var(--g7) !important;
+    border-color: var(--g7) !important;
 }
 
 .promatic_dashboard_enhancer-report-modal__frame {
