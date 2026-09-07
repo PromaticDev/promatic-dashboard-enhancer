@@ -17,5 +17,12 @@
     "timeZone": "America/Santiago",
     "locale": "es-CL",
     "label": "Hora Oficial"
+  },
+  "ecoScore": {
+    "windowDays": 8,
+    "idleThresholdMin": 120
+  },
+  "privacy": {
+    "maskPlates": true
   }
 }
