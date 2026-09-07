@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.12.1',
-    moduleBuild: '2026-09-07-1858',
+    version: '0.12.2',
+    moduleBuild: '2026-09-07-1909',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -401,10 +401,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var me = this;
         this.closeReportModal();
 
-        // pdfMake está cargado en el runtime de PILOT (window.pdfMake) — si
-        // está y hay un docDefinition, ofrecemos "Descargar PDF" real.
-        var canPdf = !!(window.pdfMake && pdfDoc);
-        var pdfBtn = canPdf
+        // "Descargar PDF" se ofrece siempre que haya un docDefinition. pdfMake
+        // suele estar en el runtime de PILOT (window.pdfMake); si no, se carga
+        // bajo demanda al hacer clic (ver ensurePdfMake).
+        var pdfBtn = pdfDoc
             ? '<button type="button" data-act="pdf" class="promatic_dashboard_enhancer-report-modal__btn promatic_dashboard_enhancer-report-modal__btn--primary">⬇ ' + l('Descargar PDF') + '</button>'
             : '';
 
@@ -440,11 +440,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
             if (act === 'close' || ev.target === ov) { me.closeReportModal(); return; }
             if (act === 'pdf') {
-                try { window.pdfMake.createPdf(me._reportPdfDoc).download(me._reportPdfName); }
-                catch (e4) {
-                    console.warn('[promatic_dashboard_enhancer] pdfMake.download falló, fallback a print:', e4);
-                    try { frame.contentWindow.print(); } catch (e5) { window.print(); }
-                }
+                var btn = ev.target;
+                var label = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = l('Generando…');
+                me.ensurePdfMake().then(function (pm) {
+                    btn.disabled = false;
+                    btn.innerHTML = label;
+                    if (!pm) {
+                        console.warn('[promatic_dashboard_enhancer] pdfMake no disponible — se usa Imprimir');
+                        alert(l('La descarga directa de PDF no está disponible en este navegador/cuenta. Usa el botón "Imprimir" y elige "Guardar como PDF".'));
+                        return;
+                    }
+                    try { pm.createPdf(me._reportPdfDoc).download(me._reportPdfName); }
+                    catch (e4) {
+                        console.warn('[promatic_dashboard_enhancer] pdfMake.download falló:', e4);
+                        alert(l('No se pudo generar el PDF. Usa "Imprimir" → "Guardar como PDF".'));
+                    }
+                });
                 return;
             }
             if (act === 'print') {
@@ -466,6 +479,43 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
         this._reportModalEsc = function (ev) { if (ev.key === 'Escape') { me.closeReportModal(); } };
         document.addEventListener('keydown', this._reportModalEsc);
+    },
+
+    // Resuelve con window.pdfMake. Si no está, intenta cargarlo desde el propio
+    // host de PILOT (mismo origen — no viola la regla de CDN). Cachea la promesa.
+    // pdfMake necesita pdfmake.min.js + vfs_fonts.js; PILOT sirve ambos bajo
+    // /resources/js/pdfMake/. Si no carga en 8s, resuelve con null.
+    ensurePdfMake: function () {
+        if (window.pdfMake && window.pdfMake.vfs) { return Promise.resolve(window.pdfMake); }
+        if (this._pdfMakePromise) { return this._pdfMakePromise; }
+
+        var loadScript = function (src) {
+            return new Promise(function (resolve) {
+                var s = document.createElement('script');
+                s.src = src;
+                s.onload = function () { resolve(true); };
+                s.onerror = function () { resolve(false); };
+                document.head.appendChild(s);
+            });
+        };
+
+        this._pdfMakePromise = loadScript('/resources/js/pdfMake/pdfmake.min.js')
+            .then(function () {
+                if (!window.pdfMake) { return null; }
+                // vfs_fonts define pdfMake.vfs — si ya vino con el bundle, saltar.
+                if (window.pdfMake.vfs) { return window.pdfMake; }
+                return loadScript('/resources/js/pdfMake/vfs_fonts.js').then(function () {
+                    return (window.pdfMake && window.pdfMake.vfs) ? window.pdfMake : (window.pdfMake || null);
+                });
+            })
+            .catch(function () { return null; });
+
+        // Timeout de seguridad.
+        var guarded = Promise.race([
+            this._pdfMakePromise,
+            new Promise(function (r) { setTimeout(function () { r(window.pdfMake || null); }, 8000); })
+        ]);
+        return guarded;
     },
 
     closeReportModal: function () {
