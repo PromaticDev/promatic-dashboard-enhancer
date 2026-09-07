@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.8.1',
-    moduleBuild: '2026-09-07-1706',
+    version: '0.9.0',
+    moduleBuild: '2026-09-07-1712',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -25,7 +25,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
         clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' },
         // Safety Score (ECO) — ventana del Fleet ECO report (report_type=223).
-        ecoScore: { windowDays: 8 },
+        // idleThresholdMin: minutos de ralentí acumulado en la ventana sobre
+        // los cuales un vehículo cuenta como "ralentí excesivo" (Alertas
+        // Generales). El reporte da c1 = Excess Idle en segundos.
+        ecoScore: { windowDays: 8, idleThresholdMin: 120 },
         // Privacidad: maskPlates=true reemplaza la patente (que en PILOT suele
         // ser el "Nombre de Vehículo") por un alias en toda la UI del dashboard.
         privacy: { maskPlates: true }
@@ -101,6 +104,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me._lastManualRefresh = new Date();
                         me.bindKmReportLinks(panel);
                         me.bindControlsBar(panel);
+                        me.bindExportBlock(panel);
                         me.bindFleetUpdates();
                         me.loadTop5KmData();
                         me.loadAlertasGenerales();
@@ -296,30 +300,287 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // todavía, no se fabrica dato de ejemplo en el plugin real.
     // -----------------------------------------------------------------------
     // Bloque "Exportar Reporte / Generar Golden Report" bajo el logo.
-    // PLACEHOLDER VISUAL — sin lógica (decisión 3 sep). Comunica lo que
-    // viene (FR-0005: reportes visuales propios). Los controles se ven pero
-    // no hacen nada; se marcan con --beta como las tarjetas de alerta sin
-    // conectar.
+    // FUNCIONAL desde v0.9.0: genera un documento HTML imprimible en una
+    // ventana nueva (window.open + document.write — no toca doc/index.html,
+    // que sigue sin scripts) a partir de los datos ya calculados en los
+    // widgets. Ver bindExportBlock, buildWidgetReport, buildGoldenReport.
     exportBlockMarkup: function () {
         return {
             cls: 'promatic_dashboard_enhancer-export-block',
             cn: [
                 {
-                    cls: 'promatic_dashboard_enhancer-export-card promatic_dashboard_enhancer-export-card--beta',
+                    cls: 'promatic_dashboard_enhancer-export-card',
                     cn: [
                         { cls: 'promatic_dashboard_enhancer-export-card__title', html: l('Exportar Reporte') },
-                        { cls: 'promatic_dashboard_enhancer-export-card__control', html: l('Seleccionar') + ' ▾' }
+                        {
+                            tag: 'select', id: 'promatic_dashboard_enhancer-export-widget',
+                            cls: 'promatic_dashboard_enhancer-export-card__select',
+                            cn: [
+                                { tag: 'option', value: 'flota', html: l('Estado de Flota') },
+                                { tag: 'option', value: 'top5km', html: l('Exceso de Kilometraje') },
+                                { tag: 'option', value: 'eco', html: l('Safety Score (ECO)') },
+                                { tag: 'option', value: 'gps', html: l('Sin Señal GPS') },
+                                { tag: 'option', value: 'alertas', html: l('Alertas Generales') }
+                            ]
+                        },
+                        {
+                            tag: 'button', type: 'button',
+                            id: 'promatic_dashboard_enhancer-export-widget-btn',
+                            cls: 'promatic_dashboard_enhancer-export-card__btn',
+                            html: l('Exportar') + ' ›'
+                        }
                     ]
                 },
                 {
-                    cls: 'promatic_dashboard_enhancer-export-card promatic_dashboard_enhancer-export-card--beta',
+                    cls: 'promatic_dashboard_enhancer-export-card',
                     cn: [
-                        { cls: 'promatic_dashboard_enhancer-export-card__title', html: l('Generar Golden Report') },
-                        { cls: 'promatic_dashboard_enhancer-export-card__control', html: '▾' }
+                        { cls: 'promatic_dashboard_enhancer-export-card__title', html: l('Golden Report') },
+                        {
+                            cls: 'promatic_dashboard_enhancer-export-card__hint',
+                            html: l('Resumen semanal de todo el panel + guía para el Excel de PILOT')
+                        },
+                        {
+                            tag: 'button', type: 'button',
+                            id: 'promatic_dashboard_enhancer-golden-btn',
+                            cls: 'promatic_dashboard_enhancer-export-card__btn promatic_dashboard_enhancer-export-card__btn--primary',
+                            html: l('Generar') + ' ›'
+                        }
                     ]
                 }
             ]
         };
+    },
+
+    bindExportBlock: function (panel) {
+        var me = this;
+        var el = panel && panel.getEl && panel.getEl();
+        if (!el || el._exportBound) { return; }
+        el._exportBound = true;
+        el.on('click', function (e) {
+            var wb = e.getTarget('#promatic_dashboard_enhancer-export-widget-btn', 3, true);
+            if (wb) {
+                e.preventDefault();
+                var sel = document.getElementById('promatic_dashboard_enhancer-export-widget');
+                me.openReportWindow(me.buildWidgetReport(sel ? sel.value : 'flota'));
+                return;
+            }
+            var gb = e.getTarget('#promatic_dashboard_enhancer-golden-btn', 3, true);
+            if (gb) {
+                e.preventDefault();
+                me.openReportWindow(me.buildGoldenReport());
+            }
+        });
+    },
+
+    // Abre el HTML en una ventana nueva. El usuario imprime a PDF con Ctrl+P.
+    openReportWindow: function (html) {
+        var w = window.open('', '_blank');
+        if (!w) {
+            alert(l('El navegador bloqueó la ventana emergente. Habilita los pop-ups para exportar.'));
+            return;
+        }
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+    },
+
+    // CSS común de los reportes (impresión A4, tabla, cajas de score).
+    _reportStyles: function () {
+        return '<style>' +
+            '*{box-sizing:border-box}' +
+            'body{font:13px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b;margin:0;padding:32px;background:#fff}' +
+            'h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;border-bottom:2px solid #e2e8f0;padding-bottom:4px}' +
+            '.sub{color:#64748b;font-size:12px;margin-bottom:16px}' +
+            'table{border-collapse:collapse;width:100%;margin:8px 0;font-size:12px}' +
+            'th,td{border:1px solid #e2e8f0;padding:5px 8px;text-align:left}th{background:#f8fafc}' +
+            'td.n{text-align:right;font-variant-numeric:tabular-nums}' +
+            '.grid{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0}' +
+            '.box{flex:1 1 120px;border-radius:8px;padding:12px;color:#fff}' +
+            '.box .v{font-size:26px;font-weight:700;line-height:1}.box .l{font-size:11px;text-transform:uppercase;opacity:.9;margin-top:4px}' +
+            '.good{background:#238a4c}.mid{background:#a34d00}.bad{background:#ad1100}.neutral{background:#0a67a0}' +
+            '.guide{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px 18px;margin:12px 0}' +
+            '.guide ol{margin:6px 0 0;padding-left:20px}.guide li{margin:4px 0}' +
+            '@media print{body{padding:12mm}h2{page-break-after:avoid}table,.grid{page-break-inside:avoid}}' +
+            '</style>';
+    },
+
+    _reportHeader: function (title, rangeDays) {
+        var stop = new Date();
+        var start = new Date();
+        start.setDate(start.getDate() - (rangeDays || 7));
+        var d = function (x) {
+            var p = function (n) { return (n < 10 ? '0' : '') + n; };
+            return p(x.getDate()) + '/' + p(x.getMonth() + 1) + '/' + x.getFullYear();
+        };
+        return '<h1>' + title + '</h1><div class="sub">' +
+            l('Período') + ': ' + d(start) + ' — ' + d(stop) + ' · ' +
+            l('generado') + ' ' + this.chileTime() + '</div>';
+    },
+
+    _scoreMod: function (sc) {
+        if (sc >= 75) { return 'good'; }
+        if (sc >= 45) { return 'mid'; }
+        return 'bad';
+    },
+
+    // Reporte de un widget puntual.
+    buildWidgetReport: function (which) {
+        var esc = Ext.String.htmlEncode;
+        var body = '';
+        var title = l('Reporte');
+        var days = 7;
+
+        if (which === 'flota') {
+            title = l('Estado de Flota');
+            var f = this._lastFleetCounts || {};
+            body = '<div class="grid">' +
+                '<div class="box neutral"><div class="v">' + (f.total || 0) + '</div><div class="l">' + l('Total') + '</div></div>' +
+                '<div class="box good"><div class="v">' + (f.moving || 0) + '</div><div class="l">' + l('En movimiento') + '</div></div>' +
+                '<div class="box mid"><div class="v">' + (f.parked || 0) + '</div><div class="l">' + l('Estacionado') + '</div></div>' +
+                '<div class="box bad"><div class="v">' + (f.offline || 0) + '</div><div class="l">' + l('Sin conexión') + '</div></div>' +
+                '</div>';
+        } else if (which === 'gps') {
+            title = l('Sin Señal GPS');
+            var g = this._lastGpsBuckets || {};
+            body = '<table><tr><th>' + l('Tiempo sin señal') + '</th><th>' + l('Vehículos') + '</th></tr>' +
+                '<tr><td>' + l('Menos de 24h') + '</td><td class="n">' + (g.b24 || 0) + '</td></tr>' +
+                '<tr><td>' + l('Entre 24 y 48h') + '</td><td class="n">' + (g.b48 || 0) + '</td></tr>' +
+                '<tr><td>' + l('Más de 48h') + '</td><td class="n">' + (g.bMore || 0) + '</td></tr></table>';
+        } else if (which === 'alertas') {
+            title = l('Alertas Generales');
+            var mk = function (lbl, v) {
+                return '<tr><td>' + lbl + '</td><td class="n">' +
+                    (typeof v === 'number' ? v : l('N/D')) + '</td></tr>';
+            };
+            body = '<table><tr><th>' + l('Categoría') + '</th><th>' + l('Incidencias') + '</th></tr>' +
+                mk(l('Accidentes'), this._alertAccidentes) +
+                mk(l('Requiere mantención'), this._alertMantencion) +
+                mk(l('Ralentí excesivo'), this._alertRalenti) +
+                '</table><p class="sub">' + l('Categorías beta (combustible, GPS manipulado, territorio nacional) aún sin fuente conectada.') + '</p>';
+        } else if (which === 'top5km') {
+            title = l('Vehículos con Exceso de Kilometraje');
+            var kr = this._lastTop5Ranked || [];
+            body = '<table><tr><th>#</th><th>' + l('Vehículo') + '</th><th>' + l('Kilómetros') + '</th></tr>';
+            for (var i = 0; i < kr.length; i++) {
+                body += '<tr><td>' + (i + 1) + '</td><td>' + esc(this.displayName(kr[i].name)) +
+                    '</td><td class="n">' + Math.round(kr[i].km) + ' km</td></tr>';
+            }
+            body += '</table>';
+            if (kr.length === 0) { body = '<p>' + l('Sin datos de kilometraje cargados. Abre el dashboard y espera a que el widget cargue.') + '</p>'; }
+        } else if (which === 'eco') {
+            title = l('Safety Score (ECO)');
+            days = ((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 8;
+            var er = this._lastEcoRows || [];
+            if (er.length === 0) {
+                body = '<p>' + l('Sin datos del Fleet ECO report cargados.') + '</p>';
+            } else {
+                var avg = 0;
+                for (var e = 0; e < er.length; e++) { avg += er[e].cur; }
+                avg = Math.round(avg / er.length);
+                body = '<div class="grid"><div class="box ' + this._scoreMod(avg) + '"><div class="v">' + avg +
+                    '</div><div class="l">' + l('Score global') + '</div></div></div>';
+                var sorted = er.slice().sort(function (a, b) { return b.cur - a.cur; });
+                body += '<table><tr><th>' + l('Vehículo') + '</th><th>' + l('Actual') + '</th><th>' + l('Anterior') +
+                    '</th><th>' + l('Ralentí') + '</th><th>' + l('Frenadas') + '</th><th>' + l('Aceleradas') +
+                    '</th><th>' + l('Distancia') + '</th></tr>';
+                var hm = function (s) {
+                    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+                    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+                };
+                for (var s2 = 0; s2 < sorted.length; s2++) {
+                    var r = sorted[s2];
+                    body += '<tr><td>' + esc(this.displayName(r.name)) + '</td><td class="n">' + r.cur +
+                        '</td><td class="n">' + (isFinite(r.prev) ? r.prev : '—') + '</td><td class="n">' + hm(r.idle) +
+                        '</td><td class="n">' + r.brake + '</td><td class="n">' + r.accel +
+                        '</td><td class="n">' + Math.round(r.dist) + ' km</td></tr>';
+                }
+                body += '</table>';
+            }
+        }
+
+        return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
+            '</title>' + this._reportStyles() + '</head><body>' +
+            this._reportHeader(title, days) + body +
+            '<p class="sub" style="margin-top:24px">' +
+            l('Para exportar: Ctrl+P → Guardar como PDF.') + '</p></body></html>';
+    },
+
+    // Golden Report — resumen de todo el panel + guía para el Excel de PILOT.
+    buildGoldenReport: function () {
+        var esc = Ext.String.htmlEncode;
+        var f = this._lastFleetCounts || {};
+        var g = this._lastGpsBuckets || {};
+        var er = this._lastEcoRows || [];
+        var kr = this._lastTop5Ranked || [];
+
+        var ecoAvg = 0;
+        if (er.length) { for (var i = 0; i < er.length; i++) { ecoAvg += er[i].cur; } ecoAvg = Math.round(ecoAvg / er.length); }
+
+        var s = '<!doctype html><html><head><meta charset="utf-8"><title>Golden Report</title>' +
+            this._reportStyles() + '</head><body>' +
+            this._reportHeader('Golden Report — ' + l('Resumen semanal de flota'), 7);
+
+        // Resumen ejecutivo en cajas
+        s += '<h2>' + l('Resumen') + '</h2><div class="grid">' +
+            '<div class="box neutral"><div class="v">' + (f.total || 0) + '</div><div class="l">' + l('Vehículos') + '</div></div>' +
+            '<div class="box good"><div class="v">' + (f.moving || 0) + '</div><div class="l">' + l('En movimiento') + '</div></div>' +
+            '<div class="box bad"><div class="v">' + (f.offline || 0) + '</div><div class="l">' + l('Sin conexión') + '</div></div>' +
+            (er.length ? '<div class="box ' + this._scoreMod(ecoAvg) + '"><div class="v">' + ecoAvg + '</div><div class="l">' + l('Safety Score') + '</div></div>' : '') +
+            '</div>';
+
+        // Sin Señal GPS
+        s += '<h2>' + l('Sin Señal GPS') + '</h2><table>' +
+            '<tr><th>' + l('Menos de 24h') + '</th><th>' + l('Entre 24 y 48h') + '</th><th>' + l('Más de 48h') + '</th></tr>' +
+            '<tr><td class="n">' + (g.b24 || 0) + '</td><td class="n">' + (g.b48 || 0) + '</td><td class="n">' + (g.bMore || 0) + '</td></tr></table>';
+
+        // Alertas
+        s += '<h2>' + l('Alertas Generales') + '</h2><table><tr><th>' + l('Categoría') + '</th><th>' + l('Incidencias') + '</th></tr>';
+        var row = function (lbl, v) { return '<tr><td>' + lbl + '</td><td class="n">' + (typeof v === 'number' ? v : l('N/D')) + '</td></tr>'; };
+        s += row(l('Accidentes'), this._alertAccidentes) + row(l('Requiere mantención'), this._alertMantencion) +
+            row(l('Ralentí excesivo'), this._alertRalenti) + '</table>';
+
+        // Top KM
+        if (kr.length) {
+            s += '<h2>' + l('Vehículos con Exceso de Kilometraje') + '</h2><table><tr><th>#</th><th>' +
+                l('Vehículo') + '</th><th>' + l('Kilómetros') + '</th></tr>';
+            for (var k = 0; k < Math.min(kr.length, 10); k++) {
+                s += '<tr><td>' + (k + 1) + '</td><td>' + esc(this.displayName(kr[k].name)) + '</td><td class="n">' + Math.round(kr[k].km) + ' km</td></tr>';
+            }
+            s += '</table>';
+        }
+
+        // Safety Score detalle
+        if (er.length) {
+            var sorted = er.slice().sort(function (a, b) { return b.cur - a.cur; });
+            s += '<h2>' + l('Safety Score — ranking') + '</h2><table><tr><th>' + l('Vehículo') + '</th><th>' +
+                l('Actual') + '</th><th>' + l('Anterior') + '</th></tr>';
+            for (var e2 = 0; e2 < sorted.length; e2++) {
+                s += '<tr><td>' + esc(this.displayName(sorted[e2].name)) + '</td><td class="n">' + sorted[e2].cur +
+                    '</td><td class="n">' + (isFinite(sorted[e2].prev) ? sorted[e2].prev : '—') + '</td></tr>';
+            }
+            s += '</table>';
+        }
+
+        // Guía para el Excel de PILOT
+        s += '<h2>' + l('Cómo obtener el detalle ("molido") desde PILOT') + '</h2>' +
+            '<div class="guide"><strong>' + l('Informe de Kilometraje') + '</strong><ol>' +
+            '<li>' + l('En PILOT, abre el panel lateral') + ' <em>' + l('Informes') + '</em>.</li>' +
+            '<li>' + l('Selecciona los vehículos o la carpeta en el árbol de objetos.') + '</li>' +
+            '<li>' + l('Tipo de informe') + ': <em>' + l('Informe de kilometraje') + '</em>. ' +
+            l('Rango: última semana. División: "No dividir".') + '</li>' +
+            '<li>' + l('Genera y usa el botón de exportar a Excel de la barra del informe.') + '</li></ol></div>' +
+            '<div class="guide"><strong>Fleet ECO report (Safety Score)</strong><ol>' +
+            '<li>' + l('Panel') + ' <em>' + l('Informes') + '</em> → ' + l('tipo') + ' <em>Fleet ECO report</em>.</li>' +
+            '<li>' + l('Selecciona el grupo/carpeta de vehículos y el rango semanal.') + '</li>' +
+            '<li>' + l('Genera; la tabla trae Ralentí, Exceso de velocidad, Frenadas/Aceleradas bruscas, Distancia, Duración y Rating actual/anterior por vehículo.') + '</li>' +
+            '<li>' + l('Exporta a Excel desde la barra del informe.') + '</li></ol></div>' +
+            '<div class="guide"><strong>' + l('Alertas / eventos') + '</strong><ol>' +
+            '<li>' + l('Panel') + ' <em>' + l('Mensajes') + '</em> o <em>' + l('Eventos') + '</em> ' +
+            l('para el detalle por evento (desconexión, ralentí, conducción brusca), filtrando por tipo y rango.') + '</li></ol></div>';
+
+        s += '<p class="sub" style="margin-top:24px">' + l('Para exportar este resumen: Ctrl+P → Guardar como PDF.') + '</p>';
+        s += '</body></html>';
+        return s;
     },
 
     // Layout de 4 columnas (rediseño 3 sep, idea-rediseño-layout.jpg):
@@ -1080,6 +1341,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 ' | señal GPS <24h=' + gps24 + ' 24-48h=' + gps48 + ' >48h/sin dato=' + gpsMore);
         }
 
+        // Cache para los exportadores de reportes.
+        this._lastFleetCounts = { total: total, moving: moving, parked: parked, offline: offlineCount };
+        this._lastGpsBuckets = { b24: gps24, b48: gps48, bMore: gpsMore };
+
         this.updateSummary(total, total - offlineCount);
         this.updateFlotaLopCard(total, moving, parked, offlineCount);
         this.updateGpsSignalCard(gps24, gps48, gpsMore);
@@ -1177,28 +1442,90 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var accidentes = me.fetchEventCount(csv, 29, fmt(start), fmt(stop))
                 .catch(function (err) { me.widgetErrorCode('ALERT-ACC', err); return null; });
 
-            var mantencion = me.fetchDashboardCmd('ptm', csv, 8000)
-                .then(function (data) {
-                    console.log('[promatic_dashboard_enhancer] ptm raw:', data);
-                    var items = (data && (data.data || data.items || data.list)) || [];
-                    if (!Array.isArray(items)) { items = []; }
-                    var n = 0;
-                    for (var i = 0; i < items.length; i++) {
-                        if (items[i] && items[i].link_type !== 'drivers') { n++; }
-                    }
-                    return n;
-                })
-                .catch(function (err) { me.widgetErrorCode('ALERT-PTM', err); return null; });
+            var mantencion = me.fetchMantencionCount(vehIds)
+                .catch(function (err) { me.widgetErrorCode('ALERT-MANT', err); return null; });
 
             Promise.all([accidentes, mantencion]).then(function (r) {
+                me._alertAccidentes = r[0];
+                me._alertMantencion = r[1];
                 console.log('[promatic_dashboard_enhancer] alertas generales: accidentes=' +
                     r[0] + ' requiere_mantencion=' + r[1]);
-                me.renderAlertasGenerales(r[0], r[1]);
+                me.renderAlertasGenerales();
             });
         });
     },
 
-    renderAlertasGenerales: function (accidentes, mantencion) {
+    // Ralentí excesivo: vehículos con Excess Idle (c1 del report_type=223, en
+    // segundos) sobre ecoScore.idleThresholdMin minutos en la ventana. Usa la
+    // respuesta ya cacheada por loadEcoScore — no dispara otra llamada.
+    refreshRalentiAlert: function () {
+        var resp = this._lastEcoResp;
+        if (!resp || !resp.data) { this._alertRalenti = null; this.renderAlertasGenerales(); return; }
+        var cfg = (this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore;
+        var thresholdSec = (cfg.idleThresholdMin || 120) * 60;
+        var n = 0;
+        for (var g in resp.data) {
+            if (!resp.data.hasOwnProperty(g)) { continue; }
+            var vehs = resp.data[g];
+            for (var p in vehs) {
+                if (!vehs.hasOwnProperty(p)) { continue; }
+                var c = vehs[p];
+                if (c && c.length > 1 && Number(c[1]) >= thresholdSec) { n++; }
+            }
+        }
+        this._alertRalenti = n;
+        this.renderAlertasGenerales();
+    },
+
+    // Alerta de mantención — sondeo a los endpoints del módulo Técnico-Operacional
+    // (mod/to/). No tipado (FR-0015): probamos inspections y services, contamos
+    // items que parezcan "vencido/pendiente". Si ninguno responde algo usable,
+    // devuelve null (la card muestra "N/D", no rompe).
+    fetchMantencionCount: function (vehIds) {
+        var me = this;
+        var csv = vehIds.join(',');
+        var endpoints = [
+            '/backend/ax/mod/to/inspections.php?cmd=list&veh=' + encodeURIComponent(csv),
+            '/backend/ax/mod/to/services.php?cmd=list&veh=' + encodeURIComponent(csv)
+        ];
+        var tryOne = function (i) {
+            if (i >= endpoints.length) { return Promise.resolve(null); }
+            return fetch(endpoints[i], { credentials: 'include' })
+                .then(function (resp) {
+                    if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                    return resp.json();
+                })
+                .then(function (data) {
+                    console.log('[promatic_dashboard_enhancer] mantención sondeo ' + endpoints[i] + ':', data);
+                    var items = (data && (data.data || data.items || data.list || data.rows)) || [];
+                    if (!Array.isArray(items)) {
+                        // a veces viene como objeto keyed por id
+                        items = (items && typeof items === 'object') ? Object.keys(items).map(function (k) { return items[k]; }) : [];
+                    }
+                    if (items.length === 0) { return tryOne(i + 1); }
+                    var n = 0;
+                    for (var j = 0; j < items.length; j++) {
+                        var it = items[j] || {};
+                        var st = String(it.status || it.state || it.result || '').toLowerCase();
+                        // "vencido" / "pendiente" / "overdue" / "due" — o un
+                        // km/fecha objetivo ya pasado si el campo existe.
+                        if (/venc|pend|overdue|\bdue\b|expired|required/.test(st)) { n++; }
+                        else if (it.overdue === true || it.is_due === true) { n++; }
+                    }
+                    // Si no encontramos un campo de estado reconocible, contamos
+                    // todos los items como "recordatorio activo" — es el
+                    // comportamiento conservador hasta tipar el schema (FR-0015).
+                    return n > 0 ? n : items.length;
+                })
+                .catch(function () { return tryOne(i + 1); });
+        };
+        return tryOne(0);
+    },
+
+    renderAlertasGenerales: function () {
+        var accidentes = this._alertAccidentes;
+        var mantencion = this._alertMantencion;
+        var ralenti = this._alertRalenti;
         // Accidentes/Mantención: dibujados a mano, outline, viewBox="0 0 24 24"
         // (stroke=currentColor, width 1.6). Ralentí/Combustible/Territorio/
         // GPS manual: assets de dev/icons/ (filled, currentColor, viewBox
@@ -1267,8 +1594,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // Si alguna categoría CONECTADA tiene incidencias (> 0), la card entera
         // vira de azul a naranja de alerta. Las beta y las que fallaron (N/D)
         // no cuentan para esto.
+        var idleMin = (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).idleThresholdMin) || 120;
         var hasAlert = (typeof accidentes === 'number' && accidentes > 0) ||
-                       (typeof mantencion === 'number' && mantencion > 0);
+                       (typeof mantencion === 'number' && mantencion > 0) ||
+                       (typeof ralenti === 'number' && ralenti > 0);
         var gridCls = 'promatic_dashboard_enhancer-stat-card-grid' +
             (hasAlert ? ' promatic_dashboard_enhancer-stat-card-grid--alert' : '');
 
@@ -1278,9 +1607,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 card('var(--g6)', l('Accidentes'), accidentes, svgAccidente,
                     l('Accidentes — events.php type=29, últimos 30 días'), false, 'pde_alert-accidentes'),
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
-                    l('Recordatorios de mantención de vehículo (ptm)'), false, 'pde_alert-mantencion'),
-                card('var(--g6)', l('Ralentí excesivo'), null, svgRalenti,
-                    l('Ralentí acumulado sobre umbral — pendiente de conexión'), true, 'pde_alert-ralenti'),
+                    l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion'),
+                card('var(--g6)', l('Ralentí excesivo'), ralenti, svgRalenti,
+                    l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período (Fleet ECO report)'), false, 'pde_alert-ralenti'),
                 card('var(--g7)', l('Inconsistencias en Carga'), null, svgCombustible,
                     l('Carga de combustible fuera de lo esperado — pendiente de conexión'), true, 'pde_alert-inconsistencias'),
                 card('var(--g6)', l('Drenaje de Combustible'), null, svgCombustible,
@@ -1341,7 +1670,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     return resp.json();
                 })
                 .then(function (data) {
+                    // Cachea la respuesta cruda — la reusa loadAlertasGenerales
+                    // para la alerta de ralentí excesivo (columna c1 = Excess
+                    // Idle en segundos) sin una segunda llamada al reporte.
+                    me._lastEcoResp = data;
                     me.renderEcoScore(data, days);
+                    me.refreshRalentiAlert();
                 })
                 .catch(function (err) {
                     var code = me.widgetErrorCode('ECO-SCORE', err);
@@ -1373,6 +1707,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 });
             }
         }
+
+        this._lastEcoRows = rows; // cache para los exportadores
 
         if (rows.length === 0) {
             this.updateCardBody('eco_score',
@@ -2433,6 +2769,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             startDate = new Date();
             startDate.setDate(startDate.getDate() - days);
         }
+
+        this._lastTop5Ranked = ranked; // cache completo para los exportadores
 
         if (ranked.length === 0) {
             this.updateCardBody('top5km', l('Sin datos de kilometraje para el período.'));

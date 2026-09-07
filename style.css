@@ -228,6 +228,50 @@
     text-align: center;
 }
 
+.promatic_dashboard_enhancer-export-card__hint {
+    font-size: 10px;
+    color: var(--g5);
+    line-height: 1.35;
+}
+
+.promatic_dashboard_enhancer-export-card__select {
+    width: 100%;
+    font-size: 12px;
+    color: var(--g7);
+    padding: 5px 6px;
+    border: 1px solid var(--g3);
+    border-radius: 5px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-export-card__btn {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--g6);
+    border: 1px solid var(--g4);
+    border-radius: 5px;
+    padding: 6px 10px;
+    background: #fff;
+    cursor: pointer;
+    text-align: center;
+}
+
+.promatic_dashboard_enhancer-export-card__btn:hover {
+    background: var(--g0);
+}
+
+.promatic_dashboard_enhancer-export-card__btn--primary {
+    background: var(--g6);
+    border-color: var(--g6);
+    color: #fff;
+}
+
+.promatic_dashboard_enhancer-export-card__btn--primary:hover {
+    background: var(--g7);
+    border-color: var(--g7);
+}
+
 /* ===== Skeleton de carga (widgets con primer fetch lento) =====
    Barras grises con la forma del contenido + shimmer. skeletonMarkup() en
    Module.js arma la estructura; acá van los estilos y las variantes. */
