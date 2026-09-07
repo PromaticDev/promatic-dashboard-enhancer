@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.5.1',
-    moduleBuild: '2026-09-07-1120',
+    version: '0.5.2',
+    moduleBuild: '2026-09-07-1459',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1146,7 +1146,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // copiados inline para heredar el color de fondo de cada card sin
         // request HTTP extra — mismo patrón que los SVGs dibujados a mano.
         var svgRalenti =
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 111.99 111.99"><g id="Capa_2" data-name="Capa 2"><g id="Capa_1-2" data-name="Capa 1"><polygon points="67.85 26.83 69.42 26.83 69.42 24.32 69.33 24.48 67.85 26.83"/><path d="M94.89,64.74a1.12,1.12,0,0,0-.62.18,1,1,0,0,0-.41.47v.42a1.88,1.88,0,0,0,.28,1.11.92.92,0,0,0,.78.4.9.9,0,0,0,.74-.36,1.51,1.51,0,0,0,.28-.93,1.47,1.47,0,0,0-.29-.94A.94.94,0,0,0,94.89,64.74Z"/><path d="M31.71,82.54a.78.78,0,0,0-.73.38,2.33,2.33,0,0,0-.25,1.2v1.73A2.7,2.7,0,0,0,31,87.14a.82.82,0,0,0,.76.43.79.79,0,0,0,.75-.41,2.73,2.73,0,0,0,.24-1.24V84.23a2.63,2.63,0,0,0-.24-1.29A.83.83,0,0,0,31.71,82.54Z"/><path d="M56,0a56,56,0,1,0,56,56A56,56,0,0,0,56,0Zm50.33,47.9.17,1-1,.17-.18-1Zm-4.2,1.76-1.35.24-.18-1,1.36-.24Zm-3.48-19,2,3.45-5.59,3.3L93,34ZM88.51,17.75l.76.64-.64.77-.77-.64Zm-2.86,3.4.77.64-.88,1.06-.77-.65ZM55.49,6.1h1v1h-1Zm0,4.44h1v1.37h-1ZM44.31,24.32a1.48,1.48,0,0,1-.3.9,1.85,1.85,0,0,1-.78.63,1.75,1.75,0,0,1,.89.65,1.7,1.7,0,0,1,.3,1A1.88,1.88,0,0,1,43.73,29a2.78,2.78,0,0,1-1.83.57A2.6,2.6,0,0,1,40.16,29a1.83,1.83,0,0,1-.68-1.48h1.41a.82.82,0,0,0,.3.65,1.11,1.11,0,0,0,.74.26,1.1,1.1,0,0,0,.79-.27.93.93,0,0,0,.29-.71c0-.71-.39-1.06-1.17-1.06h-.75v-1.1h.75a1.07,1.07,0,0,0,.8-.27,1,1,0,0,0,.26-.72.85.85,0,0,0-.26-.66,1,1,0,0,0-.71-.24,1,1,0,0,0-.68.22.72.72,0,0,0-.27.58H39.57a1.73,1.73,0,0,1,.3-1,1.92,1.92,0,0,1,.84-.69,2.76,2.76,0,0,1,1.19-.25,2.67,2.67,0,0,1,1.77.54A1.85,1.85,0,0,1,44.31,24.32ZM39.64,10.51l2.78,7.09L38.7,19.06,35.92,12ZM26.32,21.16l.89,1.05-.77.64-.88-1.05Zm-2.85-3.4.64.76-.76.65-.64-.77ZM10,48.68l1.35.24-.17,1-1.36-.24Zm-4.37-.77,1,.18-.17,1-1-.17ZM6.46,66.1l8-1.62.79,3.92L7.25,70Zm5.45,17.22-.5-.86.87-.5.5.86Zm3.85-2.22-.5-.86,1.19-.69.5.87ZM20,68.77H18.6V63.34l-1.68.52V62.71l2.94-1.05H20Zm-1.85-30L11.53,35l2-3.48,6.63,3.74Zm6.07.64a.85.85,0,0,0-.68-.27.92.92,0,0,0-.75.33,1.27,1.27,0,0,0-.28.86H21.1a2.39,2.39,0,0,1,.31-1.18,2.16,2.16,0,0,1,.88-.84A2.61,2.61,0,0,1,23.57,38a2.52,2.52,0,0,1,1.71.53A1.85,1.85,0,0,1,25.89,40,2.39,2.39,0,0,1,25.62,41a6.38,6.38,0,0,1-.94,1.28L23.06,44h3.06v1.14H21.25v-1l2.3-2.45a7.52,7.52,0,0,0,.7-.9,1.49,1.49,0,0,0,.22-.74A1.08,1.08,0,0,0,24.23,39.36ZM25.9,98.1l-3.09-2.54L28,89.25l3.09,2.54Zm8.22-12.43a3.57,3.57,0,0,1-.61,2.25,2.45,2.45,0,0,1-3.57,0,3.51,3.51,0,0,1-.63-2.2V84.43a3.56,3.56,0,0,1,.62-2.26,2.45,2.45,0,0,1,3.56,0,3.49,3.49,0,0,1,.63,2.2ZM58,65.1a6.39,6.39,0,0,1-7.32-2.94L22.93,70.08l-.71-2.15L50,60a5.82,5.82,0,0,1,4.43-6,6.29,6.29,0,0,1,7.74,3.91A5.75,5.75,0,0,1,58,65.1ZM71.64,28h-.8v1.54H69.42V28H66.51l-.06-.89,3-4.68h1.43v4.43h.8Zm.41-8.53-3.77-1.33,2.91-8.25L75,11.19Zm6.43,68.38,2.76-6H77.7V80.71h5v.79L80,87.82Zm8.66,7.93L82,90l3-2.65,5.12,5.79ZM90.87,40.5a2.1,2.1,0,0,1-.83.84,2.63,2.63,0,0,1-1.28.3,2.7,2.7,0,0,1-1.2-.26,2.08,2.08,0,0,1-.87-.73,2,2,0,0,1-.34-1.08h1.4a1,1,0,0,0,.31.69,1,1,0,0,0,.69.25.87.87,0,0,0,.74-.35,1.6,1.6,0,0,0,.26-1,1.33,1.33,0,0,0-.3-.93,1.11,1.11,0,0,0-.84-.32,1.26,1.26,0,0,0-.82.26l-.14.13-1.12-.28.41-3.61h4v1.17H88.1l-.18,1.53A2.24,2.24,0,0,1,89,36.87a2,2,0,0,1,1.59.63,2.5,2.5,0,0,1,.58,1.77A2.6,2.6,0,0,1,90.87,40.5Zm5.37,40.6-1.19-.69.5-.87,1.19.69ZM97,67.27a2.16,2.16,0,0,1-.85.87,2.43,2.43,0,0,1-1.24.31,2.3,2.3,0,0,1-1.81-.78,3,3,0,0,1-.69-2.08v-.51a4.57,4.57,0,0,1,.43-2,3.24,3.24,0,0,1,1.26-1.38A3.77,3.77,0,0,1,96,61.17h.24v1.17h-.14a2.4,2.4,0,0,0-1.54.49,2,2,0,0,0-.7,1.35,1.91,1.91,0,0,1,1.43-.58,1.83,1.83,0,0,1,1.48.66A2.71,2.71,0,0,1,97.34,66,2.66,2.66,0,0,1,97,67.27Zm3,16-.87-.5.5-.86.87.5Zm5.55-15.1-6.41-1.07.66-4,6.41,1.07Z"/><path d="M56.91,58,50,60a5.58,5.58,0,0,0,.24,1.19,5.26,5.26,0,0,0,.42,1l6.94-2Z"/></g></g></svg>';
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 217.13 206.37"><defs><style>.cls-1{fill:#fff;}</style></defs><g id="Capa_2" data-name="Capa 2"><g id="Capa_1-2" data-name="Capa 1"><rect class="cls-1" x="105.99" y="174.49" width="27.15" height="5.53" transform="translate(-93.29 157.06) rotate(-50.58)"/><path class="cls-1" d="M141.3,139a8.13,8.13,0,0,0-11.82,0q-2.05,2.57-2.06,7.51v4.35c0,3.17.73,5.6,2.1,7.3a8.09,8.09,0,0,0,11.84-.05q2-2.59,2-7.49V146.3Q143.35,141.54,141.3,139Zm-2.6,12.48a9,9,0,0,1-.79,4.13,2.64,2.64,0,0,1-2.49,1.35,2.67,2.67,0,0,1-2.52-1.41,9.08,9.08,0,0,1-.79-4.29v-5.75a8.12,8.12,0,0,1,.84-4,2.66,2.66,0,0,1,2.44-1.27,2.71,2.71,0,0,1,2.51,1.34,8.71,8.71,0,0,1,.8,4.28Z"/><path class="cls-1" d="M96,70.86l-9.79,3.51v3.81l5.6-1.74V94.52h4.69V70.86Z"/><rect class="cls-1" x="52.53" y="86.68" width="27.14" height="5.52" transform="translate(-16.44 14.9) rotate(-11.45)"/><rect class="cls-1" x="105.99" y="174.49" width="27.15" height="5.53" transform="translate(-93.28 156.93) rotate(-50.55)"/><rect class="cls-1" x="69.09" y="135.47" width="27.13" height="2" transform="translate(-60.78 66.58) rotate(-32.82)"/><rect class="cls-1" x="63.36" y="19.9" width="2" height="27.13" transform="translate(18.07 89.32) rotate(-77.82)"/><path class="cls-1" d="M0,0V206.37H217.13V0ZM211.13,48.17l-.17,0c-9.53,2.51-15.49,10.57-14.72,19L103.86,92.29l2.35,6.79,92.2-25a20.2,20.2,0,0,0,12.72,9.3v92.88C192.66,190.62,170.28,199,146.19,199,83,199,31.52,141,31.52,69.75a141.31,141.31,0,0,1,15.09-64H211.13Z"/></g></g></svg>';
         var svgCombustible =
             '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
             '<path fill="currentColor" d="m19.77 7.23l.01-.01l-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33a2.5 2.5 0 0 0 2.5 2.5c.36 0 .69-.08 1-.21v7.21c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5a2.5 2.5 0 0 0 5 0V9c0-.69-.28-1.32-.73-1.77M12 10H6V5h6zm6 0c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1"/></svg>';
@@ -1164,7 +1164,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         // count: número (conectada), null/undefined (falló → "N/D"),
         // o beta:true (categoría futura → badge "beta", sin número).
-        var card = function (bg, title, count, iconSvg, titleAttr, isBeta) {
+        var card = function (bg, title, count, iconSvg, titleAttr, isBeta, iconCls) {
             var body;
             if (isBeta) {
                 body = { cls: 'promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta', html: l('beta') };
@@ -1184,7 +1184,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     (isBeta ? ' promatic_dashboard_enhancer-stat-card--beta' : '') +
                     (hasIncident ? ' promatic_dashboard_enhancer-stat-card--has-alert' : ''),
                 cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat-card__icon', html: iconSvg },
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-stat-card__icon' + (iconCls ? ' ' + iconCls : ''), html: iconSvg },
                     { cls: 'promatic_dashboard_enhancer-stat-card__title', html: title },
                     body
                 ]
@@ -1203,19 +1203,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: gridCls,
             cn: [
                 card('var(--g6)', l('Accidentes'), accidentes, svgAccidente,
-                    l('Accidentes — events.php type=29, últimos 30 días')),
+                    l('Accidentes — events.php type=29, últimos 30 días'), false, 'pde_alert-accidentes'),
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
-                    l('Recordatorios de mantención de vehículo (ptm)')),
+                    l('Recordatorios de mantención de vehículo (ptm)'), false, 'pde_alert-mantencion'),
                 card('var(--g6)', l('Ralentí excesivo'), null, svgRalenti,
-                    l('Ralentí acumulado sobre umbral — pendiente de conexión'), true),
+                    l('Ralentí acumulado sobre umbral — pendiente de conexión'), true, 'pde_alert-ralenti'),
                 card('var(--g7)', l('Inconsistencias en Carga'), null, svgCombustible,
-                    l('Carga de combustible fuera de lo esperado — pendiente de conexión'), true),
+                    l('Carga de combustible fuera de lo esperado — pendiente de conexión'), true, 'pde_alert-inconsistencias'),
                 card('var(--g6)', l('Drenaje de Combustible'), null, svgCombustible,
-                    l('Baja brusca de combustible que no corresponde a una recarga — pendiente de conexión'), true),
+                    l('Baja brusca de combustible que no corresponde a una recarga — pendiente de conexión'), true, 'pde_alert-drenaje'),
                 card('var(--g7)', l('GPS Manipulado'), null, svgGpsManual,
-                    l('Desconexión intencional del equipo — pendiente de conexión'), true),
+                    l('Desconexión intencional del equipo — pendiente de conexión'), true, 'pde_alert-manipulacion'),
                 card('var(--g6)', l('Salida de territorio nacional'), null, svgTerritorio,
-                    l('Vehículo cruza la frontera — pendiente de conexión'), true)
+                    l('Vehículo cruza la frontera — pendiente de conexión'), true, 'pde_alert-fuerazona')
             ]
         }));
     },

@@ -658,13 +658,59 @@
     stroke-width: 1.2pt;
 }
 
+.pde_alert-accidentes svg {
+    stroke-opacity: 1;
+    color: #fff;
+    transform-origin: center;
+    fill-opacity: 1;
+    fill: #0a67a0;
+    stroke: white;
+    stroke-width: 1.2pt;
+}
+
+.pde_alert-mantencion svg {
+    transform-origin: center;
+    fill-opacity: 1;
+    fill: #fff;
+    stroke: #064368;
+    stroke-width: 0;
+}
+
+.pde_alert-ralenti svg {
+    stroke-opacity: 1;
+    color: #fff;
+    transform-origin: center;
+    fill-opacity: 1;
+    fill: #0a67a0;
+    stroke: white;
+    stroke-width: 1.2pt;
+}
+
+.pde_alert-inconsistencias svg {
+    stroke: none;
+}
+
+.pde_alert-drenaje svg {
+    stroke: none;
+}
+
+.pde_alert-manipulacion svg {
+    stroke: none;
+}
+
+.pde_alert-fuerazona svg {
+    stroke: none;
+    width: 80%;
+}
+
 /* Respiración del ícono de fondo: SOLO en cards con incidencia real
    (count > 0, clase --has-alert puesta por renderAlertasGenerales) — sin
    incidencia, la animación "no aporta en nada" (Ana, pauta 4 sep). Las
    demás cards se quedan quietas; su único feedback es el hover de
    brightness ya existente arriba. */
 .promatic_dashboard_enhancer-stat-card--has-alert .promatic_dashboard_enhancer-stat-card__icon svg {
-    animation: promatic_dashboard_enhancer-icon-breathe 2s ease-in-out infinite;
+    animation: promatic_dashboard_enhancer-icon-breathe 1s ease-in-out infinite;
+    will-change: transform;
 }
 
 @keyframes promatic_dashboard_enhancer-icon-breathe {
