@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.5.2',
-    moduleBuild: '2026-09-07-1459',
+    version: '0.5.3',
+    moduleBuild: '2026-09-07-1508',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -470,9 +470,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // y parecía un reloj.
     refreshAllWidgets: function () {
         this._lastManualRefresh = new Date();
+        // Feedback visible de "recalculando": el mismo skeleton shimmer que
+        // usan al montar, pintado en cada card afectada antes de la recarga.
+        this.showCardSkeleton('gps_signal', 'chips');
+        this.showCardSkeleton('top5km', 'ranking');
+        this.showCardSkeleton('alertas_generales', 'stats');
         this.refreshFleetStore();
         this.loadTop5KmData();
         this.loadAlertasGenerales();
+    },
+
+    // Pinta el skeleton de carga en el body de una card (si está montada).
+    showCardSkeleton: function (id, kind) {
+        this.updateCardBody(id, Ext.DomHelper.markup(this.skeletonSpec(kind)), 0, true);
     },
 
     bindControlsBar: function (panel) {
