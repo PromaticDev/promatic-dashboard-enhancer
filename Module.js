@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.10.0',
-    moduleBuild: '2026-09-07-1815',
+    version: '0.11.0',
+    moduleBuild: '2026-09-07-1819',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -363,15 +363,26 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 e.preventDefault();
                 var sel = document.getElementById('promatic_dashboard_enhancer-export-widget');
                 var which = sel ? sel.value : 'flota';
-                me.openReportModal(me.buildWidgetReport(which), me._widgetReportName(which));
+                me.openReportModal(me.buildWidgetReport(which), me._widgetReportName(which),
+                    me._safe(function () { return me.buildWidgetPdfDoc(which); }));
                 return;
             }
             var gb = e.getTarget('#promatic_dashboard_enhancer-golden-btn', 3, true);
             if (gb) {
                 e.preventDefault();
-                me.openReportModal(me.buildGoldenReport(), 'Golden Report');
+                me.openReportModal(me.buildGoldenReport(), 'Golden Report',
+                    me._safe(function () { return me.buildGoldenPdfDoc(); }));
             }
         });
+    },
+
+    // Ejecuta fn y devuelve su resultado, o null si tira — para no romper el
+    // modal si la construcción del docDefinition de pdfMake falla.
+    _safe: function (fn) {
+        try { return fn(); } catch (e) {
+            console.warn('[promatic_dashboard_enhancer] build pdfDoc falló:', e);
+            return null;
+        }
     },
 
     _widgetReportName: function (which) {
@@ -386,9 +397,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // una pestaña nueva). El HTML va en un <iframe> srcdoc — aislado del CSS de
     // PILOT. "Imprimir / Guardar PDF" llama print() del iframe; "Cerrar" quita
     // el overlay. Esc también cierra.
-    openReportModal: function (html, title) {
+    openReportModal: function (html, title, pdfDoc) {
         var me = this;
         this.closeReportModal();
+
+        // pdfMake está cargado en el runtime de PILOT (window.pdfMake) — si
+        // está y hay un docDefinition, ofrecemos "Descargar PDF" real.
+        var canPdf = !!(window.pdfMake && pdfDoc);
+        var pdfBtn = canPdf
+            ? '<button type="button" data-act="pdf" class="promatic_dashboard_enhancer-report-modal__btn promatic_dashboard_enhancer-report-modal__btn--primary">⬇ ' + l('Descargar PDF') + '</button>'
+            : '';
 
         var ov = document.createElement('div');
         ov.id = 'promatic_dashboard_enhancer-report-modal';
@@ -398,13 +416,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 '<div class="promatic_dashboard_enhancer-report-modal__bar">' +
                     '<span class="promatic_dashboard_enhancer-report-modal__title"></span>' +
                     '<span class="promatic_dashboard_enhancer-report-modal__actions">' +
-                        '<button type="button" data-act="print" class="promatic_dashboard_enhancer-report-modal__btn promatic_dashboard_enhancer-report-modal__btn--primary">🖨 ' + l('Imprimir o guardar PDF') + '</button>' +
+                        pdfBtn +
+                        '<button type="button" data-act="print" class="promatic_dashboard_enhancer-report-modal__btn' + (canPdf ? '' : ' promatic_dashboard_enhancer-report-modal__btn--primary') + '">🖨 ' + l('Imprimir') + '</button>' +
                         '<button type="button" data-act="close" class="promatic_dashboard_enhancer-report-modal__btn">✕ ' + l('Cerrar') + '</button>' +
                     '</span>' +
                 '</div>' +
                 '<iframe class="promatic_dashboard_enhancer-report-modal__frame" title="' + Ext.String.htmlEncode(title || 'Reporte') + '"></iframe>' +
             '</div>';
         document.body.appendChild(ov);
+        me._reportPdfDoc = pdfDoc || null;
+        me._reportPdfName = (title || 'reporte').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.pdf';
         ov.querySelector('.promatic_dashboard_enhancer-report-modal__title').textContent = title || l('Reporte');
 
         var frame = ov.querySelector('iframe');
@@ -418,6 +439,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         ov.addEventListener('click', function (ev) {
             var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
             if (act === 'close' || ev.target === ov) { me.closeReportModal(); return; }
+            if (act === 'pdf') {
+                try { window.pdfMake.createPdf(me._reportPdfDoc).download(me._reportPdfName); }
+                catch (e4) {
+                    console.warn('[promatic_dashboard_enhancer] pdfMake.download falló, fallback a print:', e4);
+                    try { frame.contentWindow.print(); } catch (e5) { window.print(); }
+                }
+                return;
+            }
             if (act === 'print') {
                 try {
                     frame.contentWindow.focus();
@@ -668,9 +697,183 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             l('para el detalle por evento (desconexión, ralentí, conducción brusca), filtrando por tipo y rango.') + '</li></ol></div>';
 
         s += '<div class="foot">' +
-            l('Golden Report generado por el Dashboard sobre datos de PILOT Telematics. Los valores corresponden a la selección de vehículos activa y a la ventana de la última semana. Usa el botón "Imprimir / Guardar PDF" del visor para guardar una copia.') +
+            l('Golden Report generado por el Dashboard sobre datos de PILOT Telematics. Los valores corresponden a la selección de vehículos activa y a la ventana de la última semana.') +
             '</div></body></html>';
         return s;
+    },
+
+    // ---- pdfMake (window.pdfMake, cargado por PILOT) — docDefinition ----
+    // Estilos compartidos + helpers para armar los documentos.
+    _pdfBase: function (title, subtitle) {
+        return {
+            pageSize: 'A4',
+            pageMargins: [40, 48, 40, 48],
+            defaultStyle: { fontSize: 9, color: '#1e293b' },
+            styles: {
+                h1: { fontSize: 16, bold: true, color: '#0a3d5c', margin: [0, 0, 0, 2] },
+                h2: { fontSize: 11, bold: true, color: '#0a3d5c', margin: [0, 14, 0, 4] },
+                sub: { fontSize: 8, color: '#64748b', margin: [0, 0, 0, 2] },
+                desc: { fontSize: 8, italics: true, color: '#475569', margin: [0, 2, 0, 8] },
+                th: { bold: true, fillColor: '#f1f5f9', color: '#334155' },
+                foot: { fontSize: 7.5, color: '#94a3b8', margin: [0, 20, 0, 0] }
+            },
+            content: [
+                { text: title, style: 'h1' },
+                { text: subtitle, style: 'sub' }
+            ]
+        };
+    },
+    _pdfRange: function (days) {
+        var stop = new Date(), start = new Date();
+        start.setDate(start.getDate() - (days || 7));
+        var d = function (x) {
+            var p = function (n) { return (n < 10 ? '0' : '') + n; };
+            return p(x.getDate()) + '/' + p(x.getMonth() + 1) + '/' + x.getFullYear();
+        };
+        return l('Período') + ': ' + d(start) + ' — ' + d(stop) + '  ·  ' + l('generado') + ' ' + this.chileTime();
+    },
+    _pdfScoreColor: function (sc) {
+        return sc >= 75 ? '#238a4c' : (sc >= 45 ? '#a34d00' : '#ad1100');
+    },
+    // tabla simple: headers = [str], rows = [[cell,...]]
+    _pdfTable: function (headers, rows) {
+        var body = [headers.map(function (h) { return { text: h, style: 'th' }; })];
+        for (var i = 0; i < rows.length; i++) { body.push(rows[i]); }
+        return {
+            table: { headerRows: 1, widths: headers.map(function () { return '*'; }), body: body },
+            layout: { hLineColor: function () { return '#e2e8f0'; }, vLineColor: function () { return '#e2e8f0'; } },
+            margin: [0, 4, 0, 4]
+        };
+    },
+    _pdfBoxes: function (items) { // [{v, l, color}]
+        return {
+            columns: items.map(function (it) {
+                return {
+                    width: '*',
+                    stack: [
+                        { text: String(it.v), fontSize: 20, bold: true, color: '#fff' },
+                        { text: it.l, fontSize: 7, color: '#fff', characterSpacing: 0.3 }
+                    ],
+                    fillColor: it.color, margin: [8, 8, 8, 8]
+                };
+            }),
+            columnGap: 6, margin: [0, 4, 0, 6]
+        };
+    },
+
+    buildWidgetPdfDoc: function (which) {
+        var doc = this._pdfBase(this._widgetReportName(which),
+            this._pdfRange(which === 'eco' ? (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 8) : 7));
+        var desc = this._widgetDescriptions[which];
+        if (desc) { doc.content.push({ text: l(desc), style: 'desc' }); }
+        var C = doc.content;
+        var name = this.displayName.bind(this);
+
+        if (which === 'flota') {
+            var f = this._lastFleetCounts || {};
+            C.push(this._pdfBoxes([
+                { v: f.total || 0, l: l('Total'), color: '#0a67a0' },
+                { v: f.moving || 0, l: l('En movimiento'), color: '#238a4c' },
+                { v: f.parked || 0, l: l('Estacionado'), color: '#a34d00' },
+                { v: f.offline || 0, l: l('Sin conexión'), color: '#ad1100' }
+            ]));
+        } else if (which === 'gps') {
+            var g = this._lastGpsBuckets || {};
+            C.push(this._pdfTable([l('Tiempo sin señal'), l('Vehículos')], [
+                [l('Menos de 24h'), { text: String(g.b24 || 0), alignment: 'right' }],
+                [l('Entre 24 y 48h'), { text: String(g.b48 || 0), alignment: 'right' }],
+                [l('Más de 48h'), { text: String(g.bMore || 0), alignment: 'right' }]
+            ]));
+        } else if (which === 'alertas') {
+            var v = function (x) { return typeof x === 'number' ? String(x) : l('N/D'); };
+            C.push(this._pdfTable([l('Categoría'), l('Incidencias')], [
+                [l('Accidentes'), { text: v(this._alertAccidentes), alignment: 'right' }],
+                [l('Requiere mantención'), { text: v(this._alertMantencion), alignment: 'right' }],
+                [l('Ralentí excesivo'), { text: v(this._alertRalenti), alignment: 'right' }]
+            ]));
+        } else if (which === 'top5km') {
+            var kr = this._lastTop5Ranked || [];
+            C.push(this._pdfTable(['#', l('Vehículo'), l('Kilómetros')],
+                kr.map(function (r, i) {
+                    return [String(i + 1), name(r.name), { text: Math.round(r.km) + ' km', alignment: 'right' }];
+                })));
+            if (!kr.length) { C.push({ text: l('Sin datos de kilometraje cargados.') }); }
+        } else if (which === 'eco') {
+            var er = this._lastEcoRows || [];
+            if (!er.length) { C.push({ text: l('Sin datos del Fleet ECO report cargados.') }); }
+            else {
+                var avg = 0; for (var e = 0; e < er.length; e++) { avg += er[e].cur; } avg = Math.round(avg / er.length);
+                C.push(this._pdfBoxes([{ v: avg, l: l('Score global'), color: this._pdfScoreColor(avg) }]));
+                var hm = function (s) { var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m; };
+                var sorted = er.slice().sort(function (a, b) { return b.cur - a.cur; });
+                C.push(this._pdfTable([l('Vehículo'), l('Actual'), l('Anterior'), l('Ralentí'), l('Frenadas'), l('Aceleradas'), l('Distancia')],
+                    sorted.map(function (r) {
+                        return [name(r.name),
+                            { text: String(r.cur), alignment: 'right' },
+                            { text: isFinite(r.prev) ? String(r.prev) : '—', alignment: 'right' },
+                            { text: hm(r.idle), alignment: 'right' },
+                            { text: String(r.brake), alignment: 'right' },
+                            { text: String(r.accel), alignment: 'right' },
+                            { text: Math.round(r.dist) + ' km', alignment: 'right' }];
+                    })));
+            }
+        }
+        C.push({ text: l('Reporte generado por el Dashboard sobre datos de PILOT Telematics.'), style: 'foot' });
+        return doc;
+    },
+
+    buildGoldenPdfDoc: function () {
+        var doc = this._pdfBase('Golden Report — ' + l('Resumen semanal de flota'), this._pdfRange(7));
+        var C = doc.content;
+        var name = this.displayName.bind(this);
+        var f = this._lastFleetCounts || {}, g = this._lastGpsBuckets || {};
+        var er = this._lastEcoRows || [], kr = this._lastTop5Ranked || [];
+        var ecoAvg = 0; if (er.length) { for (var i = 0; i < er.length; i++) { ecoAvg += er[i].cur; } ecoAvg = Math.round(ecoAvg / er.length); }
+
+        C.push({ text: l('Este documento resume el estado de la flota de la última semana: disponibilidad, conectividad, alertas, kilometraje y conducción segura.'), style: 'desc' });
+
+        C.push({ text: l('Resumen'), style: 'h2' });
+        var boxes = [
+            { v: f.total || 0, l: l('Vehículos'), color: '#0a67a0' },
+            { v: f.moving || 0, l: l('En movimiento'), color: '#238a4c' },
+            { v: f.offline || 0, l: l('Sin conexión'), color: '#ad1100' }
+        ];
+        if (er.length) { boxes.push({ v: ecoAvg, l: l('Safety Score'), color: this._pdfScoreColor(ecoAvg) }); }
+        C.push(this._pdfBoxes(boxes));
+
+        C.push({ text: l('Sin Señal GPS'), style: 'h2' });
+        C.push(this._pdfTable([l('Menos de 24h'), l('Entre 24 y 48h'), l('Más de 48h')],
+            [[{ text: String(g.b24 || 0), alignment: 'right' }, { text: String(g.b48 || 0), alignment: 'right' }, { text: String(g.bMore || 0), alignment: 'right' }]]));
+
+        C.push({ text: l('Alertas Generales'), style: 'h2' });
+        var av = function (x) { return typeof x === 'number' ? String(x) : l('N/D'); };
+        C.push(this._pdfTable([l('Categoría'), l('Incidencias')], [
+            [l('Accidentes'), { text: av(this._alertAccidentes), alignment: 'right' }],
+            [l('Requiere mantención'), { text: av(this._alertMantencion), alignment: 'right' }],
+            [l('Ralentí excesivo'), { text: av(this._alertRalenti), alignment: 'right' }]
+        ]));
+
+        if (kr.length) {
+            C.push({ text: l('Vehículos con Exceso de Kilometraje'), style: 'h2' });
+            C.push(this._pdfTable(['#', l('Vehículo'), l('Kilómetros')],
+                kr.slice(0, 10).map(function (r, i) { return [String(i + 1), name(r.name), { text: Math.round(r.km) + ' km', alignment: 'right' }]; })));
+        }
+        if (er.length) {
+            C.push({ text: l('Safety Score — ranking'), style: 'h2' });
+            var sorted = er.slice().sort(function (a, b) { return b.cur - a.cur; });
+            C.push(this._pdfTable([l('Vehículo'), l('Actual'), l('Anterior')],
+                sorted.map(function (r) { return [name(r.name), { text: String(r.cur), alignment: 'right' }, { text: isFinite(r.prev) ? String(r.prev) : '—', alignment: 'right' }]; })));
+        }
+
+        C.push({ text: l('Para ver la información al detalle en PILOT'), style: 'h2' });
+        C.push({ ul: [
+            l('Kilometraje: panel Informes → "Informe de kilometraje", selecciona vehículos/carpeta y el rango semanal, exporta a Excel.'),
+            l('Safety Score: panel Informes → "Fleet ECO report", selecciona el grupo y el rango, exporta a Excel.'),
+            l('Accidentes y eventos: panel Mensajes / Eventos, filtra por tipo y rango para el detalle por evento (fecha, hora, posición).')
+        ], fontSize: 8.5, margin: [0, 4, 0, 0] });
+
+        C.push({ text: l('Golden Report generado por el Dashboard sobre datos de PILOT Telematics.'), style: 'foot' });
+        return doc;
     },
 
     // Layout de 4 columnas (rediseño 3 sep, idea-rediseño-layout.jpg):
@@ -1713,7 +1916,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // vehIds: agent_ids afectados — si hay incidencia y hay ids, la
         // tarjeta es clicable y abre el panel Informes con esos vehículos
         // marcados (el usuario elige el informe).
-        var card = function (bg, title, count, iconSvg, titleAttr, isBeta, iconCls, vehIds) {
+        var card = function (bg, title, count, iconSvg, titleAttr, isBeta, iconCls, vehIds, reportType) {
             var body;
             if (isBeta) {
                 body = { cls: 'promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta', html: l('beta') };
@@ -1738,7 +1941,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     body
                 ]
             };
-            if (clickable) { spec['data-alert-ids'] = vehIds.join(','); }
+            if (clickable) {
+                spec['data-alert-ids'] = vehIds.join(',');
+                if (reportType) { spec['data-alert-report'] = String(reportType); }
+            }
             return spec;
         };
 
@@ -1759,7 +1965,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cn: [
                 card('var(--g6)', l('Accidentes'), accidentes, svgAccidente,
                     l('Accidentes — eventos de los últimos 30 días'), false, 'pde_alert-accidentes',
-                    this._alertAccidentesIds || []),
+                    this._alertAccidentesIds || [], 254),
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
                     l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion'),
                 card('var(--g6)', l('Ralentí excesivo'), ralenti, svgRalenti,
@@ -3213,12 +3419,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Alertas Generales: click de una tarjeta con incidencias. NO existe un
-    // report_type confirmado para "accidentes" ni un informe de ralentí que
-    // no requiera group=6 — así que en vez de disparar un informe puntual,
-    // abrimos el panel de Informes con SOLO esos vehículos ya marcados en el
-    // árbol de objetos, y el usuario elige el informe. Es el mejor esfuerzo
-    // hasta tener una ventana de detalle de alertas propia (feature futura).
+    // Alertas Generales: click de una tarjeta con incidencias.
+    //  - Accidentes → report_type=254 (confirmado por el usuario 7 sep) — se
+    //    dispara el informe directo con esos vehículos y el rango de 30 días.
+    //  - Ralentí y otras → no hay report_type que sirva sin group=6, así que
+    //    solo se activa el panel Informes con esos vehículos marcados y el
+    //    usuario elige el informe. Feature futura: ventana de detalle propia
+    //    (FR-0016).
+    // El data-alert-report opcional lleva el report_type cuando se conoce.
     bindAlertReportLinks: function (panel) {
         var me = this;
         var el = panel && panel.getEl && panel.getEl();
@@ -3231,7 +3439,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var raw = a.getAttribute('data-alert-ids');
             var ids = (raw || '').split(',').map(Number).filter(function (n) { return !isNaN(n) && n > 0; });
             if (!ids.length) { return; }
-            me.selectVehiclesInReports(ids);
+            var rt = Number(a.getAttribute('data-alert-report'));
+            var range = me._alertRange || {};
+            if (rt && range.start && range.stop) {
+                if (!me.activateReportsTab()) { return; }
+                Ext.defer(function () {
+                    try { me.runNativeReport(rt, ids, range.start, range.stop); }
+                    catch (err) {
+                        console.warn('[promatic_dashboard_enhancer] informe de alerta falló, se marca la selección:', err);
+                        me.selectVehiclesInReports(ids);
+                    }
+                }, 200);
+            } else {
+                me.selectVehiclesInReports(ids);
+            }
         });
     },
 
