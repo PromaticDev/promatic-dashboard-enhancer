@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.5.0',
-    moduleBuild: '2026-09-04-1840',
+    version: '0.5.1',
+    moduleBuild: '2026-09-07-1040',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1769,10 +1769,31 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var cap = cfg.activeVehicleCap || 300;
         var count = cfg.count || 5;
 
+        // Nonce para invalidar respuestas en vuelo: si el usuario amplía la
+        // selección y vuelve a disparar loadTop5KmData antes de que la consulta
+        // anterior resuelva, la vieja no debe pisar el render nuevo (BR-PILOT-0012).
+        var loadNonce = (me._top5LoadNonce = (me._top5LoadNonce || 0) + 1);
+
         this.withFleetVehicleIds(function () {
             var onlineTree = me.getOnlineTree();
+            var scopeIds = me.getFleetVehicleIds(onlineTree);
+            var scopeTotal = scopeIds.length;
             var vehIds = me.getRecentlyActiveIds(onlineTree, days);
-            var scopeTotal = me.getFleetVehicleIds(onlineTree).length;
+            var usedScopeFallback = false;
+
+            // BR-PILOT-0012: al ampliar la selección con vehículos que no
+            // registran movimiento en la ventana (p.ej. recién agregados a la
+            // cuenta, o sin last_move fresco en el store del árbol), el filtro
+            // "recientemente activo" los deja fuera y el ranking parece no
+            // cambiar. Si el filtro no dejó a nadie pero SÍ hay vehículos en el
+            // alcance, consultar el alcance completo (trips-v3 dirá quién tiene
+            // km reales). El cap protege el volumen.
+            if (vehIds.length === 0 && scopeTotal > 0 &&
+                !me._selectionExpanding && !me._selectionCollapsed && !me._selectionEmpty) {
+                vehIds = scopeIds.slice();
+                usedScopeFallback = true;
+            }
+
             var capped = false;
             if (vehIds.length > cap) {
                 vehIds = vehIds.slice(0, cap);
@@ -1780,15 +1801,23 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
 
             console.log('[promatic_dashboard_enhancer] Top KM: ' + vehIds.length +
-                ' vehículos con movimiento en ' + days + 'd (de ' + scopeTotal + ' en alcance)' +
+                (usedScopeFallback ? ' vehículos del alcance (sin filtro de actividad)'
+                    : ' vehículos con movimiento en ' + days + 'd') +
+                ' (de ' + scopeTotal + ' en alcance)' +
                 (capped ? ' [cortado al tope de ' + cap + ']' : '') + ' — top ' + count);
 
             if (vehIds.length === 0) {
                 var msg = l('Ningún vehículo con recorrido reciente.');
-                if (me._selectionExpanding) {
+                if (me._selectionExpanding || me._selectionCollapsed) {
                     msg = l('Cargando vehículos de las carpetas seleccionadas…');
-                } else if (me._selectionCollapsed) {
-                    msg = l('Expande en el panel "Principal" las carpetas que marcaste para incluir sus vehículos.');
+                    // La expansión de carpetas es async y checkchange puede no
+                    // llegar si ya estaban parcialmente materializadas — reintentar
+                    // una vez cuando el store haya terminado de poblarse.
+                    if (loadNonce === me._top5LoadNonce) {
+                        Ext.defer(function () {
+                            if (loadNonce === me._top5LoadNonce) { me.loadTop5KmData(); }
+                        }, 1500, me);
+                    }
                 } else if (me._selectionEmpty) {
                     msg = l('Selecciona vehículos en el panel "Principal" para ver el ranking.');
                 }
@@ -1813,9 +1842,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
             var csv = vehIds.join(',');
 
+            // Descarta el render si otra carga más nueva ya arrancó (BR-PILOT-0012).
+            var stale = function () { return loadNonce !== me._top5LoadNonce; };
+
             var runReports = function () {
                 return me.fetchReportType(4, csv, startDate, stopDate, 20000)
                     .then(function (report) {
+                        if (stale()) { return; }
                         me.renderTop5Km(me.parseReportType4(report, nameToId), days, startDate, stopDate, count);
                         console.log('[promatic_dashboard_enhancer] Top KM servido por: reports');
                     });
@@ -1824,6 +1857,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 return me.fetchAnalyticsMainData(csv, 15000,
                     startDate.toISOString().slice(0, 19), stopDate.toISOString().slice(0, 19))
                     .then(function (mainData) {
+                        if (stale()) { return; }
                         me.renderTop5Km(me.parseRatingsTop5(mainData), days, startDate, stopDate, count);
                         console.log('[promatic_dashboard_enhancer] Top KM servido por: ratings');
                     });
@@ -1832,6 +1866,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 var tripIds = vehIds.slice(0, cfg.tripsMaxVehicles || 100);
                 return me._top5FromTripsV3(tripIds, startDate, stopDate, nameToId, cfg)
                     .then(function (ranked) {
+                        if (stale()) { return; }
                         var withKm = ranked.filter(function (x) { return x.km > 0; });
                         if (withKm.length === 0) {
                             throw new Error('trips-v3 sin km > 0');
