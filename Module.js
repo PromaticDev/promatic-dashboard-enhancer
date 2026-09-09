@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.12.4',
-    moduleBuild: '2026-09-07-1921',
+    moduleBuild: '2026-09-09-1106',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1993,7 +1993,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var card = function (bg, title, count, iconSvg, titleAttr, isBeta, iconCls, vehIds, reportType) {
             var body;
             if (isBeta) {
-                body = { cls: 'promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta', html: l('beta') };
+                body = { cls: 'promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta', html: l('EN DESARROLLO') };
             } else if (count === null || count === undefined) {
                 body = { cls: 'promatic_dashboard_enhancer-stat-card__count', html: l('N/D') };
             } else {
