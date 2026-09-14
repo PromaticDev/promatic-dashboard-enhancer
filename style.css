@@ -1088,38 +1088,29 @@
 }
 
 /* ===== Safety Score (ECO) — card 'eco_score' ===== */
+/* Rediseño 14 sep (3ª vuelta, pedido del usuario — la v2 con 2 tarjetas
+   apiladas en 2 filas quedaba "muy grande"): 1 SOLA fila horizontal.
+   Tarjeta de score angosta a la izq + ranking de 5 cajas a la derecha,
+   ganando la mayoría del ancho (flex-basis ~150px vs. flex:3). */
 .promatic_dashboard_enhancer-eco-body {
     display: flex;
-    flex-direction: column;
-    gap: 0.875em;
-}
-
-/* Fila de 1 o 2 tarjetas de score (14 sep, 2ª vuelta): sin selección de
-   carpeta en el dropdown del mapa, Global sola a ancho completo; con
-   selección, 2 columnas (Global + la carpeta elegida) — hay espacio de
-   sobra desde que la card ocupa toda la columna del mapa. */
-.promatic_dashboard_enhancer-eco-score-row {
-    display: flex;
+    align-items: stretch;
     gap: 0.75em;
-}
-
-.promatic_dashboard_enhancer-eco-score-row--split .promatic_dashboard_enhancer-eco-score-card {
-    flex: 1 1 0;
-    min-width: 0;
 }
 
 /* Tarjeta plana de score (rediseño 14 sep, referencia snap05714 — patrón
    "VERA score"): reemplaza el donut SVG. Fondo con gradiente leve por
    umbral (mismos 3 colores good/mid/bad que ya usaba la rueda), número
-   gigante blanco + "/100", label pequeño arriba. El usuario reportó que
-   la posición/tamaño del donut le restaba relevancia al dato más
-   importante de la card — acá el número es el elemento dominante.
-   padding/num -10% (14 sep, 2ª vuelta) — la v1 empujaba mucho hacia
-   abajo el ranking de 5 cajas debajo. */
+   gigante blanco + "/100", label pequeño arriba. Siempre UNA sola tarjeta:
+   Global por defecto, reemplazada por la carpeta filtrada del dropdown
+   del mapa cuando hay selección (nunca las 2 juntas). */
 .promatic_dashboard_enhancer-eco-score-card {
-    flex: 1 1 0;
+    flex: 0 0 150px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     border-radius: 0.75em;
-    padding: 0.9em 1.0125em;
+    padding: 0.75em 0.875em;
     color: #fff;
     text-align: left;
 }
@@ -1150,27 +1141,34 @@
 }
 
 .promatic_dashboard_enhancer-eco-score-card__num {
-    font-size: 2.7em;
+    /* 2.7em → 1.875em (14 sep, 3ª vuelta) — la tarjeta angosta (150px) a
+       la izq de la fila horizontal necesita un número más chico para no
+       desbordar. */
+    font-size: 1.875em;
     font-weight: 800;
     line-height: 1;
 }
 
 .promatic_dashboard_enhancer-eco-score-card__of {
-    font-size: 1.125em;
+    font-size: 0.875em;
     font-weight: 600;
     opacity: 0.85;
 }
 
+/* Oculto en la tarjeta angosta (150px) — "N vehículos · previo X%" no
+   entra sin desbordar. El detalle completo queda para la futura vista de
+   detalle (parte B, sin construir). */
 .promatic_dashboard_enhancer-eco-score-card__sub {
-    margin-top: 0.375em;
-    font-size: 0.75em;
-    opacity: 0.85;
+    display: none;
 }
 
 /* Ranking horizontal de 5 cajas (2 mejores + mediana + 2 peores). Cada caja:
    valor semanal grande + nombre, y debajo un rectángulo con el valor anterior.
-   Color completo por umbral, texto blanco. */
+   Color completo por umbral, texto blanco. Gana la mayoría del ancho de la
+   fila (flex:1, la tarjeta de score de al lado es flex:0 0 150px). */
 .promatic_dashboard_enhancer-eco-cells {
+    flex: 1 1 0;
+    min-width: 0;
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 0.375em;

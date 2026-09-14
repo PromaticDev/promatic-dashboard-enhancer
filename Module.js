@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.17.0',
-    moduleBuild: '2026-09-14-1653',
+    version: '0.17.1',
+    moduleBuild: '2026-09-14-1658',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2428,18 +2428,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '%), ' + folderStats.length + ' carpetas' +
             (specificFolder ? ', específica=' + specificFolder.label : ''));
 
-        // Sin selección de carpeta: Global sola, ancho completo (14 sep).
-        // Con selección: 2 columnas (Global + la carpeta elegida) — hay
-        // espacio de sobra desde que esta card ocupa toda la columna del
-        // mapa (14 sep, misma sesión). Altura ~10% menor que la v1 de la
-        // tarjeta plana (pedido del usuario, "empuja mucho hacia abajo").
-        var globalCard = scoreCard(l('Global Score'), globalScore,
-            rows.length + ' ' + l('vehículos') + ' · ' + l('previo') + ' ' + globalPrev + '%');
-        var scoreCards = [globalCard];
-        if (specificFolder) {
-            scoreCards.push(scoreCard(specificFolder.label, specificFolder.score,
-                specificFolder.rows.length + ' ' + l('vehículos')));
-        }
+        // Rediseño 14 sep (3ª vuelta, pedido del usuario — la v2 con 2
+        // tarjetas apiladas en 2 filas quedaba "muy grande"): 1 SOLA fila
+        // horizontal. Tarjeta de score angosta a la izq (Global por
+        // defecto; se REEMPLAZA por la carpeta filtrada cuando hay
+        // selección — nunca las 2 juntas) + el ranking de 5 cajas
+        // apretado a la derecha, ganando la mayoría del ancho.
+        var activeCard = specificFolder ?
+            scoreCard(specificFolder.label, specificFolder.score,
+                specificFolder.rows.length + ' ' + l('vehículos')) :
+            scoreCard(l('Global Score'), globalScore,
+                rows.length + ' ' + l('vehículos') + ' · ' + l('previo') + ' ' + globalPrev + '%');
 
         var rankCells = [];
         for (var rc = 0; rc < rankFive.length; rc++) { rankCells.push(rankCell(rankFive[rc])); }
@@ -2447,9 +2446,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.updateCardBody('eco_score', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-eco-body',
             cn: [
-                { cls: 'promatic_dashboard_enhancer-eco-score-row' +
-                    (specificFolder ? ' promatic_dashboard_enhancer-eco-score-row--split' : ''),
-                  cn: scoreCards },
+                activeCard,
                 { cls: 'promatic_dashboard_enhancer-eco-cells', cn: rankCells }
             ]
         }), 0, true);
