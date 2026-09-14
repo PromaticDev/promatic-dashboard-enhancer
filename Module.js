@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.17.3',
-    moduleBuild: '2026-09-14-1809',
+    version: '0.17.4',
+    moduleBuild: '2026-09-14-1813',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -31,7 +31,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         ecoScore: { windowDays: 8, idleThresholdMin: 120 },
         // Privacidad: maskPlates=true reemplaza la patente (que en PILOT suele
         // ser el "Nombre de Vehículo") por un alias en toda la UI del dashboard.
-        privacy: { maskPlates: true }
+        // Desactivado 14 sep (decisión del usuario) — el alias secuencial
+        // compartido entre widgets confundía el análisis de flota (ver
+        // brain/trackers/bugs.md), y el cliente ya tiene contrato de
+        // confidencialidad/seguridad firmado. Reactivar solo si se pide
+        // explícitamente, o al resolver la numeración de forma más robusta.
+        privacy: { maskPlates: false }
     },
 
     initModule: function () {
