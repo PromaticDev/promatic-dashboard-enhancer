@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.15.2',
-    moduleBuild: '2026-09-14-1419',
+    version: '0.16.0',
+    moduleBuild: '2026-09-14-1510',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2338,17 +2338,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
         }
 
-        // --- Rueda "Específico": solo si hay carpeta elegida en el dropdown ---
-        var specificWheel = null;
-        if (this._mapFolderFilter) {
-            for (var fs = 0; fs < folderStats.length; fs++) {
-                if (String(folderStats[fs].id) === String(this._mapFolderFilter)) {
-                    specificWheel = folderStats[fs];
-                    break;
-                }
-            }
-        }
-
         var sorted = rows.slice().sort(function (a, b) { return b.cur - a.cur; });
 
         // Ranking de 5 cajas (impar): 2 mejores + mediana + 2 peores.
@@ -2373,34 +2362,25 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return ' =';
         };
 
-        // Rueda donut SVG. r=34, circунf ≈ 213.6; el arco "lleno" es
-        // (score/100) del total. Color por umbral, número blanco al centro
-        // sobre un disco de color.
-        var wheel = function (label, score, sub) {
+        // Tarjeta plana de score (rediseño 14 sep, referencia snap05714 —
+        // patrón "VERA score"): fondo de color con gradiente leve por
+        // umbral (good/mid/bad, mismos 3 colores que ya usaba la rueda),
+        // número gigante + "/100", etiqueta arriba. Reemplaza el donut SVG
+        // — el usuario reportó que la posición/tamaño anterior le restaba
+        // relevancia al dato más importante de la card.
+        var scoreCard = function (label, score, sub) {
             var pct = clamp(score);
-            var C = 2 * Math.PI * 34;
-            var filled = (pct / 100) * C;
             var mod = scoreMod(pct);
             return {
-                cls: 'promatic_dashboard_enhancer-eco-wheel promatic_dashboard_enhancer-eco-wheel--' + mod,
+                cls: 'promatic_dashboard_enhancer-eco-score-card promatic_dashboard_enhancer-eco-score-card--' + mod,
                 cn: [
-                    { tag: 'svg', cls: 'promatic_dashboard_enhancer-eco-wheel__svg',
-                      viewBox: '0 0 80 80', width: '96', height: '96', cn: [
-                        { tag: 'circle', cx: '40', cy: '40', r: '34', fill: 'none',
-                          'stroke-width': '10', cls: 'promatic_dashboard_enhancer-eco-wheel__track' },
-                        { tag: 'circle', cx: '40', cy: '40', r: '34', fill: 'none',
-                          'stroke-width': '10', 'stroke-linecap': 'round',
-                          transform: 'rotate(-90 40 40)',
-                          'stroke-dasharray': filled.toFixed(1) + ' ' + C.toFixed(1),
-                          cls: 'promatic_dashboard_enhancer-eco-wheel__arc' }
-                      ] },
-                    { cls: 'promatic_dashboard_enhancer-eco-wheel__center', cn: [
-                        { cls: 'promatic_dashboard_enhancer-eco-wheel__num', html: String(score) },
-                        { cls: 'promatic_dashboard_enhancer-eco-wheel__of', html: l('de 100') }
+                    { cls: 'promatic_dashboard_enhancer-eco-score-card__label', html: label },
+                    { cls: 'promatic_dashboard_enhancer-eco-score-card__num-row', cn: [
+                        { cls: 'promatic_dashboard_enhancer-eco-score-card__num', html: String(score) },
+                        { cls: 'promatic_dashboard_enhancer-eco-score-card__of', html: '/100' }
                     ] },
-                    { cls: 'promatic_dashboard_enhancer-eco-wheel__label', html: label },
-                    sub ? { cls: 'promatic_dashboard_enhancer-eco-wheel__sub', html: sub } : { cls: 'promatic_dashboard_enhancer-eco-wheel__sub' }
-                ]
+                    sub ? { cls: 'promatic_dashboard_enhancer-eco-score-card__sub', html: sub } : null
+                ].filter(Boolean)
             };
         };
 
@@ -2429,21 +2409,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ' vehículos, ' + days + 'd, global=' + globalScore + '% (previo ' + globalPrev +
             '%), ' + folderStats.length + ' carpetas');
 
-        var wheels = [wheel(l('Global'), globalScore,
-            rows.length + ' ' + l('vehículos') + ' · ' + l('previo') + ' ' + globalPrev + '%')];
-        if (specificWheel) {
-            wheels.push(wheel(specificWheel.label, specificWheel.score,
-                specificWheel.rows.length + ' ' + l('vehículos')));
-        }
+        // Rediseño 14 sep: solo el score Global como tarjeta grande — el
+        // score por carpeta específica (folderStats, arriba) se retiró de
+        // esta card para dejar el número global como único protagonista
+        // (pedido del usuario). folderStats queda calculado por si se
+        // reintroduce en la futura vista de detalle (parte B, sin construir).
+        var globalCard = scoreCard(l('Global Score'), globalScore,
+            rows.length + ' ' + l('vehículos') + ' · ' + l('previo') + ' ' + globalPrev + '%');
 
         var rankCells = [];
         for (var rc = 0; rc < rankFive.length; rc++) { rankCells.push(rankCell(rankFive[rc])); }
 
         this.updateCardBody('eco_score', Ext.DomHelper.markup({
-            cls: 'promatic_dashboard_enhancer-eco-body' +
-                (specificWheel ? ' promatic_dashboard_enhancer-eco-body--2wheels' : ''),
+            cls: 'promatic_dashboard_enhancer-eco-body',
             cn: [
-                { cls: 'promatic_dashboard_enhancer-eco-wheels', cn: wheels },
+                globalCard,
                 { cls: 'promatic_dashboard_enhancer-eco-cells', cn: rankCells }
             ]
         }), 0, true);
@@ -3431,8 +3411,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     ] }
                 ] },
                 { cls: 'promatic_dashboard_enhancer-km-top5', cn: [
-                    { cls: 'promatic_dashboard_enhancer-km-date-range', html: dateFmt(startDate) + ' — ' + dateFmt(stopDate) },
-                    { cls: 'promatic_dashboard_enhancer-km-top5-label', html: l('Ranking') + ' &middot; ' + l('más recorrido') }
+                    { cls: 'promatic_dashboard_enhancer-km-date-range', html: dateFmt(startDate) + ' — ' + dateFmt(stopDate) }
                 ].concat(rankRows).concat([
                     { cls: 'promatic_dashboard_enhancer-km-color-legend', cn: [
                         { tag: 'span', cls: 'promatic_dashboard_enhancer-km-legend-grad' },

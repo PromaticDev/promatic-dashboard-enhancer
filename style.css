@@ -583,14 +583,14 @@
 /* (?) con tooltip — al extremo derecho del head. */
 .promatic_dashboard_enhancer-card__hint {
     flex-shrink: 0;
-    width: 0.9375em;
-    height: 0.9375em;
+    width: 1.5em;
+    height: 1.5em;
     border-radius: 50%;
     border: 1px solid var(--g3);
     color: var(--g5);
-    font-size: 0.625em;
+    font-size: 1em;
     font-weight: 700;
-    line-height: 13px;
+    line-height: 15px;
     text-align: center;
     cursor: help;
     align-self: center;
@@ -653,9 +653,9 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 0.75em;
+    /* padding: 0.75em; */
     height: 100%;
-    gap: 0.25em;
+    /* gap: 0.25em; */
 }
 
 .promatic_dashboard_enhancer-logo img {
@@ -860,7 +860,7 @@
 .promatic_dashboard_enhancer-stat-card {
     position: relative;
     border-radius: 0.625em;
-    padding: 0.625em 0.75em 0.5625em;
+    padding: 0.7em 12px 0.7em;
     min-height: 3.375em;
     color: #fff;
     text-decoration: none;
@@ -1074,108 +1074,66 @@
 }
 
 /* ===== Safety Score (ECO) — card 'eco_score' ===== */
-/* Paleta de estado — color completo, texto blanco (pedido del usuario). */
 .promatic_dashboard_enhancer-eco-body {
     display: flex;
     flex-direction: column;
     gap: 0.875em;
 }
 
-.promatic_dashboard_enhancer-eco-wheels {
+/* Tarjeta plana de score (rediseño 14 sep, referencia snap05714 — patrón
+   "VERA score"): reemplaza el donut SVG. Fondo con gradiente leve por
+   umbral (mismos 3 colores good/mid/bad que ya usaba la rueda), número
+   gigante blanco + "/100", label pequeño arriba. El usuario reportó que
+   la posición/tamaño del donut le restaba relevancia al dato más
+   importante de la card — acá el número es el elemento dominante. */
+.promatic_dashboard_enhancer-eco-score-card {
+    border-radius: 0.75em;
+    padding: 1em 1.125em;
+    color: #fff;
+    text-align: left;
+}
+
+.promatic_dashboard_enhancer-eco-score-card--good {
+    background: linear-gradient(135deg, var(--status-ok-strong), var(--status-ok));
+}
+
+.promatic_dashboard_enhancer-eco-score-card--mid {
+    background: linear-gradient(135deg, var(--status-alert-strong), var(--status-alert));
+}
+
+.promatic_dashboard_enhancer-eco-score-card--bad {
+    background: linear-gradient(135deg, var(--status-danger-strong), var(--status-danger));
+}
+
+.promatic_dashboard_enhancer-eco-score-card__label {
+    font-size: 0.8em;
+    font-weight: 600;
+    opacity: 0.92;
+}
+
+.promatic_dashboard_enhancer-eco-score-card__num-row {
     display: flex;
-    gap: 0.75em;
-    justify-content: center;
+    align-items: baseline;
+    gap: 0.25em;
+    margin-top: 0.125em;
 }
 
-.promatic_dashboard_enhancer-eco-wheel {
-    flex: 1 1 0;
-    max-width: 180px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    position: relative;
-}
-
-.promatic_dashboard_enhancer-eco-wheel__svg {
-    display: block;
-}
-
-.promatic_dashboard_enhancer-eco-wheel__track {
-    stroke: var(--g1);
-}
-
-.promatic_dashboard_enhancer-eco-wheel--good .promatic_dashboard_enhancer-eco-wheel__arc {
-    stroke: var(--status-ok-strong);
-}
-
-.promatic_dashboard_enhancer-eco-wheel--mid .promatic_dashboard_enhancer-eco-wheel__arc {
-    stroke: var(--status-alert-strong);
-}
-
-.promatic_dashboard_enhancer-eco-wheel--bad .promatic_dashboard_enhancer-eco-wheel__arc {
-    stroke: var(--status-danger-strong);
-}
-
-.promatic_dashboard_enhancer-eco-wheel__center {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 96px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-}
-
-.promatic_dashboard_enhancer-eco-wheel__num {
-    /* NOTA: __center (contenedor, height:96px) y .eco-wheel (max-width:180px)
-       quedan fijos — geometría ligada al SVG dibujado por JS. Este texto sí
-       escala; en el extremo superior del rango podría acercarse al borde
-       del círculo — aceptado, verificar visualmente en Grande. */
-    font-size: 1.75em;
-    font-weight: 700;
+.promatic_dashboard_enhancer-eco-score-card__num {
+    font-size: 3em;
+    font-weight: 800;
     line-height: 1;
 }
 
-.promatic_dashboard_enhancer-eco-wheel--good .promatic_dashboard_enhancer-eco-wheel__num {
-    color: var(--status-ok-strong);
+.promatic_dashboard_enhancer-eco-score-card__of {
+    font-size: 1.125em;
+    font-weight: 600;
+    opacity: 0.85;
 }
 
-.promatic_dashboard_enhancer-eco-wheel--mid .promatic_dashboard_enhancer-eco-wheel__num {
-    color: var(--status-alert-strong);
-}
-
-.promatic_dashboard_enhancer-eco-wheel--bad .promatic_dashboard_enhancer-eco-wheel__num {
-    color: var(--status-danger-strong);
-}
-
-.promatic_dashboard_enhancer-eco-wheel__of {
-    font-size: 0.5625em;
-    color: var(--g4);
-    text-transform: uppercase;
-    letter-spacing: .3px;
-}
-
-.promatic_dashboard_enhancer-eco-wheel__label {
+.promatic_dashboard_enhancer-eco-score-card__sub {
     margin-top: 0.375em;
     font-size: 0.75em;
-    font-weight: 600;
-    color: var(--g7);
-    text-transform: uppercase;
-    letter-spacing: .2px;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.promatic_dashboard_enhancer-eco-wheel__sub {
-    font-size: 0.625em;
-    color: var(--g4);
-    min-height: 0.75em;
+    opacity: 0.85;
 }
 
 /* Ranking horizontal de 5 cajas (2 mejores + mediana + 2 peores). Cada caja:
@@ -1262,7 +1220,7 @@
    gráfico, no debe escalar (ver nota general en .panel). */
 .promatic_dashboard_enhancer-km-stack-wrap {
     flex-shrink: 0;
-    width: 60px;
+    width: 40px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1279,7 +1237,7 @@
 .promatic_dashboard_enhancer-km-stack-total b {
     display: block;
     color: var(--g6);
-    font-size: 0.8125em;
+    font-size: 0.8rem;
 }
 
 .promatic_dashboard_enhancer-stacked-track--v {
@@ -1307,7 +1265,7 @@
 }
 
 .promatic_dashboard_enhancer-km-date-range {
-    font-size: 0.6875em;
+    font-size: 0.8rem;
     font-weight: 700;
     color: var(--g6);
     margin-bottom: 0.125em;
@@ -1354,7 +1312,7 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-rank-n
 .promatic_dashboard_enhancer-rank-track {
     flex: 1;
     /* +20% (0.375em → 0.45em) — pedido del usuario, se veían muy finas. */
-    height: 0.45em;
+    height: 0.7rem;
     background: var(--g1);
     border-radius: 0.15em;
     overflow: hidden;
