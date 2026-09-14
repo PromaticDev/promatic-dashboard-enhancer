@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.16.0',
-    moduleBuild: '2026-09-14-1510',
+    version: '0.16.1',
+    moduleBuild: '2026-09-14-1527',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1031,12 +1031,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     hint: l('Vehículos seleccionados en el panel "Principal": activos, en movimiento, estacionados y sin conexión. Se actualiza en vivo con el árbol Online.'),
                     noFooter: true,
                     skeleton: 'donut'
-                }),
-                this.cardMarkup('eco_score', {
-                    title: l('Safety Score (ECO)'),
-                    hint: l('Puntaje de conducción segura por evento de manejo brusco (frenadas/aceleraciones/curvas bruscas, idling), normalizado por km. 100 = sin eventos. Fuente: events.php type=24, ventana configurable.'),
-                    noFooter: true,
-                    skeleton: 'donut'
                 })
             ]
         };
@@ -1052,6 +1046,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var colMap = {
             cls: 'promatic_dashboard_enhancer-area-map',
             cn: [
+                // Safety Score arriba del mapa (pedido del usuario, 14 sep)
+                // — antes vivía en colMid junto a Sin Señal GPS/Top KM.
+                this.cardMarkup('eco_score', {
+                    title: l('Safety Score (ECO)'),
+                    hint: l('Puntaje de conducción segura por evento de manejo brusco (frenadas/aceleraciones/curvas bruscas, idling), normalizado por km. 100 = sin eventos. Fuente: events.php type=24, ventana configurable.'),
+                    noFooter: true,
+                    skeleton: 'donut'
+                }),
                 this.cardMarkup('hotspots', {
                     title: l('Ubicación de la Flota'),
                     hint: l('Puntos de calor con la última posición GPS de los vehículos. El menú de arriba filtra por carpeta del panel "Principal".'),

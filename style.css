@@ -200,16 +200,17 @@
     min-width: 0;
 }
 
+/* Alto NO fijo — desde que Safety Score se movió acá (14 sep, arriba del
+   mapa) la columna tiene 2 cards y debe crecer con su contenido. El mapa
+   mantiene su propio alto de 650px vía #card-body-hotspots (fijo por ID,
+   independiente del padre) y el panel Ext (height:650 en JS) — nunca
+   dependió de heredar el alto del contenedor. */
 .promatic_dashboard_enhancer-area-map {
     flex: 2 1 480px;
     display: flex;
     flex-direction: column;
+    gap: 1em;
     min-width: 0;
-    height: 650px;
-}
-
-.promatic_dashboard_enhancer-area-map .promatic_dashboard_enhancer-card {
-    height: 100%;
 }
 
 /* Las columnas angostas (izq/topbar/mid) necesitan cards sin el
@@ -217,7 +218,8 @@
    una columna de 250px con padding. */
 .promatic_dashboard_enhancer-area-alertas .promatic_dashboard_enhancer-card,
 .promatic_dashboard_enhancer-area-topbar .promatic_dashboard_enhancer-card,
-.promatic_dashboard_enhancer-area-mid .promatic_dashboard_enhancer-card {
+.promatic_dashboard_enhancer-area-mid .promatic_dashboard_enhancer-card,
+.promatic_dashboard_enhancer-area-map .promatic_dashboard_enhancer-card {
     min-width: 0;
 }
 
