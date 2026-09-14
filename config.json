@@ -23,6 +23,6 @@
     "idleThresholdMin": 120
   },
   "privacy": {
-    "maskPlates": false
+    "maskPlates": true
   }
 }
