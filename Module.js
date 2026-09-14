@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.17.2',
-    moduleBuild: '2026-09-14-1719',
+    version: '0.17.3',
+    moduleBuild: '2026-09-14-1756',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2344,18 +2344,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
         }
 
-        var sorted = rows.slice().sort(function (a, b) { return b.cur - a.cur; });
-
-        // Ranking de 5 cajas (impar): 2 mejores + mediana + 2 peores.
-        // Si hay < 5 vehículos, se muestran los que haya sin repetir.
-        var rankFive = [];
-        if (sorted.length <= 5) {
-            rankFive = sorted.slice();
-        } else {
-            var mid = sorted[Math.floor(sorted.length / 2)];
-            rankFive = [sorted[0], sorted[1], mid, sorted[sorted.length - 2], sorted[sorted.length - 1]];
-        }
-
         var scoreMod = function (sc) {
             if (sc >= 75) { return 'good'; }
             if (sc >= 45) { return 'mid'; }
@@ -2427,6 +2415,25 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ' vehículos, ' + days + 'd, global=' + globalScore + '% (previo ' + globalPrev +
             '%), ' + folderStats.length + ' carpetas' +
             (specificFolder ? ', específica=' + specificFolder.label : ''));
+
+        // Ranking de 5 cajas — sobre los vehículos de la carpeta filtrada
+        // cuando hay selección en el dropdown del mapa, no sobre toda la
+        // flota. Bug encontrado 14 sep: el score grande de la izquierda ya
+        // cambiaba a la carpeta correcta (specificFolder.score), pero el
+        // ranking seguía calculado sobre `rows` completo — el usuario veía
+        // vehículos que no eran de la carpeta filtrada (SAMU) en las cajas.
+        var rankSource = specificFolder ? specificFolder.rows : rows;
+        var sorted = rankSource.slice().sort(function (a, b) { return b.cur - a.cur; });
+
+        // Ranking de 5 cajas (impar): 2 mejores + mediana + 2 peores.
+        // Si hay < 5 vehículos, se muestran los que haya sin repetir.
+        var rankFive = [];
+        if (sorted.length <= 5) {
+            rankFive = sorted.slice();
+        } else {
+            var mid = sorted[Math.floor(sorted.length / 2)];
+            rankFive = [sorted[0], sorted[1], mid, sorted[sorted.length - 2], sorted[sorted.length - 1]];
+        }
 
         // Rediseño 14 sep (3ª vuelta, pedido del usuario — la v2 con 2
         // tarjetas apiladas en 2 filas quedaba "muy grande"): 1 SOLA fila
