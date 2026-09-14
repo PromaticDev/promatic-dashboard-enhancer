@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.13.0',
-    moduleBuild: '2026-09-14-1143',
+    version: '0.13.1',
+    moduleBuild: '2026-09-14-1208',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -119,6 +119,25 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me.buildHotspotsMapPanel();
                         me.startClock();
                         me.renderLogo();
+                        // Recalcular el alto scrolleable una vez asentado el
+                        // layout inicial del tab — cubre el caso de arrancar
+                        // ya en un tamaño de ventana no maximizado (ver nota
+                        // del listener 'resize' más abajo).
+                        Ext.defer(function () { panel.updateLayout(); }, 300);
+                    }
+                },
+                // El scrollable:'y' de Ext calcula el alto scrolleable una
+                // sola vez al montar. Si la ventana cambia de tamaño después
+                // (o arranca en un tamaño no maximizado), ese cálculo queda
+                // viejo y recorta contenido al final del flujo vbox (el
+                // footer de controles) sin mostrar scrollbar — descubierto
+                // 14 sep, footer no visible en ventanas de tamaño personalizado.
+                // updateLayout() fuerza a Ext a remedir; debounce 150ms para
+                // no recalcular en cada pixel durante un drag de resize.
+                resize: {
+                    buffer: 150,
+                    fn: function () {
+                        panel.updateLayout();
                     }
                 }
             }
