@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.13.1',
-    moduleBuild: '2026-09-14-1208',
+    version: '0.13.2',
+    moduleBuild: '2026-09-14-1214',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -119,31 +119,49 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me.buildHotspotsMapPanel();
                         me.startClock();
                         me.renderLogo();
-                        // Recalcular el alto scrolleable una vez asentado el
-                        // layout inicial del tab — cubre el caso de arrancar
-                        // ya en un tamaño de ventana no maximizado (ver nota
-                        // del listener 'resize' más abajo).
-                        Ext.defer(function () { panel.updateLayout(); }, 300);
-                    }
-                },
-                // El scrollable:'y' de Ext calcula el alto scrolleable una
-                // sola vez al montar. Si la ventana cambia de tamaño después
-                // (o arranca en un tamaño no maximizado), ese cálculo queda
-                // viejo y recorta contenido al final del flujo vbox (el
-                // footer de controles) sin mostrar scrollbar — descubierto
-                // 14 sep, footer no visible en ventanas de tamaño personalizado.
-                // updateLayout() fuerza a Ext a remedir; debounce 150ms para
-                // no recalcular en cada pixel durante un drag de resize.
-                resize: {
-                    buffer: 150,
-                    fn: function () {
-                        panel.updateLayout();
+                        // scrollable:'y' de Ext mide el alto scrolleable
+                        // contra el navTab contenedor, no contra el contenido
+                        // real — en ventanas angostas el shell de 4 columnas
+                        // (flex-wrap) crece de alto (las columnas se apilan)
+                        // sin que Ext se entere, recortando el footer de
+                        // controles sin mostrar scrollbar. Un listener
+                        // 'resize' del panel + un Ext.defer de timing fijo
+                        // no bastan: no disparan cuando el contenido interno
+                        // cambia de alto sin que la ventana del browser
+                        // cambie — solo "estirar la ventana" lo arreglaba
+                        // (descubierto 14 sep). ResizeObserver sobre el
+                        // propio elemento del panel dispara exactamente
+                        // cuando su tamaño de contenido cambia, sin adivinar
+                        // timing. Mismo patrón ya usado en el mapa de
+                        // hotspots (BR-PILOT-0007).
+                        me._bindPanelResizeObserver(panel);
                     }
                 }
             }
         });
 
         return panel;
+    },
+
+    // ResizeObserver sobre el elemento del panel raíz: dispara cada vez que
+    // su tamaño de contenido real cambia (wrap de columnas, cards que crecen
+    // con datos, cambio de escala S/M/L), sin depender de un evento de
+    // resize de la ventana del browser ni de un timing fijo. updateLayout()
+    // fuerza a Ext a remedir el alto scrolleable contra ese tamaño real.
+    // Debounce corto vía Ext.defer con id fijo: un ResizeObserver puede
+    // disparar varias veces seguidas durante un reflow.
+    _bindPanelResizeObserver: function (panel) {
+        var el = panel.getEl && panel.getEl();
+        if (!el || !el.dom || typeof ResizeObserver === 'undefined') { return; }
+        var me = this;
+        if (this._panelResizeObserver) { return; }
+        this._panelResizeObserver = new ResizeObserver(function () {
+            if (me._panelResizeDefer) { clearTimeout(me._panelResizeDefer); }
+            me._panelResizeDefer = Ext.defer(function () {
+                if (panel.updateLayout) { panel.updateLayout(); }
+            }, 120);
+        });
+        this._panelResizeObserver.observe(el.dom);
     },
 
     // -----------------------------------------------------------------------
