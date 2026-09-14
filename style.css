@@ -1094,15 +1094,32 @@
     gap: 0.875em;
 }
 
+/* Fila de 1 o 2 tarjetas de score (14 sep, 2ª vuelta): sin selección de
+   carpeta en el dropdown del mapa, Global sola a ancho completo; con
+   selección, 2 columnas (Global + la carpeta elegida) — hay espacio de
+   sobra desde que la card ocupa toda la columna del mapa. */
+.promatic_dashboard_enhancer-eco-score-row {
+    display: flex;
+    gap: 0.75em;
+}
+
+.promatic_dashboard_enhancer-eco-score-row--split .promatic_dashboard_enhancer-eco-score-card {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
 /* Tarjeta plana de score (rediseño 14 sep, referencia snap05714 — patrón
    "VERA score"): reemplaza el donut SVG. Fondo con gradiente leve por
    umbral (mismos 3 colores good/mid/bad que ya usaba la rueda), número
    gigante blanco + "/100", label pequeño arriba. El usuario reportó que
    la posición/tamaño del donut le restaba relevancia al dato más
-   importante de la card — acá el número es el elemento dominante. */
+   importante de la card — acá el número es el elemento dominante.
+   padding/num -10% (14 sep, 2ª vuelta) — la v1 empujaba mucho hacia
+   abajo el ranking de 5 cajas debajo. */
 .promatic_dashboard_enhancer-eco-score-card {
+    flex: 1 1 0;
     border-radius: 0.75em;
-    padding: 1em 1.125em;
+    padding: 0.9em 1.0125em;
     color: #fff;
     text-align: left;
 }
@@ -1133,7 +1150,7 @@
 }
 
 .promatic_dashboard_enhancer-eco-score-card__num {
-    font-size: 3em;
+    font-size: 2.7em;
     font-weight: 800;
     line-height: 1;
 }
@@ -1352,7 +1369,7 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-rank-n
     text-align: right;
     color: var(--g6);
     font-variant-numeric: tabular-nums;
-    font-size: 0.625em;
+    font-size: 0.7rem;
 }
 
 .promatic_dashboard_enhancer-chev {
