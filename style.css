@@ -1408,6 +1408,42 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     pointer-events: none;
 }
 
+/* Control de escala manual (S/M/L) — no hay forma de detectar el tamaño
+   físico del monitor, el usuario elige según lo que ve. Grupo segmentado,
+   mismo lenguaje visual que el resto de la barra de controles. */
+.promatic_dashboard_enhancer-scale {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--g4);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-left: 4px;
+}
+
+.promatic_dashboard_enhancer-scale__opt {
+    font-size: 12px;
+    padding: 6px 10px;
+    color: var(--g6);
+    background: #fff;
+    cursor: pointer;
+    user-select: none;
+    border-left: 1px solid var(--g4);
+}
+
+.promatic_dashboard_enhancer-scale__opt:first-child {
+    border-left: none;
+}
+
+.promatic_dashboard_enhancer-scale__opt:hover {
+    background: var(--g0);
+}
+
+.promatic_dashboard_enhancer-scale__opt.is-active {
+    background: var(--g6);
+    color: #fff;
+    font-weight: 600;
+}
+
 /* El head del mapa lleva un <select> — centrar verticalmente y permitir
    wrap si el nombre de carpeta es largo. */
 #promatic_dashboard_enhancer-card-hotspots .promatic_dashboard_enhancer-card__head {
