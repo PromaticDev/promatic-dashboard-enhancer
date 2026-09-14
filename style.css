@@ -251,6 +251,22 @@
     .promatic_dashboard_enhancer-area-topbar .promatic_dashboard_enhancer-export-block {
         margin-left: auto;
         flex: 0 1 auto;
+        /* En fila horizontal, las 2 export-card (Exportar/Golden Report)
+           van una al lado de la otra en vez de apiladas — si no, el
+           bloque se "desarma" (queda angostísimo y muy alto). Alto fijo
+           +font-size más chico para que quepan cómodas en la franja. */
+        flex-direction: row;
+        align-items: flex-start;
+        height: 100px;
+        font-size: 0.9rem;
+    }
+
+    /* El logo pierde el gap/padding verticales en modo topbar horizontal
+       — sin esto el texto de versión bajo el logo empuja el alto de toda
+       la fila hacia abajo en vez de quedar pegado a la imagen. */
+    .promatic_dashboard_enhancer-area-topbar .promatic_dashboard_enhancer-logo {
+        gap: 0;
+        padding: 0;
     }
 }
 
