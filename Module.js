@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.16.1',
-    moduleBuild: '2026-09-14-1527',
+    version: '0.16.2',
+    moduleBuild: '2026-09-14-1552',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -143,16 +143,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return panel;
     },
 
-    // ResizeObserver sobre el elemento del panel raíz: dispara cada vez que
-    // su tamaño de contenido real cambia (wrap de columnas, cards que crecen
-    // con datos, cambio de escala S/M/L), sin depender de un evento de
-    // resize de la ventana del browser ni de un timing fijo. updateLayout()
-    // fuerza a Ext a remedir el alto scrolleable contra ese tamaño real.
-    // Debounce corto vía Ext.defer con id fijo: un ResizeObserver puede
-    // disparar varias veces seguidas durante un reflow.
+    // Observar el CONTENIDO interno (.rac-shell), no el panel externo con
+    // scroll — bug encontrado 14 sep, 2ª vuelta: panel.getEl() devuelve el
+    // elemento EXTERNO del Ext.panel.Panel (el que tiene scrollable:'y' y
+    // overflow), cuyo tamaño visible no cambia aunque el contenido de
+    // adentro crezca (ej. Safety Score movido arriba del mapa, columna sin
+    // alto fijo). Un ResizeObserver en el contenedor externo nunca detecta
+    // que el contenido se desbordó — hay que observar lo que realmente
+    // crece. updateLayout() del panel sigue siendo necesario para que Ext
+    // remida el alto scrolleable contra ese contenido ya crecido.
     _bindPanelResizeObserver: function (panel) {
         var el = panel.getEl && panel.getEl();
         if (!el || !el.dom || typeof ResizeObserver === 'undefined') { return; }
+        var shellDom = el.dom.querySelector('.promatic_dashboard_enhancer-rac-shell');
+        if (!shellDom) { return; }
         var me = this;
         if (this._panelResizeObserver) { return; }
         this._panelResizeObserver = new ResizeObserver(function () {
@@ -161,7 +165,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 if (panel.updateLayout) { panel.updateLayout(); }
             }, 120);
         });
-        this._panelResizeObserver.observe(el.dom);
+        this._panelResizeObserver.observe(shellDom);
     },
 
     // -----------------------------------------------------------------------
@@ -2479,10 +2483,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: 'promatic_dashboard_enhancer-hotspots-map',
             bodyCls: 'promatic_dashboard_enhancer-hotspots-map-body',
             layout: 'fit',
-            // Alto fijo, igual al de #card-body-hotspots en CSS (cuadrado).
-            // No se ajusta dinámicamente por altura — solo por ancho
-            // (ResizeObserver de más abajo dispara checkResize de Leaflet).
-            height: 650,
+            // Alto fijo, igual al de #card-body-hotspots en CSS (500px,
+            // 14 sep — antes 650, bajado para que la columna con Safety
+            // Score arriba no necesite scroll). No se ajusta dinámicamente
+            // por altura — solo por ancho (ResizeObserver de más abajo
+            // dispara checkResize de Leaflet).
+            height: 500,
             border: false,
             listeners: {
                 render: function () {

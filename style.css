@@ -553,7 +553,10 @@
        widgets. Pedido del usuario, 4 sep. */
     padding: 8px 12px;
     overflow: hidden;
-    height: 650px;
+    /* 650px → 500px (14 sep, pedido del usuario) — con Safety Score arriba,
+       la columna quedaba con scroll. Mantener en sync con el height:650 del
+       Ext.panel.Panel del mapa en Module.js (buildHotspotsMapPanel). */
+    height: 500px;
 }
 
 .promatic_dashboard_enhancer-card__head {
