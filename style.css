@@ -274,6 +274,7 @@
    exportar — deja solo el logo. Pedido del usuario: "si se angosta aún
    más, se podría solo dejar el ícono del logotipo". */
 @container dashboardpanel (max-width: 28em) {
+
     .promatic_dashboard_enhancer-area-topbar #promatic_dashboard_enhancer-card-reloj,
     .promatic_dashboard_enhancer-area-topbar .promatic_dashboard_enhancer-export-block {
         display: none;
@@ -605,6 +606,7 @@
     flex: 1 1 auto;
     overflow-y: auto;
     min-height: 60px;
+    font-size: 16px;
 }
 
 .promatic_dashboard_enhancer-card__footer {
@@ -1351,9 +1353,10 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-rank-n
 
 .promatic_dashboard_enhancer-rank-track {
     flex: 1;
-    height: 0.375em;
+    /* +20% (0.375em → 0.45em) — pedido del usuario, se veían muy finas. */
+    height: 0.45em;
     background: var(--g1);
-    border-radius: 0.125em;
+    border-radius: 0.15em;
     overflow: hidden;
 }
 
