@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.16.2',
-    moduleBuild: '2026-09-14-1552',
+    version: '0.16.3',
+    moduleBuild: '2026-09-14-1603',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2483,12 +2483,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: 'promatic_dashboard_enhancer-hotspots-map',
             bodyCls: 'promatic_dashboard_enhancer-hotspots-map-body',
             layout: 'fit',
-            // Alto fijo, igual al de #card-body-hotspots en CSS (500px,
-            // 14 sep — antes 650, bajado para que la columna con Safety
+            // Alto fijo, igual al de #card-body-hotspots en CSS (450px,
+            // 14 sep — antes 650/500, bajado para que la columna con Safety
             // Score arriba no necesite scroll). No se ajusta dinámicamente
             // por altura — solo por ancho (ResizeObserver de más abajo
             // dispara checkResize de Leaflet).
-            height: 500,
+            height: 450,
             border: false,
             listeners: {
                 render: function () {

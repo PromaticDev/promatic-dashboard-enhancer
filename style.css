@@ -553,10 +553,20 @@
        widgets. Pedido del usuario, 4 sep. */
     padding: 8px 12px;
     overflow: hidden;
-    /* 650px → 500px (14 sep, pedido del usuario) — con Safety Score arriba,
-       la columna quedaba con scroll. Mantener en sync con el height:650 del
-       Ext.panel.Panel del mapa en Module.js (buildHotspotsMapPanel). */
-    height: 500px;
+    /* 650px → 500px → 450px (14 sep, pedido del usuario) — con Safety Score
+       arriba, la columna quedaba con scroll. Mantener en sync con el
+       height del Ext.panel.Panel del mapa en Module.js
+       (buildHotspotsMapPanel). */
+    height: 450px;
+}
+
+/* Controles nativos de Leaflet (zoom +/-, selector de capas incl. "GPS
+   JAM" — ver FR-0014) anclados top-left por defecto con poco margen. Con
+   el mapa más bajo (450px, antes 650) quedaban muy pegados al borde
+   superior de la card. Empujarlos un poco más adentro. */
+.promatic_dashboard_enhancer-hotspots-map .leaflet-top.leaflet-left {
+    top: 10px;
+    left: 10px;
 }
 
 .promatic_dashboard_enhancer-card__head {
@@ -851,7 +861,6 @@
     display: flex;
     flex-direction: column;
     gap: 0.3em;
-    width: 85%;
 }
 
 /* Alertas Generales vive en la columna izquierda (sin alto fijo) — la card
