@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.14.0',
-    moduleBuild: '2026-09-14-1303',
+    version: '0.15.0',
+    moduleBuild: '2026-09-14-1328',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -993,7 +993,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // Generales — gana el alto completo de la columna. El reloj se
         // movió a col 4, debajo del logo.
         var colLeft = {
-            cls: 'promatic_dashboard_enhancer-shell-col--fixed-left',
+            cls: 'promatic_dashboard_enhancer-area-alertas',
             cn: [
                 this.cardMarkup('alertas_generales', {
                     title: l('Alertas Generales'),
@@ -1012,7 +1012,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // hueco. Reserva de espacio al final para un futuro widget (no
         // implementado todavía).
         var colMid = {
-            cls: 'promatic_dashboard_enhancer-shell-col--mid',
+            cls: 'promatic_dashboard_enhancer-area-mid',
             cn: [
                 this.cardMarkup('gps_signal', {
                     title: l('Sin Señal GPS'),
@@ -1050,7 +1050,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // de la vista LOC/LOP. Se deja aquí como demo del mapa propio
         // funcionando (BR-PILOT-0007) hasta armar FR-0008.
         var colMap = {
-            cls: 'promatic_dashboard_enhancer-shell-col--map',
+            cls: 'promatic_dashboard_enhancer-area-map',
             cn: [
                 this.cardMarkup('hotspots', {
                     title: l('Ubicación de la Flota'),
@@ -1067,8 +1067,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ]
         };
 
+        // Col 4 / topbar — Logo + Hora + bloque de exportar. Columna vertical
+        // fija a la derecha en ancho amplio; barra horizontal arriba de las
+        // otras 3 en ancho angosto (grid-template-areas cambia solo la
+        // DISPOSICIÓN, mismo DOM — ver .shell-grid en style.css). Pedido del
+        // usuario 14 sep: "Logo a la izquierda, hora al centro, exportar a
+        // la derecha" cuando es barra horizontal.
         var colRight = {
-            cls: 'promatic_dashboard_enhancer-shell-col--fixed-right',
+            cls: 'promatic_dashboard_enhancer-area-topbar',
             cn: [
                 this.cardMarkup('logo', { noFooter: true }),
                 this.cardMarkup('reloj', { title: l('Hora Oficial'), noFooter: true }),
@@ -1077,7 +1083,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         };
 
         var shell = [
-            { cls: 'promatic_dashboard_enhancer-shell-4col', cn: [colLeft, colMid, colMap, colRight] },
+            {
+                cls: 'promatic_dashboard_enhancer-shell-grid',
+                cn: [
+                    colRight,
+                    { cls: 'promatic_dashboard_enhancer-shell-row', cn: [colLeft, colMid, colMap] }
+                ]
+            },
             // Contenedor reservado sobre el footer de controles — para widgets
             // horizontales sueltos futuros (el usuario planea agregar varios).
             { id: 'promatic_dashboard_enhancer-eco-folder-bar', cls: 'promatic_dashboard_enhancer-eco-folder-bar', cn: [] },

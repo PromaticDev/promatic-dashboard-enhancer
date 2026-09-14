@@ -16,6 +16,12 @@
     font-size: calc(16px * var(--scale-factor, 1));
     padding: 0.75em;
     background-color: var(--g2);
+    /* container-type habilita @container más abajo (.shell-grid) para
+       reaccionar al ancho REAL del panel de la extensión dentro de PILOT,
+       no al viewport del navegador — la extensión vive en un tab, no
+       ocupa toda la ventana. Mismo patrón que .card-body-gps_signal. */
+    container-type: inline-size;
+    container-name: dashboardpanel;
     /* Tokens de color — en el contenedor, no en :root (ver spec/api.md). */
     --g0: #f4f6f8;
     --g1: #e6edf3;
@@ -140,68 +146,122 @@
     min-width: 0;
 }
 
-/* ===== Layout RAC de 4 columnas (rediseño 3 sep, idea-rediseño-layout.jpg) =====
-   Col 1 (izq) y col 4 (der): ancho fijo. Col 2-3 (centro): flex, absorben
-   el espacio restante y son las únicas que otras vistas (LOC/LOP) moverán.
-   Flexbox puro, sin grid ni !important (BR-PILOT-0006). */
-.promatic_dashboard_enhancer-shell-4col {
+/* ===== Layout RAC (rediseño 14 sep — grid con áreas nombradas) =====
+   Reemplaza el flex de 4 columnas (3 sep) por: .shell-grid (topbar +
+   .shell-row) > .shell-row (Alertas + Mid + Mapa). Mismo DOM en los 3
+   modos — solo cambia la disposición vía @container (ancho real del
+   panel dentro de PILOT, no el viewport — ver container-type en .panel).
+   - wide (≥69em / ~1104px al 100%): topbar es una columna vertical a la
+     derecha (grid), exactamente como el shell de 4 columnas de antes.
+   - narrow (<69em): topbar se vuelve una FILA horizontal arriba de todo
+     — Logo izq, Hora centro, Exportar der (pedido del usuario, 14 sep) —
+     y .shell-row (Alertas/Mid/Mapa) queda debajo, wrappeando en flex.
+   - compact (<28em / ~448px): dentro de la fila del topbar, se oculta
+     todo menos el logo.
+   Breakpoints en `em` (relativos al font-size del panel, que cambia con
+   el control +/- de escala) — el punto de quiebre se mueve junto con el
+   zoom real del usuario, no con un px fijo desalineado del resto. */
+.promatic_dashboard_enhancer-shell-grid {
+    display: grid;
+    gap: 1em;
+    grid-template-columns: minmax(0, 1fr) 240px;
+    grid-template-areas: "row topbar";
+    align-items: start;
+}
+
+.promatic_dashboard_enhancer-shell-row {
+    grid-area: row;
     display: flex;
-    flex-wrap: wrap;
     gap: 1em;
     align-items: flex-start;
 }
 
-/* Col 1 — antes ~1fr de 4; ahora ~30% más angosta. flex-basis/min-width
-   en px fijos a propósito (estructural, no debe escalar con el control
-   de tamaño — ver nota en .promatic_dashboard_enhancer-panel). */
-.promatic_dashboard_enhancer-shell-col--fixed-left {
+.promatic_dashboard_enhancer-area-topbar {
+    grid-area: topbar;
+    display: flex;
+    flex-direction: column;
+    gap: 1em;
+    min-width: 0;
+}
+
+.promatic_dashboard_enhancer-area-alertas {
     flex: 0 0 250px;
     display: flex;
     flex-direction: column;
     gap: 1em;
-    min-width: 180px;
+    min-width: 0;
 }
 
-/* Col 4 — logo + bloque export. */
-.promatic_dashboard_enhancer-shell-col--fixed-right {
-    flex: 0 0 240px;
-    display: flex;
-    flex-direction: column;
-    gap: 1em;
-    min-width: 200px;
-}
-
-/* Col 2 — Sin Señal GPS + Top KM apiladas verticalmente (4 sep, pedido de
-   Ana: sin "Estado de Flota" el hueco quedaba más alto que el resto).
-   Angosta, mismo ancho aprox. que col 1/4. */
-.promatic_dashboard_enhancer-shell-col--mid {
+.promatic_dashboard_enhancer-area-mid {
     flex: 1 1 280px;
     display: flex;
     flex-direction: column;
     gap: 1em;
-    min-width: 260px;
+    min-width: 0;
 }
 
-/* Col 3 — el mapa solo, con el doble de flex-basis de col--mid: gana ancho
-   y (via la altura fija del panel del mapa, ver buildHotspotsMapPanel)
-   queda más cuadrado que el rectángulo apaisado anterior. */
-.promatic_dashboard_enhancer-shell-col--map {
+.promatic_dashboard_enhancer-area-map {
     flex: 2 1 480px;
     display: flex;
     flex-direction: column;
-    min-width: 320px;
+    min-width: 0;
     height: 650px;
 }
 
-.promatic_dashboard_enhancer-shell-col--map .promatic_dashboard_enhancer-card {
+.promatic_dashboard_enhancer-area-map .promatic_dashboard_enhancer-card {
     height: 100%;
 }
 
-/* La columna izquierda angosta necesita cards sin el min-width de 220px. */
-.promatic_dashboard_enhancer-shell-col--fixed-left .promatic_dashboard_enhancer-card,
-.promatic_dashboard_enhancer-shell-col--fixed-right .promatic_dashboard_enhancer-card,
-.promatic_dashboard_enhancer-shell-col--mid .promatic_dashboard_enhancer-card {
+/* Las columnas angostas (izq/topbar/mid) necesitan cards sin el
+   min-width:220px de la card base — si no, la card fuerza overflow en
+   una columna de 250px con padding. */
+.promatic_dashboard_enhancer-area-alertas .promatic_dashboard_enhancer-card,
+.promatic_dashboard_enhancer-area-topbar .promatic_dashboard_enhancer-card,
+.promatic_dashboard_enhancer-area-mid .promatic_dashboard_enhancer-card {
     min-width: 0;
+}
+
+/* narrow: topbar pasa a fila horizontal arriba (order:-1 lo sube visualmente
+   sin tocar el DOM); .shell-row queda debajo y wrappea sus 3 columnas
+   libremente en vez de forzar el ancho fijo del modo wide. */
+@container dashboardpanel (max-width: 69em) {
+    .promatic_dashboard_enhancer-shell-grid {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .promatic_dashboard_enhancer-shell-row {
+        flex-wrap: wrap;
+    }
+
+    .promatic_dashboard_enhancer-area-topbar {
+        order: -1;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    /* Logo izq, hora centro (mismo orden del DOM), exportar empujado a la
+       derecha con margin-left:auto — las cards dejan de estirarse a ancho
+       completo (son verticales por diseño, acá van una al lado de otra). */
+    .promatic_dashboard_enhancer-area-topbar .promatic_dashboard_enhancer-card {
+        flex: 0 0 auto;
+    }
+
+    .promatic_dashboard_enhancer-area-topbar .promatic_dashboard_enhancer-export-block {
+        margin-left: auto;
+        flex: 0 1 auto;
+    }
+}
+
+/* compact: dentro del topbar horizontal, ocultar hora y bloque de
+   exportar — deja solo el logo. Pedido del usuario: "si se angosta aún
+   más, se podría solo dejar el ícono del logotipo". */
+@container dashboardpanel (max-width: 28em) {
+    .promatic_dashboard_enhancer-area-topbar #promatic_dashboard_enhancer-card-reloj,
+    .promatic_dashboard_enhancer-area-topbar .promatic_dashboard_enhancer-export-block {
+        display: none;
+    }
 }
 
 /* Bloque "Exportar Reporte / Generar Golden Report" — placeholder (FR-0005). */
@@ -767,7 +827,8 @@
 .promatic_dashboard_enhancer-stat-card-grid {
     display: flex;
     flex-direction: column;
-    gap: 0.5em;
+    gap: 0.3em;
+    width: 85%;
 }
 
 /* Alertas Generales vive en la columna izquierda (sin alto fijo) — la card
@@ -911,12 +972,13 @@
 }
 
 .promatic_dashboard_enhancer-stat-card__title {
-    font-size: 1rem;
+    font-size: 0.7rem;
     font-weight: 500;
     line-height: 1.25;
     max-width: 85%;
     margin-bottom: 0.25em;
     opacity: .96;
+    text-transform: uppercase;
 }
 
 .promatic_dashboard_enhancer-stat-card__count {
