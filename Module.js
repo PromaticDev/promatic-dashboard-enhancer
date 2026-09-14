@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.13.2',
-    moduleBuild: '2026-09-14-1214',
+    version: '0.13.3',
+    moduleBuild: '2026-09-14-1221',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1130,34 +1130,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     id: 'promatic_dashboard_enhancer-btn-refresh',
                     cls: 'promatic_dashboard_enhancer-ctrl-btn promatic_dashboard_enhancer-ctrl-btn--primary',
                     html: l('Actualizar widgets')
-                },
-                this.scaleBarMarkup()
-            ]
-        };
-    },
-
-    // Control de escala manual (S/M/L) — no hay forma de detectar el tamaño
-    // físico de un monitor externo desde el navegador, así que el ajuste
-    // queda a criterio del usuario según lo que vea. Aplica `zoom` sobre el
-    // panel raíz vía applyScaleStep/setScaleStep. Persistido en localStorage
-    // por equipo/navegador, no por cuenta PILOT.
-    scaleBarMarkup: function () {
-        var current = this.getScaleStep();
-        var opt = function (step, label) {
-            return {
-                tag: 'span',
-                cls: 'promatic_dashboard_enhancer-scale__opt' + (step === current ? ' is-active' : ''),
-                'data-scale': step,
-                html: label
-            };
-        };
-        return {
-            id: 'promatic_dashboard_enhancer-scale-bar',
-            cls: 'promatic_dashboard_enhancer-scale',
-            cn: [
-                opt('s', l('Chico')),
-                opt('m', l('Normal')),
-                opt('l', l('Grande'))
+                }
             ]
         };
     },
@@ -1239,17 +1212,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     var b = Ext.get('promatic_dashboard_enhancer-btn-refresh');
                     if (b) { b.removeCls('promatic_dashboard_enhancer-ctrl-btn--busy'); }
                 }, 800);
-                return;
-            }
-            var scaleOpt = e.getTarget('.promatic_dashboard_enhancer-scale__opt', 3, true);
-            if (scaleOpt) {
-                e.preventDefault();
-                me.setScaleStep(scaleOpt.getAttribute('data-scale'));
             }
         });
 
         this.syncScopeSlider();
-        this.applyScaleStep(this.getScaleStep());
     },
 
     buildLopShell: function () {
@@ -1347,47 +1313,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // NOC-007 — se retiró el 1 sep: el slider ya da control explícito, y la
     // lista de 45 ids del demo pisaba el modo "toda la flota".)
     SCOPE_OVERRIDE_STORAGE_KEY: 'promatic_dashboard_enhancer_scope_override',
-
-    // Escala manual del dashboard — no hay forma de detectar el tamaño físico
-    // de un monitor externo desde el navegador (devicePixelRatio/resolución
-    // son iguales en un TV grande de feria y un monitor de oficina normal si
-    // ambos son FullHD). Control S/M/L en el pie, aplicado como `zoom` sobre
-    // el panel raíz. Por equipo/navegador (localStorage), no por cuenta.
-    SCALE_STORAGE_KEY: 'promatic_dashboard_enhancer_scale',
-    SCALE_STEPS: { s: 0.85, m: 1, l: 1.15 },
-    SCALE_DEFAULT: 'm',
-
-    getScaleStep: function () {
-        try {
-            var v = window.localStorage && localStorage.getItem(this.SCALE_STORAGE_KEY);
-            return (v && this.SCALE_STEPS[v]) ? v : this.SCALE_DEFAULT;
-        } catch (err) {
-            return this.SCALE_DEFAULT;
-        }
-    },
-
-    setScaleStep: function (step) {
-        if (!this.SCALE_STEPS[step]) { return; }
-        try {
-            if (window.localStorage) { localStorage.setItem(this.SCALE_STORAGE_KEY, step); }
-        } catch (err) {
-            this.widgetErrorCode('SCALE-STORAGE', err);
-        }
-        this.applyScaleStep(step);
-    },
-
-    applyScaleStep: function (step) {
-        var panelEl = Ext.get('promatic_dashboard_enhancer-panel-root');
-        if (panelEl && panelEl.dom) {
-            panelEl.dom.style.zoom = this.SCALE_STEPS[step];
-        }
-        var bar = Ext.get('promatic_dashboard_enhancer-scale-bar');
-        if (bar) {
-            bar.select('.promatic_dashboard_enhancer-scale__opt').removeCls('is-active');
-            var active = bar.down('[data-scale="' + step + '"]');
-            if (active) { active.addCls('is-active'); }
-        }
-    },
 
     getScopeOverride: function () {
         try {
