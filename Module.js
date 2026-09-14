@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.17.1',
-    moduleBuild: '2026-09-14-1658',
+    version: '0.17.2',
+    moduleBuild: '2026-09-14-1719',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2610,14 +2610,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         root.cascadeBy(function (node) {
             if (node === root) { return; }
             if (node.get('agentid')) { return; } // hoja, no carpeta
-            var hasRelevantLeaf = false;
-            node.cascadeBy(function (c) {
-                if (hasRelevantLeaf || c === node) { return; }
-                var aid = c.get('agentid');
-                if (!aid) { return; }
-                if (scopeAll || selected[String(aid)]) { hasRelevantLeaf = true; }
-            });
-            if (hasRelevantLeaf) {
+            // Solo vehículos HIJOS DIRECTOS de esta carpeta — no basta con
+            // tener un descendiente relevante en alguna subcarpeta anidada.
+            // Sin esto, una carpeta contenedora sin vehículos propios (ej.
+            // "FLOTA" con toda su flota dentro de una subcarpeta) aparecía
+            // en el dropdown junto a la subcarpeta real, duplicando la
+            // opción sin aportar nada (pedido del usuario, 14 sep).
+            var hasDirectLeaf = false;
+            if (node.eachChild) {
+                node.eachChild(function (c) {
+                    if (hasDirectLeaf) { return; }
+                    var aid = c.get('agentid');
+                    if (!aid) { return; }
+                    if (scopeAll || selected[String(aid)]) { hasDirectLeaf = true; }
+                });
+            }
+            if (hasDirectLeaf) {
                 out.push({ value: node.getId(), label: node.get('text') || node.get('name') || l('(carpeta)') });
             }
         });
