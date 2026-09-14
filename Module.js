@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.13.3',
-    moduleBuild: '2026-09-14-1221',
+    version: '0.14.0',
+    moduleBuild: '2026-09-14-1303',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1130,6 +1130,44 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     id: 'promatic_dashboard_enhancer-btn-refresh',
                     cls: 'promatic_dashboard_enhancer-ctrl-btn promatic_dashboard_enhancer-ctrl-btn--primary',
                     html: l('Actualizar widgets')
+                },
+                this.scaleControlMarkup()
+            ]
+        };
+    },
+
+    // Control de escala +/- (14 sep, v2 — reemplaza el intento con `zoom`
+    // que se revirtió por romper el área clickeable de Ext JS). Cambia
+    // --scale-factor en el panel raíz, que mueve el font-size REAL del
+    // contenedor — todo lo escrito en `em` en style.css escala de verdad,
+    // Ext mide el DOM real sin trucos. Paso 5%, rango 80%-130%. Persistido
+    // en localStorage por equipo/navegador (el problema es el monitor, no
+    // la cuenta PILOT).
+    scaleControlMarkup: function () {
+        var pct = this.getScalePct();
+        return {
+            id: 'promatic_dashboard_enhancer-scale-ctrl',
+            cls: 'promatic_dashboard_enhancer-scale',
+            cn: [
+                {
+                    tag: 'button', type: 'button',
+                    id: 'promatic_dashboard_enhancer-scale-minus',
+                    cls: 'promatic_dashboard_enhancer-scale__btn',
+                    'aria-label': l('Achicar dashboard'),
+                    html: '−'
+                },
+                {
+                    tag: 'span',
+                    id: 'promatic_dashboard_enhancer-scale-pct',
+                    cls: 'promatic_dashboard_enhancer-scale__pct',
+                    html: pct + '%'
+                },
+                {
+                    tag: 'button', type: 'button',
+                    id: 'promatic_dashboard_enhancer-scale-plus',
+                    cls: 'promatic_dashboard_enhancer-scale__btn',
+                    'aria-label': l('Agrandar dashboard'),
+                    html: '+'
                 }
             ]
         };
@@ -1212,10 +1250,23 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     var b = Ext.get('promatic_dashboard_enhancer-btn-refresh');
                     if (b) { b.removeCls('promatic_dashboard_enhancer-ctrl-btn--busy'); }
                 }, 800);
+                return;
+            }
+            var minusBtn = e.getTarget('#promatic_dashboard_enhancer-scale-minus', 3, true);
+            if (minusBtn) {
+                e.preventDefault();
+                me.setScalePct(me.getScalePct() - me.SCALE_STEP);
+                return;
+            }
+            var plusBtn = e.getTarget('#promatic_dashboard_enhancer-scale-plus', 3, true);
+            if (plusBtn) {
+                e.preventDefault();
+                me.setScalePct(me.getScalePct() + me.SCALE_STEP);
             }
         });
 
         this.syncScopeSlider();
+        this.applyScalePct(this.getScalePct());
     },
 
     buildLopShell: function () {
@@ -1313,6 +1364,49 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // NOC-007 — se retiró el 1 sep: el slider ya da control explícito, y la
     // lista de 45 ids del demo pisaba el modo "toda la flota".)
     SCOPE_OVERRIDE_STORAGE_KEY: 'promatic_dashboard_enhancer_scope_override',
+
+    // Escala manual del dashboard (+/-) — no hay forma de detectar el
+    // tamaño físico de un monitor externo desde el navegador
+    // (devicePixelRatio/resolución son iguales en un TV grande de feria y
+    // un monitor de oficina normal si ambos son FullHD). v2 (14 sep):
+    // cambia --scale-factor, que mueve el font-size REAL del panel raíz —
+    // NO zoom/transform (v1 se revirtió: rompía el área clickeable de Ext
+    // JS, ver commit de revert v0.13.3). Paso 5%, rango 80%-130%.
+    // Persistido por equipo/navegador (localStorage), no por cuenta PILOT.
+    SCALE_STORAGE_KEY: 'promatic_dashboard_enhancer_scale_pct',
+    SCALE_MIN: 80,
+    SCALE_MAX: 130,
+    SCALE_STEP: 5,
+    SCALE_DEFAULT: 100,
+
+    getScalePct: function () {
+        try {
+            var v = window.localStorage && parseInt(localStorage.getItem(this.SCALE_STORAGE_KEY), 10);
+            if (v && v >= this.SCALE_MIN && v <= this.SCALE_MAX) { return v; }
+            return this.SCALE_DEFAULT;
+        } catch (err) {
+            return this.SCALE_DEFAULT;
+        }
+    },
+
+    setScalePct: function (pct) {
+        pct = Math.max(this.SCALE_MIN, Math.min(this.SCALE_MAX, pct));
+        try {
+            if (window.localStorage) { localStorage.setItem(this.SCALE_STORAGE_KEY, String(pct)); }
+        } catch (err) {
+            this.widgetErrorCode('SCALE-STORAGE', err);
+        }
+        this.applyScalePct(pct);
+    },
+
+    applyScalePct: function (pct) {
+        var panelEl = Ext.get('promatic_dashboard_enhancer-panel-root');
+        if (panelEl && panelEl.dom) {
+            panelEl.dom.style.setProperty('--scale-factor', pct / 100);
+        }
+        var label = Ext.get('promatic_dashboard_enhancer-scale-pct');
+        if (label) { label.setHtml(pct + '%'); }
+    },
 
     getScopeOverride: function () {
         try {

@@ -1,7 +1,20 @@
 /* Escala de espaciado: 4 / 8 / 12 / 16px — no usar valores arbitrarios fuera de esta escala */
 
+/* Base de escalado (control +/- del pie, ver Module.js applyScalePct).
+   font-size real en el elemento raíz — NO zoom/transform: Ext JS mide el
+   DOM real para layout y clicks, y zoom/transform cambian el tamaño VISUAL
+   sin que Ext se entere (bug encontrado 14 sep: con zoom, el scroll no se
+   recalculaba y los botones del pie quedaban visualmente desplazados pero
+   con el área clickeable de antes). Con font-size real, todo lo que esté
+   en `em` en este archivo escala de verdad y Ext mide bien sin trucos.
+   16px es 100% — el resto del archivo usa `em` relativo a este valor
+   SOLO en tipografía/espaciado interno de las cards; el esqueleto
+   estructural (columnas, alto del mapa, ancho del modal) se queda en px
+   fijos a propósito — si escalara también, las 4 columnas se reacomodan
+   mal en los extremos del rango. */
 .promatic_dashboard_enhancer-panel {
-    padding: 12px;
+    font-size: calc(16px * var(--scale-factor, 1));
+    padding: 0.75em;
     background-color: var(--g2);
     /* Tokens de color — en el contenedor, no en :root (ver spec/api.md). */
     --g0: #f4f6f8;
@@ -29,37 +42,37 @@
 }
 
 .promatic_dashboard_enhancer-summary {
-    padding: 8px 12px;
-    margin-bottom: 16px;
+    padding: 0.5em 0.75em;
+    margin-bottom: 1em;
     background-color: #F8FAFC;
-    border-radius: 4px;
+    border-radius: 0.25em;
 }
 
 .promatic_dashboard_enhancer-summary__row {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 1em;
 }
 
 .promatic_dashboard_enhancer-summary__updated {
     margin-left: auto;
-    font-size: 12px;
+    font-size: 0.75em;
     color: #64748B;
 }
 
 .promatic_dashboard_enhancer-stat {
     display: flex;
     align-items: baseline;
-    gap: 4px;
+    gap: 0.25em;
 }
 
 .promatic_dashboard_enhancer-stat__value {
-    font-size: 15px;
+    font-size: 0.9375em;
     font-weight: 600;
 }
 
 .promatic_dashboard_enhancer-stat__label {
-    font-size: 13px;
+    font-size: 0.8125em;
     /* !important obligatorio: el CSS global de PILOT pisa esta clase (link azul/subrayado). Ver spec/api.md */
     color: #64748B !important;
     text-decoration: none !important;
@@ -67,8 +80,8 @@
 
 .promatic_dashboard_enhancer-dot {
     display: inline-block;
-    width: 8px;
-    height: 8px;
+    width: 0.5em;
+    height: 0.5em;
     border-radius: 50%;
 }
 
@@ -86,15 +99,15 @@
 .promatic_dashboard_enhancer-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 16px;
-    margin-bottom: 16px;
+    gap: 1em;
+    margin-bottom: 1em;
     align-items: stretch;
 }
 
 .promatic_dashboard_enhancer-card {
     flex: 1 1 0;
     min-width: 220px;
-    border-radius: 8px;
+    border-radius: 0.5em;
     border: 1px solid #E2E8F0;
     /* Fondo blanco explícito — sin esto la card es transparente y deja ver
        lo que haya detrás (en PILOT real lo disimula el panel nativo blanco,
@@ -120,7 +133,7 @@
     min-width: 220px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 1em;
 }
 
 .promatic_dashboard_enhancer-col .promatic_dashboard_enhancer-card {
@@ -134,16 +147,18 @@
 .promatic_dashboard_enhancer-shell-4col {
     display: flex;
     flex-wrap: wrap;
-    gap: 16px;
+    gap: 1em;
     align-items: flex-start;
 }
 
-/* Col 1 — antes ~1fr de 4; ahora ~30% más angosta. */
+/* Col 1 — antes ~1fr de 4; ahora ~30% más angosta. flex-basis/min-width
+   en px fijos a propósito (estructural, no debe escalar con el control
+   de tamaño — ver nota en .promatic_dashboard_enhancer-panel). */
 .promatic_dashboard_enhancer-shell-col--fixed-left {
     flex: 0 0 250px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 1em;
     min-width: 180px;
 }
 
@@ -152,7 +167,7 @@
     flex: 0 0 240px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 1em;
     min-width: 200px;
 }
 
@@ -163,7 +178,7 @@
     flex: 1 1 280px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 1em;
     min-width: 260px;
 }
 
@@ -193,16 +208,16 @@
 .promatic_dashboard_enhancer-export-block {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 0.75em;
 }
 
 .promatic_dashboard_enhancer-export-card {
     border: 1px solid var(--g4);
-    border-radius: 8px;
-    padding: 12px 14px;
+    border-radius: 0.5em;
+    padding: 0.75em 0.875em;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0.5em;
     background: #fff;
 }
 
@@ -211,7 +226,7 @@
 }
 
 .promatic_dashboard_enhancer-export-card__title {
-    font-size: 12px;
+    font-size: 0.75em;
     font-weight: 700;
     letter-spacing: 0.4px;
     text-transform: uppercase;
@@ -219,39 +234,39 @@
 }
 
 .promatic_dashboard_enhancer-export-card__control {
-    font-size: 12px;
+    font-size: 0.75em;
     font-weight: 600;
     color: var(--g6);
     border: 1px solid var(--g3);
-    border-radius: 5px;
-    padding: 5px 10px;
+    border-radius: 0.3125em;
+    padding: 0.3125em 0.625em;
     text-align: center;
 }
 
 .promatic_dashboard_enhancer-export-card__hint {
-    font-size: 10px;
+    font-size: 0.625em;
     color: var(--g5);
     line-height: 1.35;
 }
 
 .promatic_dashboard_enhancer-export-card__select {
     width: 100%;
-    font-size: 12px;
+    font-size: 0.75em;
     color: var(--g7);
-    padding: 5px 6px;
+    padding: 0.3125em 0.375em;
     border: 1px solid var(--g3);
-    border-radius: 5px;
+    border-radius: 0.3125em;
     background: #fff;
     cursor: pointer;
 }
 
 .promatic_dashboard_enhancer-export-card__btn {
-    font-size: 12px;
+    font-size: 0.75em;
     font-weight: 600;
     color: var(--g6);
     border: 1px solid var(--g4);
-    border-radius: 5px;
-    padding: 6px 10px;
+    border-radius: 0.3125em;
+    padding: 0.375em 0.625em;
     background: #fff;
     cursor: pointer;
     text-align: center;
@@ -373,19 +388,19 @@
 .promatic_dashboard_enhancer-sk {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 0.625em;
     width: 100%;
 }
 
 .promatic_dashboard_enhancer-sk--grid2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: 0.5em;
 }
 
 .promatic_dashboard_enhancer-sk--row {
     flex-direction: row;
-    gap: 10px;
+    gap: 0.625em;
 }
 
 .promatic_dashboard_enhancer-sk--row>.promatic_dashboard_enhancer-sk-bar {
@@ -393,17 +408,17 @@
 }
 
 .promatic_dashboard_enhancer-sk--col {
-    gap: 8px;
+    gap: 0.5em;
 }
 
 .promatic_dashboard_enhancer-sk--ranking {
-    gap: 8px;
+    gap: 0.5em;
 }
 
 .promatic_dashboard_enhancer-sk-bar {
     width: 100%;
-    height: 12px;
-    border-radius: 6px;
+    height: 0.75em;
+    border-radius: 0.375em;
     background: linear-gradient(90deg,
             var(--g1) 0%,
             var(--g0) 20%,
@@ -466,8 +481,8 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: 0.5em;
+    padding: 0.5em 0.75em;
     border-bottom: 1px solid #F1F5F9;
 }
 
@@ -478,25 +493,25 @@
 }
 
 .promatic_dashboard_enhancer-card__title {
-    font-size: 16px;
+    font-size: 1em;
     font-weight: 600;
     margin: 0;
 }
 
 .promatic_dashboard_enhancer-card__meta {
-    font-size: 11px;
+    font-size: 0.6875em;
     color: #94A3B8;
 }
 
 /* (?) con tooltip — al extremo derecho del head. */
 .promatic_dashboard_enhancer-card__hint {
     flex-shrink: 0;
-    width: 15px;
-    height: 15px;
+    width: 0.9375em;
+    height: 0.9375em;
     border-radius: 50%;
     border: 1px solid var(--g3);
     color: var(--g5);
-    font-size: 10px;
+    font-size: 0.625em;
     font-weight: 700;
     line-height: 13px;
     text-align: center;
@@ -510,20 +525,20 @@
 }
 
 .promatic_dashboard_enhancer-card__body {
-    padding: 8px 12px;
+    padding: 0.5em 0.75em;
     flex: 1 1 auto;
     overflow-y: auto;
     min-height: 60px;
 }
 
 .promatic_dashboard_enhancer-card__footer {
-    padding: 6px 12px;
+    padding: 0.375em 0.75em;
     text-align: right;
     border-top: 1px solid #F1F5F9;
 }
 
 .promatic_dashboard_enhancer-card__footer a {
-    font-size: 12px;
+    font-size: 0.75em;
     color: #2563EB;
     text-decoration: none;
 }
@@ -539,16 +554,16 @@
 }
 
 .promatic_dashboard_enhancer-clock__label {
-    font-size: 10px;
+    font-size: 0.625em;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.6px;
     color: var(--g5);
-    margin-bottom: 4px;
+    margin-bottom: 0.25em;
 }
 
 .promatic_dashboard_enhancer-clock__time {
-    font-size: 26px;
+    font-size: 1.625em;
     font-weight: 700;
     color: var(--g7);
     letter-spacing: 1px;
@@ -560,9 +575,9 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 12px;
+    padding: 0.75em;
     height: 100%;
-    gap: 4px;
+    gap: 0.25em;
 }
 
 .promatic_dashboard_enhancer-logo img {
@@ -575,7 +590,7 @@
    ir a comparar contra el repo público / borrar caché a ciegas para saber
    si el navegador ya cargó el último build. Pedido del usuario, 4 sep. */
 .promatic_dashboard_enhancer-version {
-    font-size: 10px;
+    font-size: 0.625em;
     color: #94A3B8;
     letter-spacing: 0.2px;
     text-align: center;
@@ -625,7 +640,7 @@
     display: flex;
     flex-direction: column;
     /* default: columna (card angosta) */
-    gap: 10px;
+    gap: 0.625em;
 }
 
 @container gpssignal (min-width: 380px) {
@@ -640,9 +655,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 8px;
+    gap: 0.625em;
+    padding: 0.625em 0.75em;
+    border-radius: 0.5em;
     text-decoration: none;
     background: #e2e8f0;
     transition: filter 0.15s ease;
@@ -669,8 +684,8 @@
     align-items: center;
     justify-content: center;
     min-width: 26px;
-    padding: 3px 8px;
-    border-radius: 5px;
+    padding: 0.1875em 0.5em;
+    border-radius: 0.3125em;
     font-size: 1rem;
     font-weight: 700;
     color: #ffffff;
@@ -752,7 +767,7 @@
 .promatic_dashboard_enhancer-stat-card-grid {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0.5em;
 }
 
 /* Alertas Generales vive en la columna izquierda (sin alto fijo) — la card
@@ -765,9 +780,9 @@
 
 .promatic_dashboard_enhancer-stat-card {
     position: relative;
-    border-radius: 10px;
-    padding: 10px 12px 9px;
-    min-height: 54px;
+    border-radius: 0.625em;
+    padding: 0.625em 0.75em 0.5625em;
+    min-height: 3.375em;
     color: #fff;
     text-decoration: none;
     display: flex;
@@ -800,10 +815,10 @@
 .promatic_dashboard_enhancer-stat-card__icon {
     position: absolute;
     top: 50%;
-    right: -10px;
+    right: -0.625em;
     transform: translateY(-50%);
-    width: 52px;
-    height: 52px;
+    width: 3.25em;
+    height: 3.25em;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -900,12 +915,12 @@
     font-weight: 500;
     line-height: 1.25;
     max-width: 85%;
-    margin-bottom: 4px;
+    margin-bottom: 0.25em;
     opacity: .96;
 }
 
 .promatic_dashboard_enhancer-stat-card__count {
-    font-size: 20px;
+    font-size: 1.25em;
     font-weight: 800;
     line-height: 1;
 }
@@ -920,12 +935,12 @@
 .promatic_dashboard_enhancer-stat-card__count--beta {
     display: inline-block;
     align-self: flex-start;
-    font-size: 10px;
+    font-size: 0.625em;
     font-weight: 700;
     letter-spacing: 0.8px;
     text-transform: uppercase;
-    padding: 2px 7px;
-    border-radius: 4px;
+    padding: 0.125em 0.4375em;
+    border-radius: 0.25em;
     background: rgba(255, 255, 255, 0.22);
 }
 
@@ -934,26 +949,26 @@
    en orden". Se pinta el fondo del contenedor; las tarjetas quedan encima. */
 .promatic_dashboard_enhancer-stat-card-grid--alert {
     background: var(--status-alert-bright);
-    border-radius: 12px;
-    padding: 10px;
-    margin: -10px;
+    border-radius: 0.75em;
+    padding: 0.625em;
+    margin: -0.625em;
 }
 
 /* ===== Estado de Flota (card 'flota') ===== */
 .promatic_dashboard_enhancer-fleet-quadrants {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: 0.5em;
 }
 
 .promatic_dashboard_enhancer-fleet-quadrant {
     background: var(--g0);
-    border-radius: 6px;
-    padding: 10px 12px;
+    border-radius: 0.375em;
+    padding: 0.625em 0.75em;
 }
 
 .promatic_dashboard_enhancer-fleet-quadrant__pct {
-    font-size: 30px;
+    font-size: 1.875em;
     font-weight: 600;
     line-height: 1.1;
     color: var(--g7);
@@ -972,7 +987,7 @@
 }
 
 .promatic_dashboard_enhancer-fleet-quadrant__lbl {
-    font-size: 11px;
+    font-size: 0.6875em;
     color: var(--g5);
     text-transform: uppercase;
     letter-spacing: .2px;
@@ -983,12 +998,12 @@
 .promatic_dashboard_enhancer-eco-body {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 0.875em;
 }
 
 .promatic_dashboard_enhancer-eco-wheels {
     display: flex;
-    gap: 12px;
+    gap: 0.75em;
     justify-content: center;
 }
 
@@ -1036,7 +1051,11 @@
 }
 
 .promatic_dashboard_enhancer-eco-wheel__num {
-    font-size: 28px;
+    /* NOTA: __center (contenedor, height:96px) y .eco-wheel (max-width:180px)
+       quedan fijos — geometría ligada al SVG dibujado por JS. Este texto sí
+       escala; en el extremo superior del rango podría acercarse al borde
+       del círculo — aceptado, verificar visualmente en Grande. */
+    font-size: 1.75em;
     font-weight: 700;
     line-height: 1;
 }
@@ -1054,15 +1073,15 @@
 }
 
 .promatic_dashboard_enhancer-eco-wheel__of {
-    font-size: 9px;
+    font-size: 0.5625em;
     color: var(--g4);
     text-transform: uppercase;
     letter-spacing: .3px;
 }
 
 .promatic_dashboard_enhancer-eco-wheel__label {
-    margin-top: 6px;
-    font-size: 12px;
+    margin-top: 0.375em;
+    font-size: 0.75em;
     font-weight: 600;
     color: var(--g7);
     text-transform: uppercase;
@@ -1074,9 +1093,9 @@
 }
 
 .promatic_dashboard_enhancer-eco-wheel__sub {
-    font-size: 10px;
+    font-size: 0.625em;
     color: var(--g4);
-    min-height: 12px;
+    min-height: 0.75em;
 }
 
 /* Ranking horizontal de 5 cajas (2 mejores + mediana + 2 peores). Cada caja:
@@ -1085,13 +1104,13 @@
 .promatic_dashboard_enhancer-eco-cells {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
+    gap: 0.375em;
 }
 
 .promatic_dashboard_enhancer-eco-cell {
     display: flex;
     flex-direction: column;
-    border-radius: 6px;
+    border-radius: 0.375em;
     overflow: hidden;
     color: #fff;
 }
@@ -1109,20 +1128,20 @@
 }
 
 .promatic_dashboard_enhancer-eco-cell__top {
-    padding: 8px 6px 6px;
+    padding: 0.5em 0.375em 0.375em;
     text-align: center;
 }
 
 .promatic_dashboard_enhancer-eco-cell__val {
-    font-size: 22px;
+    font-size: 1.375em;
     font-weight: 700;
     line-height: 1;
 }
 
 .promatic_dashboard_enhancer-eco-cell__name {
-    font-size: 10px;
+    font-size: 0.625em;
     opacity: .9;
-    margin-top: 3px;
+    margin-top: 0.1875em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1132,9 +1151,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 3px 6px;
+    padding: 0.1875em 0.375em;
     background: rgba(0, 0, 0, 0.22);
-    font-size: 10px;
+    font-size: 0.625em;
 }
 
 .promatic_dashboard_enhancer-eco-cell__prevlbl {
@@ -1155,10 +1174,12 @@
 /* ===== Vehículos con más KM (card 'top5km') — barra apilada + ranking ===== */
 .promatic_dashboard_enhancer-km-widget-body {
     display: flex;
-    gap: 12px;
+    gap: 0.75em;
     height: 100%;
 }
 
+/* width/height de la barra apilada quedan en px — geometría fija del
+   gráfico, no debe escalar (ver nota general en .panel). */
 .promatic_dashboard_enhancer-km-stack-wrap {
     flex-shrink: 0;
     width: 60px;
@@ -1166,11 +1187,11 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 0.375em;
 }
 
 .promatic_dashboard_enhancer-km-stack-total {
-    font-size: 9px;
+    font-size: 0.5625em;
     color: var(--g5);
     text-align: center;
 }
@@ -1178,7 +1199,7 @@
 .promatic_dashboard_enhancer-km-stack-total b {
     display: block;
     color: var(--g6);
-    font-size: 13px;
+    font-size: 0.8125em;
 }
 
 .promatic_dashboard_enhancer-stacked-track--v {
@@ -1186,7 +1207,7 @@
     flex-direction: column;
     width: 28px;
     height: 110px;
-    border-radius: 4px;
+    border-radius: 0.25em;
     overflow: hidden;
 }
 
@@ -1198,22 +1219,22 @@
     flex: 1;
     min-width: 0;
     border-left: 1px solid var(--g2);
-    padding-left: 10px;
+    padding-left: 0.625em;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 4px;
+    gap: 0.25em;
 }
 
 .promatic_dashboard_enhancer-km-date-range {
-    font-size: 11px;
+    font-size: 0.6875em;
     font-weight: 700;
     color: var(--g6);
-    margin-bottom: 2px;
+    margin-bottom: 0.125em;
 }
 
 .promatic_dashboard_enhancer-km-top5-label {
-    font-size: 8.5px;
+    font-size: 0.53125em;
     color: var(--g4);
     text-transform: uppercase;
 }
@@ -1221,11 +1242,11 @@
 .promatic_dashboard_enhancer-rank-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 10.5px;
+    gap: 0.375em;
+    font-size: 0.65625em;
     text-decoration: none;
-    padding: 3px;
-    border-radius: 4px;
+    padding: 0.1875em;
+    border-radius: 0.25em;
     cursor: pointer;
 }
 
@@ -1252,16 +1273,16 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-rank-n
 
 .promatic_dashboard_enhancer-rank-track {
     flex: 1;
-    height: 6px;
+    height: 0.375em;
     background: var(--g1);
-    border-radius: 2px;
+    border-radius: 0.125em;
     overflow: hidden;
 }
 
 .promatic_dashboard_enhancer-rank-fill {
     height: 100%;
     background: var(--g4);
-    border-radius: 2px;
+    border-radius: 0.125em;
 }
 
 .promatic_dashboard_enhancer-rank-row--emphasized .promatic_dashboard_enhancer-rank-fill {
@@ -1278,13 +1299,13 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-rank-n
     text-align: right;
     color: var(--g6);
     font-variant-numeric: tabular-nums;
-    font-size: 10px;
+    font-size: 0.625em;
 }
 
 .promatic_dashboard_enhancer-chev {
     opacity: 0;
     color: var(--g5);
-    font-size: 10px;
+    font-size: 0.625em;
 }
 
 a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
@@ -1294,16 +1315,16 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
 .promatic_dashboard_enhancer-km-color-legend {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-top: 4px;
-    font-size: 8.5px;
+    gap: 0.375em;
+    margin-top: 0.25em;
+    font-size: 0.53125em;
     color: var(--g5);
 }
 
 .promatic_dashboard_enhancer-km-legend-grad {
     width: 36px;
-    height: 8px;
-    border-radius: 2px;
+    height: 0.5em;
+    border-radius: 0.125em;
     background: linear-gradient(to right, var(--g5), var(--g1));
 }
 
@@ -1316,20 +1337,20 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
-    margin-top: 16px;
-    padding: 10px 16px;
+    gap: 0.5em;
+    margin-top: 1em;
+    padding: 0.625em 1em;
     background: #ffffff;
     border: 1px solid #E2E8F0;
-    border-radius: 8px;
+    border-radius: 0.5em;
 }
 
 .promatic_dashboard_enhancer-ctrl-btn {
     font: inherit;
-    font-size: 12px;
-    padding: 6px 12px;
+    font-size: 0.75em;
+    padding: 0.375em 0.75em;
     border: 1px solid var(--g4);
-    border-radius: 4px;
+    border-radius: 0.25em;
     background: #fff;
     color: var(--g7);
     cursor: pointer;
@@ -1340,12 +1361,15 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     border-color: var(--g5);
 }
 
-/* Slider de alcance (2 posiciones explícitas) */
+/* Slider de alcance (2 posiciones explícitas) — track/thumb en em: todo el
+   grupo (width, altos, offsets del thumb) escala junto en la misma unidad
+   para que el thumb siga quedando centrado en sus 2 posiciones sin importar
+   el font-size del panel. */
 .promatic_dashboard_enhancer-scope {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 12px;
+    gap: 0.5em;
+    font-size: 0.75em;
     cursor: pointer;
     user-select: none;
 }
@@ -1364,9 +1388,9 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
 .promatic_dashboard_enhancer-scope__track {
     position: relative;
     display: inline-block;
-    width: 38px;
-    height: 20px;
-    border-radius: 10px;
+    width: 2.375em;
+    height: 1.25em;
+    border-radius: 0.625em;
     background: var(--g3);
     transition: background 0.15s;
     flex: 0 0 auto;
@@ -1378,10 +1402,10 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
 
 .promatic_dashboard_enhancer-scope__thumb {
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
+    top: 0.125em;
+    left: 0.125em;
+    width: 1em;
+    height: 1em;
     border-radius: 50%;
     background: #fff;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -1389,7 +1413,7 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
 }
 
 .promatic_dashboard_enhancer-scope.is-all .promatic_dashboard_enhancer-scope__thumb {
-    left: 20px;
+    left: 1.25em;
 }
 
 .promatic_dashboard_enhancer-ctrl-btn--primary {
@@ -1408,6 +1432,45 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     pointer-events: none;
 }
 
+/* Control de escala +/- (14 sep, v2) — cambia --scale-factor en el panel
+   raíz vía Module.js applyScalePct, que mueve el font-size real del
+   contenedor. Este control en sí también escala (em), para que sea
+   consistente con el resto del dashboard en los extremos del rango. */
+.promatic_dashboard_enhancer-scale {
+    display: flex;
+    align-items: center;
+    gap: 0.25em;
+    margin-left: 0.25em;
+}
+
+.promatic_dashboard_enhancer-scale__btn {
+    font: inherit;
+    font-size: 0.875em;
+    font-weight: 700;
+    width: 1.75em;
+    height: 1.75em;
+    line-height: 1;
+    padding: 0;
+    border: 1px solid var(--g4);
+    border-radius: 0.25em;
+    background: #fff;
+    color: var(--g7);
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-scale__btn:hover {
+    background: var(--g0);
+    border-color: var(--g5);
+}
+
+.promatic_dashboard_enhancer-scale__pct {
+    font-size: 0.75em;
+    font-variant-numeric: tabular-nums;
+    color: var(--g6);
+    min-width: 2.6em;
+    text-align: center;
+}
+
 /* El head del mapa lleva un <select> — centrar verticalmente y permitir
    wrap si el nombre de carpeta es largo. */
 #promatic_dashboard_enhancer-card-hotspots .promatic_dashboard_enhancer-card__head {
@@ -1420,11 +1483,11 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
 .promatic_dashboard_enhancer-map-folder {
     margin-left: auto;
     max-width: 55%;
-    padding: 3px 6px;
+    padding: 0.1875em 0.375em;
     font-size: 0.78rem;
     color: var(--g7);
     background: #fff;
     border: 1px solid var(--g2);
-    border-radius: 4px;
+    border-radius: 0.25em;
     cursor: pointer;
 }
