@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.19.0',
-    moduleBuild: '2026-09-15-1331',
+    moduleBuild: '2026-09-15-1507',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1098,7 +1098,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 }),
                 this.cardMarkup('vehicles_by_branch', {
                     title: l('Vehículos por Sucursal'),
-                    hint: l('Vehículos cuya última posición GPS cae dentro del polígono de la sucursal seleccionada. El match se calcula en el navegador (no hay historial de entrada/salida). Elige un grupo de geocercas y luego una sucursal.'),
+                    hint: l('Vehículos cuya última posición GPS cae dentro del polígono de la sucursal seleccionada. El match se calcula en el navegador (no hay historial de entrada/salida). Elige una flota y una sucursal — son 2 selecciones independientes, sin relación automática entre ellas.'),
                     noFooter: true,
                     skeleton: 'map',
                     headExtra: {
@@ -1108,13 +1108,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                                 tag: 'select',
                                 id: 'promatic_dashboard_enhancer-branch-group',
                                 cls: 'promatic_dashboard_enhancer-map-folder',
-                                cn: [{ tag: 'option', value: '', html: l('Cargando grupos…') }]
+                                cn: [{ tag: 'option', value: '', html: l('Cargando flotas…') }]
                             },
                             {
                                 tag: 'select',
                                 id: 'promatic_dashboard_enhancer-branch-select',
                                 cls: 'promatic_dashboard_enhancer-map-folder',
-                                cn: [{ tag: 'option', value: '', html: l('— Elige un grupo primero —') }]
+                                cn: [{ tag: 'option', value: '', html: l('Cargando sucursales…') }]
                             }
                         ]
                     }
@@ -1281,11 +1281,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.populateMapFolderDropdown();
         this.loadFleetHeatmap();
         // 'vehicles_by_branch' (ADR-016) NO se recarga acá a propósito —
-        // depende de una selección explícita del usuario en 2 dropdowns,
-        // no de datos que cambien solos con el refresh del resto del
-        // dashboard. Si hay una sucursal elegida, re-corre el match sobre
-        // la flota recién refrescada (posiciones pueden haber cambiado).
-        if (this._branchGeofenceFilter) { this.renderBranchVehicles(); }
+        // depende de una selección explícita del usuario en 2 dropdowns
+        // independientes (flota / sucursal), no de datos que cambien solos
+        // con el refresh del resto del dashboard. Si ambos ya están
+        // elegidos, re-corre el match sobre la flota recién refrescada
+        // (posiciones pueden haber cambiado). El dropdown de flota puede
+        // tener carpetas nuevas si cambió la selección — mismo criterio
+        // que populateMapFolderDropdown arriba.
+        this.populateBranchFleetDropdown();
+        if (this._branchFolderFilter && this._branchGeofenceFilter) { this.renderBranchVehicles(); }
     },
 
     // Pinta el skeleton de carga en el body de una card (si está montada).
@@ -2975,6 +2979,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // Trae TODAS las geocercas de la cuenta; el filtro de cuáles son
     // "sucursal" pasa por _matchGeofenceGroup (patrón de nombre), no por
     // un campo del schema — ver ADR-016.
+    //
+    // Corrección 15 sep: 2 dropdowns INDEPENDIENTES, sin match automático
+    // entre ellos — dropdown 1 = carpeta de flota del árbol "Principal"
+    // (populateBranchFleetDropdown, _branchFolderFilter), dropdown 2 =
+    // geocerca de sucursal/base (populateBranchSelectDropdown,
+    // _branchGeofenceFilter). No existe forma confiable de inferir el par
+    // carpeta↔grupo de geocercas desde el nombre (ej. "FORD 4x4" no
+    // comparte texto con "Sucursales [Econorent]") — el usuario elige
+    // ambos a mano. Ver ADR-016, actualización 15 sep.
     // -----------------------------------------------------------------------
     loadBranchGeofences: function (callback) {
         var me = this;
@@ -3088,7 +3101,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         var MC = me.getMapContainerClass();
                         me._branchMap = new MC('promatic_dashboard_enhancer_branch');
                         me._branchMap.init(-33.45, -70.66, 5, this.id + '-body', false);
-                        me.populateBranchGroupDropdown();
+                        me.populateBranchFleetDropdown();
+                        me.populateBranchSelectDropdown();
                         Ext.defer(function () {
                             if (me._branchMap && me._branchMap.checkResize) { me._branchMap.checkResize(); }
                         }, 300);
@@ -3121,9 +3135,56 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // Dropdown 1: puebla con los group_name únicos que matchean
     // _matchGeofenceGroup, ordenados alfabéticamente. Dispara el fetch de
     // geocercas si todavía no se cargó (_lastGeofences).
-    populateBranchGroupDropdown: function () {
+    // Dropdown 1: puebla con las CARPETAS de flota del árbol "Principal"
+    // (mismo listado que usa el mapa de hotspots — getMapFolderOptions),
+    // NO con grupos de geocercas — corrección 15 sep: el diseño original
+    // es 2 dropdowns independientes (flota / sucursal), elegidos ambos a
+    // mano por el usuario, sin match automático entre ellos (no hay forma
+    // confiable de inferir "carpeta FORD 4x4" → "grupo Sucursales
+    // [Econorent]" desde el nombre — ver ADR-016, actualización 15 sep).
+    populateBranchFleetDropdown: function () {
         var me = this;
         var sel = document.getElementById('promatic_dashboard_enhancer-branch-group');
+        if (!sel) { return; }
+
+        var onlineTree = this.getOnlineTree();
+        var opts = onlineTree ? this.getMapFolderOptions(onlineTree) : [];
+
+        sel.innerHTML = '';
+        if (opts.length === 0) {
+            var empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = l('Sin carpetas de flota disponibles');
+            sel.appendChild(empty);
+            return;
+        }
+
+        var placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = l('— Elige una flota —');
+        sel.appendChild(placeholder);
+        for (var j = 0; j < opts.length; j++) {
+            var o = document.createElement('option');
+            o.value = String(opts[j].value);
+            o.textContent = opts[j].label;
+            sel.appendChild(o);
+        }
+
+        if (!sel._pdeBound) {
+            sel._pdeBound = true;
+            sel.addEventListener('change', function () {
+                me._branchFolderFilter = sel.value || null;
+                me.renderBranchVehicles();
+            });
+        }
+    },
+
+    // Dropdown 2: puebla con TODAS las geocercas cuyo group_name matchea
+    // _matchGeofenceGroup (patrón "sucursal"/"base") — independiente del
+    // dropdown 1. Dispara el fetch de geocercas si todavía no se cargó.
+    populateBranchSelectDropdown: function () {
+        var me = this;
+        var sel = document.getElementById('promatic_dashboard_enhancer-branch-select');
         if (!sel) { return; }
 
         this.loadBranchGeofences(function (errCode, geofences) {
@@ -3138,19 +3199,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 return;
             }
 
-            var groupsSet = {};
-            for (var i = 0; i < geofences.length; i++) {
-                var g = geofences[i].group_name;
-                if (g && me._matchGeofenceGroup(g)) { groupsSet[g] = true; }
-            }
-            var groups = Object.keys(groupsSet).sort();
+            var matches = geofences.filter(function (g) {
+                return g.group_name && me._matchGeofenceGroup(g.group_name);
+            });
 
             sel.innerHTML = '';
-            if (groups.length === 0) {
-                var empty = document.createElement('option');
-                empty.value = '';
-                empty.textContent = l('Sin geocercas de sucursal configuradas');
-                sel.appendChild(empty);
+            if (matches.length === 0) {
+                var emptyOpt = document.createElement('option');
+                emptyOpt.value = '';
+                emptyOpt.textContent = l('Sin geocercas de sucursal configuradas');
+                sel.appendChild(emptyOpt);
                 me.updateCardBody('vehicles_by_branch',
                     l('No se encontraron geocercas cuyo grupo coincida con "sucursal"/"base". Ajustar config.branches.namePatterns si Pilot usa otro nombre.'), 0, true);
                 return;
@@ -3158,72 +3216,27 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
             var placeholder = document.createElement('option');
             placeholder.value = '';
-            placeholder.textContent = l('— Elige un grupo —');
+            placeholder.textContent = l('— Elige una sucursal —');
             sel.appendChild(placeholder);
-            for (var j = 0; j < groups.length; j++) {
+            for (var i = 0; i < matches.length; i++) {
                 var o = document.createElement('option');
-                o.value = groups[j];
-                o.textContent = groups[j];
+                o.value = String(matches[i].id);
+                o.textContent = (matches[i].name || ('#' + matches[i].id)) +
+                    (matches[i].group_name ? ' [' + matches[i].group_name + ']' : '');
                 sel.appendChild(o);
             }
 
             if (!sel._pdeBound) {
                 sel._pdeBound = true;
                 sel.addEventListener('change', function () {
-                    me._branchGroupFilter = sel.value || null;
-                    me.populateBranchSelectDropdown();
+                    me._branchGeofenceFilter = sel.value || null;
+                    me.renderBranchVehicles();
                 });
             }
 
             me.updateCardBody('vehicles_by_branch',
-                l('Elige un grupo y luego una sucursal.'), 0, true);
+                l('Elige una flota y luego una sucursal.'), 0, true);
         });
-    },
-
-    // Dropdown 2: puebla con las geocercas (name) del grupo elegido en el
-    // dropdown 1. Se llama al cambiar el dropdown 1, y limpia/deshabilita
-    // si no hay grupo elegido.
-    populateBranchSelectDropdown: function () {
-        var me = this;
-        var sel = document.getElementById('promatic_dashboard_enhancer-branch-select');
-        if (!sel) { return; }
-
-        sel.innerHTML = '';
-        if (!me._branchGroupFilter || !me._lastGeofences) {
-            var ph = document.createElement('option');
-            ph.value = '';
-            ph.textContent = l('— Elige un grupo primero —');
-            sel.appendChild(ph);
-            me._branchGeofenceFilter = null;
-            me.renderBranchVehicles();
-            return;
-        }
-
-        var matches = me._lastGeofences.filter(function (g) {
-            return g.group_name === me._branchGroupFilter;
-        });
-
-        var placeholder = document.createElement('option');
-        placeholder.value = '';
-        placeholder.textContent = l('— Elige una sucursal —');
-        sel.appendChild(placeholder);
-        for (var i = 0; i < matches.length; i++) {
-            var o = document.createElement('option');
-            o.value = String(matches[i].id);
-            o.textContent = matches[i].name || ('#' + matches[i].id);
-            sel.appendChild(o);
-        }
-
-        if (!sel._pdeBound) {
-            sel._pdeBound = true;
-            sel.addEventListener('change', function () {
-                me._branchGeofenceFilter = sel.value || null;
-                me.renderBranchVehicles();
-            });
-        }
-
-        me._branchGeofenceFilter = null;
-        me.renderBranchVehicles();
     },
 
     // Con una sucursal elegida (_branchGeofenceFilter = id de la
@@ -3245,9 +3258,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         } catch (e) { /* no-op */ }
         me._branchPolygonId = null;
 
+        if (!this._branchFolderFilter) {
+            this.updateCardBody('vehicles_by_branch',
+                l('Elige una flota y luego una sucursal.'), 0, true);
+            return;
+        }
         if (!this._branchGeofenceFilter || !this._lastGeofences) {
             this.updateCardBody('vehicles_by_branch',
-                l('Elige un grupo y luego una sucursal.'), 0, true);
+                l('Elige también una sucursal.'), 0, true);
             return;
         }
 
@@ -3270,8 +3288,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return;
         }
 
+        // Flota restringida a la carpeta elegida en el dropdown 1 — mismo
+        // patrón que getMapScopedRecords (hotspots), pero con su propio
+        // filtro (_branchFolderFilter), independiente del mapa de hotspots.
         var onlineTree = this.getOnlineTree();
-        var records = onlineTree ? this.getScopedFleetRecords(onlineTree) : [];
+        var records = [];
+        if (onlineTree) {
+            var store = onlineTree.getStore();
+            var folder = store && store.getNodeById ? store.getNodeById(this._branchFolderFilter) : null;
+            if (folder) {
+                folder.cascadeBy(function (c) {
+                    if (c !== folder && c.get('agentid')) { records.push(c); }
+                });
+            }
+        }
         var matches = this._vehiclesInGeofence(points, records);
 
         try {
