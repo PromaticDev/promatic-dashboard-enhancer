@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.0',
-    moduleBuild: '2026-09-15-1750',
+    moduleBuild: '2026-09-15-1824',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -51,14 +51,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // conocimiento de negocio capturado en config, no una convención
         // impuesta. Confirmado por el usuario que no hay señal de texto
         // confiable para inferir el par automáticamente — se mantiene a
-        // mano hasta que exista backend. AJUSTAR ESTOS VALORES cuando se
-        // confirmen los nombres reales de carpeta/grupo en DEMO_CLIENT —
-        // los de abajo son la primera aproximación según lo descrito por
-        // el usuario 15 sep.
+        // mano hasta que exista backend. Valores VERIFICADOS contra
+        // DEMO_CLIENT (15 sep, GET /api/v3/geofences en vivo): los
+        // group_name reales NO llevan corchete de cliente (ni "Econorent
+        // Sucursales [Econorent]" ni "Bases [SAMU]" como se había
+        // aproximado al diseñar esto) — son simplemente "SUCURSALES"
+        // (grupo 700, ~81 geocercas, rent-a-car Econorent) y "Bases"
+        // (grupo 680, ~80 geocercas, SAMU — confirmado por el usuario
+        // pese a que el contenido son nombres de lugar como "UV 1"/
+        // "CESFAM..."/gasolineras, no "Base N°X" literal).
         branches: {
             clientMap: [
-                { folderMatch: 'FLOTA', groupNames: ['Econorent Sucursales [Econorent]'] },
-                { folderMatch: 'SAMU', groupNames: ['Bases [SAMU]'] }
+                { folderMatch: 'FLOTA', groupNames: ['SUCURSALES'] },
+                { folderMatch: 'SAMU', groupNames: ['Bases'] }
             ]
         },
         // Privacidad: maskPlates=true reemplaza la patente (que en PILOT suele
