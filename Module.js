@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.20.0',
-    moduleBuild: '2026-09-15-1726',
+    version: '0.21.0',
+    moduleBuild: '2026-09-15-1750',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -35,11 +35,32 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // sep vía captura de pestaña Red) — msg es un texto heredado sin
         // relación con la disponibilidad real del dato.
         violations: { windowDays: 8 },
-        // Vehículos por Sucursal (ADR-016) — namePatterns: substrings
-        // (case-insensitive) que un group_name de /api/v3/geofences debe
-        // contener para aparecer como "grupo de sucursales" en el
-        // dropdown. Ajustable sin tocar código si Pilot usa otra palabra.
-        branches: { namePatterns: ['sucursal', 'base'] },
+        // Match sucursal/base en el tooltip de "Ubicación Global de la
+        // Flota" (ADR-018, 15 sep) — mapeo EXPLÍCITO por cliente, sin
+        // inferencia de nombre: cada entrada dice qué carpeta de flota
+        // (folderMatch, substring case-insensitive contra el nombre de la
+        // carpeta del árbol "Principal", buscado en toda la cadena de
+        // ancestros — no requiere que sea el padre directo) corresponde a
+        // qué group_name EXACTOS de geocercas (groupNames) cuentan como
+        // sucursal/base — así "Taller [Econorent]" nunca cuenta aunque sea
+        // el mismo cliente que "Econorent Sucursales [Econorent]".
+        // folderMatch usa el nombre de carpeta que YA EXISTE en el árbol
+        // del cliente (ej. "FLOTA", carpeta padre real de toda la flota
+        // Econorent en DEMO_CLIENT) — no requiere que el cliente renombre
+        // ni agregue ningún identificador nuevo a sus carpetas; es solo
+        // conocimiento de negocio capturado en config, no una convención
+        // impuesta. Confirmado por el usuario que no hay señal de texto
+        // confiable para inferir el par automáticamente — se mantiene a
+        // mano hasta que exista backend. AJUSTAR ESTOS VALORES cuando se
+        // confirmen los nombres reales de carpeta/grupo en DEMO_CLIENT —
+        // los de abajo son la primera aproximación según lo descrito por
+        // el usuario 15 sep.
+        branches: {
+            clientMap: [
+                { folderMatch: 'FLOTA', groupNames: ['Econorent Sucursales [Econorent]'] },
+                { folderMatch: 'SAMU', groupNames: ['Bases [SAMU]'] }
+            ]
+        },
         // Privacidad: maskPlates=true reemplaza la patente (que en PILOT suele
         // ser el "Nombre de Vehículo") por un alias en toda la UI del dashboard.
         // Desactivado 14 sep (decisión del usuario) — el alias secuencial
@@ -3144,9 +3165,37 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) { return; }
 
+        // Geocercas de sucursal/base — se cargan una vez (cacheadas en
+        // _lastGeofences por loadBranchGeofences, código de ADR-016) y se
+        // reusan en cada refresh sin request extra. Solo importan si hay
+        // algún mapeo configurado (config.branches.clientMap) — si no,
+        // saltamos el fetch entero.
+        var cfg = (me.config && me.config.branches) || (me.DEFAULT_CONFIG.branches || {});
+        var hasClientMap = (cfg.clientMap || []).length > 0;
+
+        var withGeofences = function () {
+            me._renderFleetMapMarkers(onlineTree);
+        };
+
+        if (hasClientMap && !me._lastGeofences) {
+            me.loadBranchGeofences(function () { withGeofences(); });
+        } else {
+            withGeofences();
+        }
+    },
+
+    // Construye y dibuja los marcadores — separado de loadFleetMapClusters
+    // para poder esperar la carga de geocercas (async) sin anidar todo el
+    // cuerpo de la función en el callback del fetch.
+    _renderFleetMapMarkers: function (onlineTree) {
+        var me = this;
+        var map = this._fleetMap;
+        if (!map) { return; }
+
         var records = this._folderScopedRecords(onlineTree, this._fleetMapFolderFilter);
         var markers = [];
         var withCoords = 0;
+        var branchMatches = 0;
 
         for (var i = 0; i < records.length; i++) {
             var ll = this._recordLatLon(records[i]);
@@ -3164,6 +3213,25 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // fijo (esta extensión corre en cualquier subdominio/cuenta de
             // Pilot, mismo criterio que el resto del dashboard, NOC-006).
             var iconUrl = window.location.origin + '/backend/markers/get.php?a=1' + (firing ? '&i=1' : '');
+
+            // Match sucursal/base (ADR-018) — SOLO para vehículos apagados
+            // (firing=0): un vehículo encendido está en tránsito, no
+            // "estacionado en una ubicación". Requiere _lastGeofences ya
+            // cargado (loadFleetMapClusters lo garantiza antes de llamar
+            // acá si hay clientMap configurado).
+            var branchLabel = null;
+            if (!firing && this._lastGeofences) {
+                branchLabel = this._findVehicleBranchLabel(records[i], this._lastGeofences);
+                if (branchLabel) { branchMatches++; }
+            }
+
+            var tooltipMsg = me.displayName(records[i].get ? records[i].get('name') : '') +
+                (online ? ' — ' + l('En línea') : ' — ' + l('Sin conexión')) +
+                (firing ? ' — ' + l('Encendido') : ' — ' + l('Apagado'));
+            if (branchLabel) {
+                tooltipMsg += ' — ' + l('En') + ' ' + branchLabel;
+            }
+
             markers.push({
                 id: 'promatic_dashboard_enhancer_fleet_map_veh_' + (records[i].get ? records[i].get('agentid') : i),
                 lat: ll[0],
@@ -3175,17 +3243,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 // el tamaño de referencia de la documentación de
                 // MapContainer.md para íconos de vehículo con detalle.
                 size: 'medium',
-                tooltip: {
-                    msg: me.displayName(records[i].get ? records[i].get('name') : '') +
-                        (online ? ' — ' + l('En línea') : ' — ' + l('Sin conexión')) +
-                        (firing ? ' — ' + l('Encendido') : ' — ' + l('Apagado'))
-                }
+                tooltip: { msg: tooltipMsg }
             });
         }
 
         console.log('[promatic_dashboard_enhancer] ubicación global de la flota: ' + records.length +
             ' vehículos en alcance' + (this._fleetMapFolderFilter ? ' (carpeta ' + this._fleetMapFolderFilter + ')' : '') +
-            ', ' + withCoords + ' con coords');
+            ', ' + withCoords + ' con coords' +
+            (this._lastGeofences ? ', ' + branchMatches + ' con match de sucursal/base' : ''));
 
         try {
             if (map.getCluster && map.getCluster('fleet_map_cluster') && map.removeCluster) {
@@ -3295,6 +3360,69 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
         return out;
+    },
+
+    // -----------------------------------------------------------------------
+    // Match sucursal/base en tooltip de "Ubicación Global de la Flota"
+    // (ADR-018, 15 sep). Distinto de ADR-016 (retirado): no hay dropdowns,
+    // es un dato extra en el tooltip de vehículos APAGADOS — "¿está esta
+    // ubicación configurada como sucursal/base del cliente dueño de esta
+    // flota?". Usa el mapeo explícito config.branches.clientMap (carpeta→
+    // group_names exactos), no inferencia por patrón.
+    // -----------------------------------------------------------------------
+
+    // Sube por la cadena de ancestros de `record` en el árbol y devuelve la
+    // entrada de config.branches.clientMap cuyo folderMatch aparece
+    // (case-insensitive, substring) en el nombre de algún ancestro — o
+    // null si ninguno matchea. No asume profundidad fija (cubre carpeta
+    // padre directa o varios niveles arriba, ej. "FLOTA" > "FORD NEW
+    // RANGER 4x4" > vehículo).
+    _clientMapEntryForRecord: function (record) {
+        var cfg = (this.config && this.config.branches) || (this.DEFAULT_CONFIG.branches || {});
+        var clientMap = cfg.clientMap || [];
+        if (clientMap.length === 0) { return null; }
+
+        var node = record && record.parentNode;
+        while (node) {
+            var name = String(node.get ? (node.get('text') || node.get('name') || '') : '').toLowerCase();
+            if (name) {
+                for (var i = 0; i < clientMap.length; i++) {
+                    var entry = clientMap[i];
+                    if (entry.folderMatch && name.indexOf(String(entry.folderMatch).toLowerCase()) !== -1) {
+                        return entry;
+                    }
+                }
+            }
+            node = node.parentNode;
+        }
+        return null;
+    },
+
+    // Dado un record de vehículo APAGADO y las geocercas ya cargadas
+    // (_lastGeofences — reusa loadBranchGeofences, código de ADR-016),
+    // devuelve el `name` de la geocerca de sucursal/base que contiene su
+    // posición actual, o null si no hay match de cliente o no cae dentro
+    // de ninguna. Solo compara contra los group_names EXACTOS listados
+    // para ese cliente — nunca "Taller [Cliente]" aunque sea el mismo
+    // corchete, porque no está en la lista explícita.
+    _findVehicleBranchLabel: function (record, geofences) {
+        var entry = this._clientMapEntryForRecord(record);
+        if (!entry || !entry.groupNames || entry.groupNames.length === 0) { return null; }
+
+        var ll = this._recordLatLon(record);
+        if (!ll) { return null; }
+
+        var map = this._fleetMap;
+        for (var i = 0; i < geofences.length; i++) {
+            var g = geofences[i];
+            if (!g.group_name || entry.groupNames.indexOf(g.group_name) === -1) { continue; }
+            var points = (map && map.getPointsZoneData) ? map.getPointsZoneData(g.points) : null;
+            if (!points || points.length < 3) { continue; }
+            if (this._pointInPolygon(ll[0], ll[1], points)) {
+                return g.name || null;
+            }
+        }
+        return null;
     },
 
     // Escribe un mensaje de estado (placeholder, error) en el mount de la
