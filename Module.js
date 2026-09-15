@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.0',
-    moduleBuild: '2026-09-15-1824',
+    moduleBuild: '2026-09-15-1841',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -3223,11 +3223,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // (firing=0): un vehículo encendido está en tránsito, no
             // "estacionado en una ubicación". Requiere _lastGeofences ya
             // cargado (loadFleetMapClusters lo garantiza antes de llamar
-            // acá si hay clientMap configurado).
+            // acá si hay clientMap configurado). try/catch propio: un error
+            // acá (geocerca malformada, etc.) es un dato OPCIONAL del
+            // tooltip — nunca debe tumbar el render del mapa completo (bug
+            // real encontrado 15 sep: un error sin catch en esta lógica
+            // dejaba "Ubicación Global de la Flota" completamente vacío).
             var branchLabel = null;
             if (!firing && this._lastGeofences) {
-                branchLabel = this._findVehicleBranchLabel(records[i], this._lastGeofences);
-                if (branchLabel) { branchMatches++; }
+                try {
+                    branchLabel = this._findVehicleBranchLabel(records[i], this._lastGeofences);
+                    if (branchLabel) { branchMatches++; }
+                } catch (branchErr) {
+                    me.widgetErrorCode('FLEETMAP-BRANCH-MATCH', branchErr);
+                }
             }
 
             var tooltipMsg = me.displayName(records[i].get ? records[i].get('name') : '') +
@@ -3417,17 +3425,39 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var ll = this._recordLatLon(record);
         if (!ll) { return null; }
 
-        var map = this._fleetMap;
         for (var i = 0; i < geofences.length; i++) {
             var g = geofences[i];
             if (!g.group_name || entry.groupNames.indexOf(g.group_name) === -1) { continue; }
-            var points = (map && map.getPointsZoneData) ? map.getPointsZoneData(g.points) : null;
+            // 'circle' no es un polígono (points = [lat, lon, radioM]) —
+            // sin soporte de ray-casting para círculos todavía, se salta.
+            if (g.type === 'circle') { continue; }
+            var points = this._geofencePolygonPoints(g);
             if (!points || points.length < 3) { continue; }
             if (this._pointInPolygon(ll[0], ll[1], points)) {
                 return g.name || null;
             }
         }
         return null;
+    },
+
+    // Normaliza `geofence.points` al formato [[lat, lon], ...] que espera
+    // _pointInPolygon. GET /api/v3/geofences devuelve `points` ya como
+    // array de pares [lat, lon] (confirmado en vivo 15 sep) — NO como el
+    // string "lat,lon|lat,lon|..." que parsea MapContainer.getPointsZoneData
+    // (ese formato es el de otro endpoint/uso interno de PILOT; usarlo acá
+    // rompía con "e.split is not a function" porque points ya es array,
+    // bug encontrado en vivo por el usuario tras esta misma implementación).
+    _geofencePolygonPoints: function (geofence) {
+        var raw = geofence && geofence.points;
+        if (!Array.isArray(raw)) { return null; }
+        var out = [];
+        for (var i = 0; i < raw.length; i++) {
+            var p = raw[i];
+            if (Array.isArray(p) && p.length >= 2 && isFinite(p[0]) && isFinite(p[1])) {
+                out.push([Number(p[0]), Number(p[1])]);
+            }
+        }
+        return out;
     },
 
     // Escribe un mensaje de estado (placeholder, error) en el mount de la
