@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.17.4',
-    moduleBuild: '2026-09-14-1813',
+    version: '0.19.0',
+    moduleBuild: '2026-09-15-1331',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -29,6 +29,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // los cuales un vehículo cuenta como "ralentí excesivo" (Alertas
         // Generales). El reporte da c1 = Excess Idle en segundos.
         ecoScore: { windowDays: 8, idleThresholdMin: 120 },
+        // Tendencia de infracciones por categoría (report_type=114) — ventana
+        // del reporte nativo de Pilot. El endpoint devuelve "msg":"Coming
+        // soon" pero success:true y data sí vienen completos (confirmado 15
+        // sep vía captura de pestaña Red) — msg es un texto heredado sin
+        // relación con la disponibilidad real del dato.
+        violations: { windowDays: 8 },
+        // Vehículos por Sucursal (ADR-016) — namePatterns: substrings
+        // (case-insensitive) que un group_name de /api/v3/geofences debe
+        // contener para aparecer como "grupo de sucursales" en el
+        // dropdown. Ajustable sin tocar código si Pilot usa otra palabra.
+        branches: { namePatterns: ['sucursal', 'base'] },
         // Privacidad: maskPlates=true reemplaza la patente (que en PILOT suele
         // ser el "Nombre de Vehículo") por un alias en toda la UI del dashboard.
         // Desactivado 14 sep (decisión del usuario) — el alias secuencial
@@ -116,12 +127,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me.loadTop5KmData();
                         me.loadAlertasGenerales();
                         me.loadEcoScore();
+                        me.loadViolationsTrend();
                         // Mapa de hotspots: instancia propia dentro de un
                         // Ext.panel.Panel (patrón examples/airports/Map.js,
                         // BR-PILOT-0007). buildHotspotsMapPanel monta el panel
                         // y su listener 'render' crea el MapContainer y llama
                         // loadHotspots. NUNCA toca window.mapContainer.
                         me.buildHotspotsMapPanel();
+                        // Vehículos por Sucursal (ADR-016) — mismo patrón,
+                        // instancia de MapContainer separada.
+                        me.buildBranchMapPanel();
                         me.startClock();
                         me.renderLogo();
                         // scrollable:'y' de Ext mide el alto scrolleable
@@ -1040,6 +1055,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     hint: l('Vehículos seleccionados en el panel "Principal": activos, en movimiento, estacionados y sin conexión. Se actualiza en vivo con el árbol Online.'),
                     noFooter: true,
                     skeleton: 'donut'
+                }),
+                this.cardMarkup('violations', {
+                    title: l('Tendencia de Infracciones'),
+                    hint: l('Infracciones de manejo por categoría (velocidad, aceleración, frenado, ralentí, giro, cinturón) sumadas en la ventana configurada. Fuente: reports.php report_type=114.'),
+                    noFooter: true,
+                    skeleton: 'stats'
                 })
             ]
         };
@@ -1073,6 +1094,29 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         id: 'promatic_dashboard_enhancer-map-folder',
                         cls: 'promatic_dashboard_enhancer-map-folder',
                         cn: [{ tag: 'option', value: '__all__', html: l('Ver todos los seleccionados') }]
+                    }
+                }),
+                this.cardMarkup('vehicles_by_branch', {
+                    title: l('Vehículos por Sucursal'),
+                    hint: l('Vehículos cuya última posición GPS cae dentro del polígono de la sucursal seleccionada. El match se calcula en el navegador (no hay historial de entrada/salida). Elige un grupo de geocercas y luego una sucursal.'),
+                    noFooter: true,
+                    skeleton: 'map',
+                    headExtra: {
+                        cls: 'promatic_dashboard_enhancer-branch-selects',
+                        cn: [
+                            {
+                                tag: 'select',
+                                id: 'promatic_dashboard_enhancer-branch-group',
+                                cls: 'promatic_dashboard_enhancer-map-folder',
+                                cn: [{ tag: 'option', value: '', html: l('Cargando grupos…') }]
+                            },
+                            {
+                                tag: 'select',
+                                id: 'promatic_dashboard_enhancer-branch-select',
+                                cls: 'promatic_dashboard_enhancer-map-folder',
+                                cn: [{ tag: 'option', value: '', html: l('— Elige un grupo primero —') }]
+                            }
+                        ]
                     }
                 })
             ]
@@ -1227,13 +1271,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.showCardSkeleton('flota', 'donut');
         this.showCardSkeleton('eco_score', 'donut');
         this.showCardSkeleton('alertas_generales', 'stats');
+        this.showCardSkeleton('violations', 'stats');
         this.refreshFleetStore();
         this.loadTop5KmData();
         this.loadAlertasGenerales();
         this.loadEcoScore();
+        this.loadViolationsTrend();
         // El dropdown puede tener carpetas nuevas si cambió la selección.
         this.populateMapFolderDropdown();
         this.loadFleetHeatmap();
+        // 'vehicles_by_branch' (ADR-016) NO se recarga acá a propósito —
+        // depende de una selección explícita del usuario en 2 dropdowns,
+        // no de datos que cambien solos con el refresh del resto del
+        // dashboard. Si hay una sucursal elegida, re-corre el match sobre
+        // la flota recién refrescada (posiciones pueden haber cambiado).
+        if (this._branchGeofenceFilter) { this.renderBranchVehicles(); }
     },
 
     // Pinta el skeleton de carga en el body de una card (si está montada).
@@ -2386,10 +2438,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // Caja del ranking horizontal: valor semanal grande arriba + nombre,
         // y debajo un rectángulo con el valor de la semana anterior.
         // Color completo por umbral, texto blanco.
-        var rankCell = function (item) {
+        // pos: índice 0-4 dentro del ranking de 5 cajas (2 mejores + mediana
+        // + 2 peores). En compact (<28em, CSS) se ocultan pos 1 y 3 —
+        // quedan mejor/mediana/peor (3 cajas) para no desbordar al lado de
+        // la tarjeta de score de ancho fijo (150px). Ver
+        // .eco-cell--pos-1/--pos-3 en style.css.
+        var rankCell = function (item, pos) {
             var mod = scoreMod(item.cur);
             return {
-                cls: 'promatic_dashboard_enhancer-eco-cell promatic_dashboard_enhancer-eco-cell--' + mod,
+                cls: 'promatic_dashboard_enhancer-eco-cell promatic_dashboard_enhancer-eco-cell--' + mod +
+                    ' promatic_dashboard_enhancer-eco-cell--pos-' + pos,
                 cn: [
                     { cls: 'promatic_dashboard_enhancer-eco-cell__top', cn: [
                         { cls: 'promatic_dashboard_enhancer-eco-cell__val', html: String(item.cur) },
@@ -2453,7 +2511,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 rows.length + ' ' + l('vehículos') + ' · ' + l('previo') + ' ' + globalPrev + '%');
 
         var rankCells = [];
-        for (var rc = 0; rc < rankFive.length; rc++) { rankCells.push(rankCell(rankFive[rc])); }
+        for (var rc = 0; rc < rankFive.length; rc++) { rankCells.push(rankCell(rankFive[rc], rc)); }
 
         this.updateCardBody('eco_score', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-eco-body',
@@ -2466,6 +2524,132 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // La barra "molido por carpeta" se retiró (7 sep) — el contenedor
         // #promatic_dashboard_enhancer-eco-folder-bar queda vacío/oculto,
         // reservado para widgets sueltos futuros.
+    },
+
+    // -----------------------------------------------------------------------
+    // Tendencia de Infracciones — card 'violations'.
+    //
+    // Fuente REAL: reports.php report_type=114 (group=1) = reporte nativo de
+    // infracciones de manejo de PILOT. Confirmado disponible 15 sep vía
+    // captura de pestaña Red — el campo `msg` de la respuesta trae el texto
+    // heredado "Coming soon", pero `success:true` y `data` sí vienen
+    // completos; `msg` no refleja el estado real del reporte.
+    //
+    // Respuesta: { data: { "<rango de fecha>": [ [veh, group, dateTs,
+    //   driver, distance, duration, speed, accel, braking, idling, turn,
+    //   seatbelt, finePer100, totalFine], ... ] } }
+    //   Cada fila es 1 vehículo en 1 día del rango. Sumamos las 6 columnas
+    //   de infracción (índices 6-11) sobre toda la ventana/flota.
+    //
+    // El widget muestra barras horizontales de conteo total por categoría —
+    // mismo espíritu que el resto de las cards de resumen, sin gráfico de
+    // librería externa (ninguna disponible en el runtime salvo Highcharts,
+    // reservado para los exportadores).
+    // -----------------------------------------------------------------------
+    loadViolationsTrend: function () {
+        var me = this;
+        var cfg = (me.config && me.config.violations) || (me.DEFAULT_CONFIG.violations || {});
+        var days = cfg.windowDays || 8;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            var stop = new Date();
+            var start = new Date();
+            start.setDate(start.getDate() - days);
+
+            me.fetchReportType(114, vehIds.join(','), start, stop, 25000)
+                .then(function (data) {
+                    me.renderViolationsTrend(data, days);
+                })
+                .catch(function (err) {
+                    var code = me.widgetErrorCode('VIOLATIONS', err);
+                    me.updateCardBody('violations', l('No se pudo cargar la tendencia de infracciones.') + ' (' + code + ')', 0, true);
+                });
+        });
+    },
+
+    // resp: respuesta de reports.php report_type=114.
+    renderViolationsTrend: function (resp, days) {
+        if (!resp || resp.success === false) {
+            this.updateCardBody('violations',
+                l('El reporte de infracciones no devolvió datos para el alcance actual.'), 0, true);
+            return;
+        }
+
+        var byDate = (resp && resp.data) || {};
+        // c0 nombre, c1 grupo, c2 fecha, c3 conductor, c4 distancia,
+        // c5 duración, c6 velocidad, c7 aceleración, c8 frenado, c9 ralentí,
+        // c10 giro, c11 cinturón, c12 multa/100km, c13 multa total.
+        var totals = { speed: 0, accel: 0, braking: 0, idling: 0, turn: 0, seatbelt: 0 };
+        var rowCount = 0;
+        for (var range in byDate) {
+            if (!byDate.hasOwnProperty(range)) { continue; }
+            var rows = byDate[range] || [];
+            for (var i = 0; i < rows.length; i++) {
+                var c = rows[i];
+                if (!c || c.length < 12) { continue; }
+                totals.speed += Number(c[6]) || 0;
+                totals.accel += Number(c[7]) || 0;
+                totals.braking += Number(c[8]) || 0;
+                totals.idling += Number(c[9]) || 0;
+                totals.turn += Number(c[10]) || 0;
+                totals.seatbelt += Number(c[11]) || 0;
+                rowCount++;
+            }
+        }
+
+        this._lastViolationsTotals = totals; // cache para exportadores
+
+        if (rowCount === 0) {
+            this.updateCardBody('violations',
+                l('Sin datos de infracciones para el alcance actual.'), 0, true);
+            return;
+        }
+
+        var cats = [
+            { key: 'speed', label: l('Velocidad') },
+            { key: 'accel', label: l('Aceleración') },
+            { key: 'braking', label: l('Frenado') },
+            { key: 'idling', label: l('Ralentí') },
+            { key: 'turn', label: l('Giro') },
+            { key: 'seatbelt', label: l('Cinturón') }
+        ];
+        var maxVal = 0;
+        for (var ci = 0; ci < cats.length; ci++) {
+            maxVal = Math.max(maxVal, totals[cats[ci].key]);
+        }
+
+        // Sin ninguna infracción en la ventana: mismo patrón "todo OK" que
+        // Sin Señal GPS — evita una fila de barras vacías sin sentido visual.
+        if (maxVal === 0) {
+            this.updateCardBody('violations', Ext.DomHelper.markup({
+                cls: 'promatic_dashboard_enhancer-violations-ok',
+                html: l('Sin infracciones registradas en los últimos') + ' ' + days + ' ' + l('días')
+            }), 0, true);
+            return;
+        }
+
+        var bar = function (cat) {
+            var val = totals[cat.key];
+            var pct = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
+            return {
+                cls: 'promatic_dashboard_enhancer-violations-row',
+                cn: [
+                    { cls: 'promatic_dashboard_enhancer-violations-row__label', html: cat.label },
+                    { cls: 'promatic_dashboard_enhancer-violations-row__track', cn: [
+                        { cls: 'promatic_dashboard_enhancer-violations-row__fill', style: 'width:' + pct + '%' }
+                    ] },
+                    { cls: 'promatic_dashboard_enhancer-violations-row__val', html: String(val) }
+                ]
+            };
+        };
+
+        var bars = [];
+        for (var b = 0; b < cats.length; b++) { bars.push(bar(cats[b])); }
+
+        this.updateCardBody('violations', Ext.DomHelper.markup({
+            cls: 'promatic_dashboard_enhancer-violations-body',
+            cn: bars
+        }), 0, true);
     },
 
     // Hotspots de desconexión (card 'hotspots') — heatmap sobre un
@@ -2486,6 +2670,25 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //       no un <div> arbitrario (ese era el bug: el <div> no montaba la
     //       instancia y MapContainer caía al mapa global).
     //   - checkResize() en el evento 'resize' del panel.
+    // Centroide + bounding box de los vehículos en alcance con coordenadas
+    // válidas — usado para el centrado/zoom inicial del mapa (en vez de
+    // coordenadas fijas de Santiago). Devuelve null si no hay ningún
+    // vehículo con coords todavía (fallback al caller).
+    _fleetCentroid: function () {
+        var onlineTree = this.getOnlineTree();
+        if (!onlineTree) { return null; }
+        var records = this.getMapScopedRecords(onlineTree);
+        var pts = [];
+        for (var i = 0; i < records.length; i++) {
+            var ll = this._recordLatLon(records[i]);
+            if (ll) { pts.push(ll); }
+        }
+        if (pts.length === 0) { return null; }
+        var sumLat = 0, sumLon = 0;
+        for (var j = 0; j < pts.length; j++) { sumLat += pts[j][0]; sumLon += pts[j][1]; }
+        return { center: [sumLat / pts.length, sumLon / pts.length], points: pts };
+    },
+
     // Se llama en el afterrender del panel principal, cuando el shell ya
     // está en el DOM con dimensiones.
     buildHotspotsMapPanel: function () {
@@ -2523,10 +2726,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 render: function () {
                     try {
                         var MC = me.getMapContainerClass();
-                        // Centro aproximado de Chile continental; el heatmap
-                        // reajusta el encuadre a los puntos reales.
                         me._hotspotsMap = new MC('promatic_dashboard_enhancer_hotspots');
-                        me._hotspotsMap.init(-33.45, -70.66, 5, this.id + '-body', false);
+                        // Centrado inicial: centroide de la flota en alcance
+                        // con fitBounds automático si ya hay vehículos con
+                        // coords; si el árbol Online todavía no cargó
+                        // (montaje inicial), fallback a Chile continental/
+                        // zoom 5 — loadFleetHeatmap() reencuadra el mapa
+                        // después de todas formas (ADR-016).
+                        var centroid = me._fleetCentroid();
+                        var initLat = centroid ? centroid.center[0] : -33.45;
+                        var initLon = centroid ? centroid.center[1] : -70.66;
+                        var initZoom = centroid ? 11 : 5;
+                        me._hotspotsMap.init(initLat, initLon, initZoom, this.id + '-body', false);
                         me.populateMapFolderDropdown();
                         me.loadFleetHeatmap();
                         // Leaflet midió el contenedor antes de que el layout
@@ -2705,11 +2916,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var records = this.getMapScopedRecords(onlineTree);
         var buckets = {};
         var withCoords = 0;
+        var rawPoints = [];
 
         for (var i = 0; i < records.length; i++) {
             var ll = this._recordLatLon(records[i]);
             if (!ll) { continue; }
             withCoords++;
+            rawPoints.push(ll);
             var key = ll[0].toFixed(3) + ',' + ll[1].toFixed(3);
             if (!buckets[key]) { buckets[key] = { lat: ll[0], lng: ll[1], count: 0 }; }
             buckets[key].count++;
@@ -2734,6 +2947,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return;
         }
 
+        // Reencuadra a los puntos reales (no a los buckets agregados) cada
+        // vez que se recarga — cubre el montaje inicial (fallback Chile/
+        // zoom 5, sin vehículos todavía) Y cambios posteriores de alcance/
+        // filtro de carpeta. setMapCenter con un array de puntos llama
+        // fitBounds internamente (MapContainer.md §"Map View Methods").
+        try {
+            if (typeof map.setMapCenter === 'function' && rawPoints.length > 0) {
+                map.setMapCenter(rawPoints);
+            }
+        } catch (e) { /* no-op — el mapa sigue funcional sin reencuadre */ }
+
         try {
             if (typeof map.setHeatmap === 'function') {
                 map.setHeatmap(points, true, l('Vehículos'));
@@ -2744,19 +2968,382 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
+    // -----------------------------------------------------------------------
+    // Vehículos por Sucursal (ADR-016) — card 'vehicles_by_branch'.
+    //
+    // Fuente: GET /api/v3/geofences (URL relativa — same-origin, NOC-006).
+    // Trae TODAS las geocercas de la cuenta; el filtro de cuáles son
+    // "sucursal" pasa por _matchGeofenceGroup (patrón de nombre), no por
+    // un campo del schema — ver ADR-016.
+    // -----------------------------------------------------------------------
+    loadBranchGeofences: function (callback) {
+        var me = this;
+        var ctrl = new AbortController();
+        var to = setTimeout(function () { ctrl.abort(); }, 20000);
+
+        fetch('/api/v3/geofences', {
+            method: 'GET',
+            credentials: 'include',
+            signal: ctrl.signal
+        })
+            .then(function (resp) {
+                if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                return resp.json();
+            })
+            .then(function (data) {
+                me._lastGeofences = Array.isArray(data) ? data : (data && data.data) || [];
+                callback(null, me._lastGeofences);
+            })
+            .catch(function (err) {
+                var code = me.widgetErrorCode('BRANCHES-GEOFENCES', err);
+                callback(code, []);
+            })
+            .finally(function () { clearTimeout(to); });
+    },
+
+    // true si `name` (group_name de una geocerca) matchea algún patrón de
+    // config.branches.namePatterns — case-insensitive, substring simple.
+    _matchGeofenceGroup: function (name) {
+        if (!name) { return false; }
+        var cfg = (this.config && this.config.branches) || (this.DEFAULT_CONFIG.branches || {});
+        var patterns = cfg.namePatterns || [];
+        var lower = String(name).toLowerCase();
+        for (var i = 0; i < patterns.length; i++) {
+            if (lower.indexOf(String(patterns[i]).toLowerCase()) !== -1) { return true; }
+        }
+        return false;
+    },
+
+    // Test punto-en-polígono estándar (ray casting / even-odd rule).
+    // points: array de [lat, lon] (mismo formato que devuelve
+    // MapContainer.getPointsZoneData). Algoritmo O(n) sobre los vértices
+    // del polígono, sin dependencia externa.
+    _pointInPolygon: function (lat, lon, points) {
+        var inside = false;
+        for (var i = 0, j = points.length - 1; i < points.length; j = i++) {
+            var yi = points[i][0], xi = points[i][1];
+            var yj = points[j][0], xj = points[j][1];
+            var intersect = ((yi > lat) !== (yj > lat)) &&
+                (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+            if (intersect) { inside = !inside; }
+        }
+        return inside;
+    },
+
+    // Filtra `records` (records del online_tree) a los que caen dentro del
+    // polígono `points` según su última posición conocida (_recordLatLon).
+    // Devuelve [{ record, lat, lon }] — no solo records, para no recalcular
+    // la posición en el caller (render de marcadores/lista).
+    _vehiclesInGeofence: function (points, records) {
+        var out = [];
+        for (var i = 0; i < records.length; i++) {
+            var ll = this._recordLatLon(records[i]);
+            if (!ll) { continue; }
+            if (this._pointInPolygon(ll[0], ll[1], points)) {
+                out.push({ record: records[i], lat: ll[0], lon: ll[1] });
+            }
+        }
+        return out;
+    },
+
+    // Monta el Ext.panel.Panel + MapContainer propio de 'vehicles_by_branch'
+    // — mismo patrón que buildHotspotsMapPanel (BR-PILOT-0007): instancia
+    // propia, nunca window.mapContainer, requiere el -body de un panel Ext
+    // ya renderizado. Estructura: [div del mapa (id propio)] + [div de la
+    // lista, hermano] — el panel Ext se renderiza SOLO en el primero, así
+    // el layout:'fit' del panel no se come el espacio de la lista.
+    buildBranchMapPanel: function () {
+        var me = this;
+        var body = Ext.get('promatic_dashboard_enhancer-card-body-vehicles_by_branch');
+        if (!body) {
+            me._branchMountRetry = (me._branchMountRetry || 0) + 1;
+            if (me._branchMountRetry < 40) {
+                Ext.defer(me.buildBranchMapPanel, 300, me);
+            }
+            return;
+        }
+        if (me._branchPanel) { return; }
+        if (!me.getMapContainerClass()) {
+            body.setHtml(l('El mapa no está disponible en este runtime.'));
+            return;
+        }
+
+        body.setHtml(Ext.DomHelper.markup({
+            cn: [
+                { tag: 'div', id: 'promatic_dashboard_enhancer-branch-map-mount' },
+                { tag: 'div', id: 'promatic_dashboard_enhancer-branch-veh-list-mount', cls: 'promatic_dashboard_enhancer-branch-veh-list-mount' }
+            ]
+        }));
+
+        me._branchPanel = Ext.create('Ext.panel.Panel', {
+            renderTo: 'promatic_dashboard_enhancer-branch-map-mount',
+            cls: 'promatic_dashboard_enhancer-hotspots-map',
+            bodyCls: 'promatic_dashboard_enhancer-hotspots-map-body',
+            layout: 'fit',
+            height: 300,
+            border: false,
+            listeners: {
+                render: function () {
+                    try {
+                        var MC = me.getMapContainerClass();
+                        me._branchMap = new MC('promatic_dashboard_enhancer_branch');
+                        me._branchMap.init(-33.45, -70.66, 5, this.id + '-body', false);
+                        me.populateBranchGroupDropdown();
+                        Ext.defer(function () {
+                            if (me._branchMap && me._branchMap.checkResize) { me._branchMap.checkResize(); }
+                        }, 300);
+                        Ext.defer(function () {
+                            if (me._branchMap && me._branchMap.checkResize) { me._branchMap.checkResize(); }
+                        }, 700);
+                        if (window.ResizeObserver) {
+                            var mapMount = Ext.get('promatic_dashboard_enhancer-branch-map-mount');
+                            if (mapMount && mapMount.dom) {
+                                me._branchResizeObserver = new ResizeObserver(function () {
+                                    if (me._branchMap && me._branchMap.checkResize) { me._branchMap.checkResize(); }
+                                });
+                                me._branchResizeObserver.observe(mapMount.dom);
+                            }
+                        }
+                    } catch (err) {
+                        me.widgetErrorCode('BRANCHES-MAP-INIT', err);
+                        this.body.setHtml(l('No se pudo inicializar el mapa de sucursales.'));
+                    }
+                },
+                resize: function () {
+                    if (me._branchMap && me._branchMap.checkResize) {
+                        me._branchMap.checkResize();
+                    }
+                }
+            }
+        });
+    },
+
+    // Dropdown 1: puebla con los group_name únicos que matchean
+    // _matchGeofenceGroup, ordenados alfabéticamente. Dispara el fetch de
+    // geocercas si todavía no se cargó (_lastGeofences).
+    populateBranchGroupDropdown: function () {
+        var me = this;
+        var sel = document.getElementById('promatic_dashboard_enhancer-branch-group');
+        if (!sel) { return; }
+
+        this.loadBranchGeofences(function (errCode, geofences) {
+            if (errCode) {
+                sel.innerHTML = '';
+                var errOpt = document.createElement('option');
+                errOpt.value = '';
+                errOpt.textContent = l('Error al cargar geocercas') + ' (' + errCode + ')';
+                sel.appendChild(errOpt);
+                me.updateCardBody('vehicles_by_branch',
+                    l('No se pudieron cargar las geocercas.') + ' (' + errCode + ')', 0, true);
+                return;
+            }
+
+            var groupsSet = {};
+            for (var i = 0; i < geofences.length; i++) {
+                var g = geofences[i].group_name;
+                if (g && me._matchGeofenceGroup(g)) { groupsSet[g] = true; }
+            }
+            var groups = Object.keys(groupsSet).sort();
+
+            sel.innerHTML = '';
+            if (groups.length === 0) {
+                var empty = document.createElement('option');
+                empty.value = '';
+                empty.textContent = l('Sin geocercas de sucursal configuradas');
+                sel.appendChild(empty);
+                me.updateCardBody('vehicles_by_branch',
+                    l('No se encontraron geocercas cuyo grupo coincida con "sucursal"/"base". Ajustar config.branches.namePatterns si Pilot usa otro nombre.'), 0, true);
+                return;
+            }
+
+            var placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = l('— Elige un grupo —');
+            sel.appendChild(placeholder);
+            for (var j = 0; j < groups.length; j++) {
+                var o = document.createElement('option');
+                o.value = groups[j];
+                o.textContent = groups[j];
+                sel.appendChild(o);
+            }
+
+            if (!sel._pdeBound) {
+                sel._pdeBound = true;
+                sel.addEventListener('change', function () {
+                    me._branchGroupFilter = sel.value || null;
+                    me.populateBranchSelectDropdown();
+                });
+            }
+
+            me.updateCardBody('vehicles_by_branch',
+                l('Elige un grupo y luego una sucursal.'), 0, true);
+        });
+    },
+
+    // Dropdown 2: puebla con las geocercas (name) del grupo elegido en el
+    // dropdown 1. Se llama al cambiar el dropdown 1, y limpia/deshabilita
+    // si no hay grupo elegido.
+    populateBranchSelectDropdown: function () {
+        var me = this;
+        var sel = document.getElementById('promatic_dashboard_enhancer-branch-select');
+        if (!sel) { return; }
+
+        sel.innerHTML = '';
+        if (!me._branchGroupFilter || !me._lastGeofences) {
+            var ph = document.createElement('option');
+            ph.value = '';
+            ph.textContent = l('— Elige un grupo primero —');
+            sel.appendChild(ph);
+            me._branchGeofenceFilter = null;
+            me.renderBranchVehicles();
+            return;
+        }
+
+        var matches = me._lastGeofences.filter(function (g) {
+            return g.group_name === me._branchGroupFilter;
+        });
+
+        var placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = l('— Elige una sucursal —');
+        sel.appendChild(placeholder);
+        for (var i = 0; i < matches.length; i++) {
+            var o = document.createElement('option');
+            o.value = String(matches[i].id);
+            o.textContent = matches[i].name || ('#' + matches[i].id);
+            sel.appendChild(o);
+        }
+
+        if (!sel._pdeBound) {
+            sel._pdeBound = true;
+            sel.addEventListener('change', function () {
+                me._branchGeofenceFilter = sel.value || null;
+                me.renderBranchVehicles();
+            });
+        }
+
+        me._branchGeofenceFilter = null;
+        me.renderBranchVehicles();
+    },
+
+    // Con una sucursal elegida (_branchGeofenceFilter = id de la
+    // geocerca): parsea sus points, corre _vehiclesInGeofence contra la
+    // flota en alcance, dibuja el polígono + 1 marcador por match, y
+    // muestra la lista nombre + online/offline debajo del mapa (mismo
+    // campo is_server_online que usa Estado de Flota).
+    renderBranchVehicles: function () {
+        var me = this;
+        var map = this._branchMap;
+
+        // Limpia dibujado anterior — un solo polígono/set de marcadores
+        // propios a la vez, nunca los del mapa nativo (BR-PILOT-0007).
+        try {
+            if (me._branchPolygonId && map && map.removePolygon) { map.removePolygon(me._branchPolygonId); }
+        } catch (e) { /* no-op */ }
+        try {
+            if (map && map.removeAllMarkers) { map.removeAllMarkers('promatic_dashboard_enhancer_branch'); }
+        } catch (e) { /* no-op */ }
+        me._branchPolygonId = null;
+
+        if (!this._branchGeofenceFilter || !this._lastGeofences) {
+            this.updateCardBody('vehicles_by_branch',
+                l('Elige un grupo y luego una sucursal.'), 0, true);
+            return;
+        }
+
+        var geofence = null;
+        for (var i = 0; i < this._lastGeofences.length; i++) {
+            if (String(this._lastGeofences[i].id) === String(this._branchGeofenceFilter)) {
+                geofence = this._lastGeofences[i];
+                break;
+            }
+        }
+        if (!geofence) {
+            this.updateCardBody('vehicles_by_branch', l('Geocerca no encontrada.'), 0, true);
+            return;
+        }
+
+        var points = (map && map.getPointsZoneData) ? map.getPointsZoneData(geofence.points) : null;
+        if (!points || points.length < 3) {
+            this.updateCardBody('vehicles_by_branch',
+                l('La geocerca no tiene un polígono válido.'), 0, true);
+            return;
+        }
+
+        var onlineTree = this.getOnlineTree();
+        var records = onlineTree ? this.getScopedFleetRecords(onlineTree) : [];
+        var matches = this._vehiclesInGeofence(points, records);
+
+        try {
+            if (map && map.setPolygon) {
+                me._branchPolygonId = 'promatic_dashboard_enhancer_branch_polygon';
+                map.setPolygon(points, {
+                    id: me._branchPolygonId,
+                    label: geofence.name,
+                    color: '#008be3',
+                    fillOpacity: 0.15
+                });
+            }
+            if (map && map.addMarker) {
+                for (var m = 0; m < matches.length; m++) {
+                    var rec = matches[m].record;
+                    map.addMarker({
+                        id: 'promatic_dashboard_enhancer_branch_veh_' + m,
+                        lat: matches[m].lat,
+                        lon: matches[m].lon,
+                        size: 'mini',
+                        customOptions: { type: 'promatic_dashboard_enhancer_branch' },
+                        tooltip: { msg: me.displayName(rec.get ? rec.get('name') : '') }
+                    });
+                }
+            }
+            if (map && map.setMapCenter && points.length > 0) {
+                map.setMapCenter(points);
+            }
+            if (map && map.checkResize) { map.checkResize(); }
+        } catch (err) {
+            this.widgetErrorCode('BRANCHES-RENDER', err);
+        }
+
+        var rows = [];
+        for (var r = 0; r < matches.length; r++) {
+            var rr = matches[r].record;
+            var online = rr.get ? !!rr.get('is_server_online') : false;
+            rows.push({
+                cls: 'promatic_dashboard_enhancer-branch-veh-row',
+                cn: [
+                    { cls: 'promatic_dashboard_enhancer-branch-veh-row__name', html: me.displayName(rr.get ? rr.get('name') : '') },
+                    { cls: 'promatic_dashboard_enhancer-branch-veh-row__status promatic_dashboard_enhancer-branch-veh-row__status--' + (online ? 'online' : 'offline'),
+                      html: online ? l('En línea') : l('Sin conexión') }
+                ]
+            });
+        }
+
+        var listHtml = rows.length > 0
+            ? Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-branch-veh-list', cn: rows })
+            : Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-branch-veh-empty', html: l('Ningún vehículo dentro de esta sucursal ahora mismo.') });
+
+        console.log('[promatic_dashboard_enhancer] vehículos por sucursal: "' + geofence.name +
+            '" — ' + matches.length + ' de ' + records.length + ' vehículos en alcance');
+
+        var mount = Ext.get('promatic_dashboard_enhancer-branch-veh-list-mount');
+        if (mount) { mount.setHtml(listHtml); }
+    },
+
     updateGpsSignalCard: function (b24, b48, bMore) {
         // 3 buckets en fila horizontal (rediseño 3 sep). Sin footer — las
         // fichas son el único elemento de la card. El chip "Más de 48h"
         // (--red) es el único que pulsa (@keyframes ...-alert-pulse).
         // TODO: conectar el click de cada chip al panel de alertas nativo.
-        var chip = function (mod, label, count, title) {
+        var chip = function (mod, label, count, title, hideBadge) {
+            var cn = [{ tag: 'span', cls: 'promatic_dashboard_enhancer-signal-chip__label', html: label }];
+            if (!hideBadge) {
+                cn.push({ tag: 'span', cls: 'promatic_dashboard_enhancer-signal-chip__badge', html: String(count) });
+            }
             return {
                 cls: 'promatic_dashboard_enhancer-signal-chip promatic_dashboard_enhancer-signal-chip--' + mod,
                 title: title,
-                cn: [
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-signal-chip__label', html: label },
-                    { tag: 'span', cls: 'promatic_dashboard_enhancer-signal-chip__badge', html: String(count) }
-                ]
+                cn: cn
             };
         };
 
@@ -2771,18 +3358,26 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '<path stroke-linejoin="round" d="M4.853 19.147c3.196 3.196 8.06 3.707 11.789 1.533c.886-.517 1.33-.776 1.357-1.302s-.471-.89-1.468-1.618c-1.848-1.35-3.667-3-5.48-4.812C9.24 11.136 7.59 9.317 6.24 7.47c-.728-.997-1.092-1.495-1.618-1.468s-.785.47-1.302 1.357c-2.174 3.73-1.663 8.593 1.533 11.79Z"/>' +
             '</g></svg>';
 
+        // Sin ningún vehículo desconectado en los 3 buckets: reemplaza el
+        // set de 3 chips (con el rojo pulsando) por un único chip verde
+        // "Todo OK" — evita la falsa alarma visual con flotas chicas donde
+        // el bucket ">48h" nunca tiene datos reales que mostrar.
+        var track = (b24 === 0 && b48 === 0 && bMore === 0)
+            ? { cn: [chip('ok', l('Todo OK — sin desconexiones'), 0, l('Ningún vehículo desconectado actualmente'), true)] }
+            : {
+                cn: [
+                    chip('yellow', l('Menos de 24h'), b24, l('Vehículos desconectados hace menos de 24h')),
+                    chip('orange', l('Entre 24 y 48h'), b48, l('Vehículos desconectados entre 24 y 48h')),
+                    chip('red', l('Más de 48h'), bMore, l('Vehículos desconectados hace más de 48h o sin dato reciente'))
+                ]
+            };
+        track.cls = 'promatic_dashboard_enhancer-signal-track';
+
         this.updateCardBody('gps_signal', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-signal-body',
             cn: [
                 { cls: 'promatic_dashboard_enhancer-signal-watermark', html: svgNoGps },
-                {
-                    cls: 'promatic_dashboard_enhancer-signal-track',
-                    cn: [
-                        chip('yellow', l('Menos de 24h'), b24, l('Vehículos desconectados hace menos de 24h')),
-                        chip('orange', l('Entre 24 y 48h'), b48, l('Vehículos desconectados entre 24 y 48h')),
-                        chip('red', l('Más de 48h'), bMore, l('Vehículos desconectados hace más de 48h o sin dato reciente'))
-                    ]
-                }
+                track
             ]
         }));
     },

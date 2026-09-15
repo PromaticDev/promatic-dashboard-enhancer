@@ -813,6 +813,18 @@
     color: var(--status-text);
 }
 
+/* Chip único "Todo OK" — sin vehículos desconectados en ningún bucket.
+   Reemplaza el set de 3 chips para evitar la falsa alarma visual del rojo
+   con flotas chicas (post-feria, ver brain/sesiones.md 15 sep). */
+.promatic_dashboard_enhancer-signal-chip--ok {
+    background: var(--status-ok-strong);
+    justify-content: center;
+}
+
+.promatic_dashboard_enhancer-signal-chip--ok .promatic_dashboard_enhancer-signal-chip__label {
+    color: #ffffff;
+}
+
 .promatic_dashboard_enhancer-signal-chip--red {
     background: var(--status-danger-strong);
 }
@@ -1233,9 +1245,99 @@
     font-weight: 700;
 }
 
+/* compact (<28em): la tarjeta de score (ancho fijo 150px) + el ranking de
+   5 cajas se desbordaban en ventanas angostas — ninguna de las 2 mitades
+   tenía espacio real para respirar. Ranking baja a 3 cajas
+   (mejor/mediana/peor; --pos-1 y --pos-3 ocultas — índices asignados en
+   Module.js renderEcoScore) y el grid pasa de 5 a 3 columnas. Debe ir
+   DESPUÉS de la regla base de arriba: mismo `@container`, igual
+   especificidad — el orden en el archivo decide, y la base gana si este
+   bloque queda antes (bug encontrado 15 sep). */
+@container dashboardpanel (max-width: 28em) {
+    /* Apila: tarjeta de score arriba (ancho completo), ranking debajo —
+       la fila con la tarjeta a 150px fijos no dejaba espacio real ni para
+       3 cajas (texto cortado/superpuesto, encontrado 15 sep). */
+    .promatic_dashboard_enhancer-eco-body {
+        flex-direction: column;
+    }
+
+    .promatic_dashboard_enhancer-eco-score-card {
+        flex: 0 0 auto;
+        width: 100%;
+    }
+
+    .promatic_dashboard_enhancer-eco-cells {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .promatic_dashboard_enhancer-eco-cell--pos-1,
+    .promatic_dashboard_enhancer-eco-cell--pos-3 {
+        display: none;
+    }
+}
+
 /* Contenedor reservado sobre el footer — vacío por ahora (widgets futuros). */
 .promatic_dashboard_enhancer-eco-folder-bar {
     display: none;
+}
+
+/* ===== Tendencia de Infracciones (card 'violations') — barras horizontales
+   por categoría, mismo patrón visual que el resto de las cards de resumen
+   (rampa azul estructural, no colores de alerta — no es un semáforo). ===== */
+.promatic_dashboard_enhancer-violations-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+}
+
+.promatic_dashboard_enhancer-violations-row {
+    display: grid;
+    grid-template-columns: 5.5em 1fr 2.5em;
+    align-items: center;
+    gap: 0.5em;
+}
+
+.promatic_dashboard_enhancer-violations-row__label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--g7);
+}
+
+.promatic_dashboard_enhancer-violations-row__track {
+    background: var(--g1);
+    border-radius: 0.25em;
+    height: 0.7em;
+    overflow: hidden;
+}
+
+.promatic_dashboard_enhancer-violations-row__fill {
+    height: 100%;
+    background: var(--g5);
+    border-radius: 0.25em;
+}
+
+.promatic_dashboard_enhancer-violations-row__val {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--g7);
+    text-align: right;
+}
+
+/* Estado "sin infracciones" — mismo espíritu que el chip verde único de
+   Sin Señal GPS: evita una fila de barras vacías sin valor informativo. */
+.promatic_dashboard_enhancer-violations-ok {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 60px;
+    padding: 0.75em;
+    border-radius: 0.5em;
+    background: var(--status-ok-strong);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-align: center;
 }
 
 /* ===== Vehículos con más KM (card 'top5km') — barra apilada + ranking ===== */
@@ -1558,4 +1660,73 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     border: 1px solid var(--g2);
     border-radius: 0.25em;
     cursor: pointer;
+}
+
+/* ===== Vehículos por Sucursal (card 'vehicles_by_branch') — 2 selects
+   encadenados en el head + mapa (300px) + lista de vehículos debajo
+   (ADR-016). Reusa .map-folder para el estilo base de cada <select>, pero
+   dentro de este contenedor el margin-left:auto/max-width:55% de arriba
+   se pisa — 2 selects angostos en vez de 1 que ocupa más de la mitad. */
+.promatic_dashboard_enhancer-branch-selects {
+    display: flex;
+    gap: 0.375em;
+    margin-left: auto;
+    min-width: 0;
+}
+
+.promatic_dashboard_enhancer-branch-selects .promatic_dashboard_enhancer-map-folder {
+    margin-left: 0;
+    max-width: 45%;
+    min-width: 0;
+}
+
+.promatic_dashboard_enhancer-branch-veh-list-mount {
+    padding: 0.5em 0.75em;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.promatic_dashboard_enhancer-branch-veh-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25em;
+}
+
+.promatic_dashboard_enhancer-branch-veh-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5em;
+    padding: 0.25em 0.5em;
+    border-radius: 0.25em;
+    background: var(--g0);
+}
+
+.promatic_dashboard_enhancer-branch-veh-row__name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--g7);
+}
+
+.promatic_dashboard_enhancer-branch-veh-row__status {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.125em 0.5em;
+    border-radius: 0.3125em;
+    color: #fff;
+}
+
+.promatic_dashboard_enhancer-branch-veh-row__status--online {
+    background: var(--status-ok-strong);
+}
+
+.promatic_dashboard_enhancer-branch-veh-row__status--offline {
+    background: var(--status-danger-strong);
+}
+
+.promatic_dashboard_enhancer-branch-veh-empty {
+    padding: 0.5em 0.75em;
+    font-size: 0.8rem;
+    color: var(--g5);
+    text-align: center;
 }
