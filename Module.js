@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.19.0',
-    moduleBuild: '2026-09-15-1510',
+    moduleBuild: '2026-09-15-1529',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -3061,6 +3061,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return out;
     },
 
+    // Escribe un mensaje de estado (placeholder, error) en el mount de la
+    // lista de 'vehicles_by_branch' — NUNCA usar updateCardBody('vehicles_
+    // by_branch', ...) para esto: updateCardBody hace setHtml() sobre TODO
+    // el body de la card, lo que destruye #branch-map-mount y con él el
+    // panel Ext/MapContainer ya montado (bug encontrado 15 sep — tras
+    // elegir ambos dropdowns "no pasaba nada" porque el primer mensaje de
+    // estado ya había borrado el mapa). Antes de que exista el mount (map
+    // panel aún no construido), no hace nada — buildBranchMapPanel llama
+    // esto recién después de crear la estructura.
+    _updateBranchStatus: function (html) {
+        var mount = Ext.get('promatic_dashboard_enhancer-branch-veh-list-mount');
+        if (mount) {
+            mount.setHtml(Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-branch-veh-empty', html: html }));
+        }
+    },
+
     // Monta el Ext.panel.Panel + MapContainer propio de 'vehicles_by_branch'
     // — mismo patrón que buildHotspotsMapPanel (BR-PILOT-0007): instancia
     // propia, nunca window.mapContainer, requiere el -body de un panel Ext
@@ -3134,16 +3150,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Dropdown 1: puebla con los group_name únicos que matchean
-    // _matchGeofenceGroup, ordenados alfabéticamente. Dispara el fetch de
-    // geocercas si todavía no se cargó (_lastGeofences).
     // Dropdown 1: puebla con las CARPETAS de flota del árbol "Principal"
-    // (mismo listado que usa el mapa de hotspots — getMapFolderOptions),
-    // NO con grupos de geocercas — corrección 15 sep: el diseño original
-    // es 2 dropdowns independientes (flota / sucursal), elegidos ambos a
-    // mano por el usuario, sin match automático entre ellos (no hay forma
-    // confiable de inferir "carpeta FORD 4x4" → "grupo Sucursales
-    // [Econorent]" desde el nombre — ver ADR-016, actualización 15 sep).
+    // (mismo listado que usa el mapa de hotspots — getMapFolderOptions).
+    // Corrección 15 sep: el diseño original tenía los 2 dropdowns
+    // totalmente independientes (no había forma confiable de inferir el
+    // par por nombre completo). El usuario confirmó después una señal SÍ
+    // confiable: el texto entre corchetes del group_name de la geocerca
+    // (ej. "Bases [SAMU]" → "SAMU") es el cliente/organización dueño de
+    // esa flota — si ese texto aparece en el nombre de la carpeta elegida
+    // acá, el grupo de geocercas correspondiente se filtra en el dropdown
+    // 2 (ver populateBranchSelectDropdown / _extractBracketTag).
     populateBranchFleetDropdown: function () {
         var me = this;
         var sel = document.getElementById('promatic_dashboard_enhancer-branch-group');
@@ -3176,14 +3192,32 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             sel._pdeBound = true;
             sel.addEventListener('change', function () {
                 me._branchFolderFilter = sel.value || null;
-                me.renderBranchVehicles();
+                var selectedOpt = sel.options[sel.selectedIndex];
+                me._branchFolderLabel = (me._branchFolderFilter && selectedOpt) ? selectedOpt.textContent : null;
+                me._branchGeofenceFilter = null; // la sucursal elegida puede ya no aplicar al nuevo filtro
+                me.populateBranchSelectDropdown();
             });
         }
     },
 
-    // Dropdown 2: puebla con TODAS las geocercas cuyo group_name matchea
-    // _matchGeofenceGroup (patrón "sucursal"/"base") — independiente del
-    // dropdown 1. Dispara el fetch de geocercas si todavía no se cargó.
+    // Extrae el texto entre el primer par de corchetes de un string — el
+    // group_name de una geocerca de sucursal/base trae el cliente/
+    // organización ahí (ej. "Bases [SAMU]" → "SAMU"). null si no hay
+    // corchetes.
+    _extractBracketTag: function (str) {
+        var m = /\[([^\]]+)\]/.exec(String(str || ''));
+        return m ? m[1] : null;
+    },
+
+    // Dropdown 2: puebla con las geocercas cuyo group_name matchea
+    // _matchGeofenceGroup (patrón "sucursal"/"base") Y, si hay una flota
+    // elegida en dropdown 1 (_branchFolderLabel), cuyo tag entre corchetes
+    // del group_name (_extractBracketTag) aparece en el nombre de esa
+    // carpeta — ej. carpeta "SAMU" solo ve "Bases [SAMU]", no "Sucursales
+    // [Econorent]" (corrección 15 sep, confirmado con el usuario que el
+    // corchete SÍ es una señal confiable). Sin flota elegida, muestra
+    // todas las que matchean el patrón (sin acotar). Dispara el fetch de
+    // geocercas si todavía no se cargó.
     populateBranchSelectDropdown: function () {
         var me = this;
         var sel = document.getElementById('promatic_dashboard_enhancer-branch-select');
@@ -3196,23 +3230,30 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 errOpt.value = '';
                 errOpt.textContent = l('Error al cargar geocercas') + ' (' + errCode + ')';
                 sel.appendChild(errOpt);
-                me.updateCardBody('vehicles_by_branch',
-                    l('No se pudieron cargar las geocercas.') + ' (' + errCode + ')', 0, true);
+                me._updateBranchStatus(l('No se pudieron cargar las geocercas.') + ' (' + errCode + ')');
                 return;
             }
 
+            var folderLabelLower = me._branchFolderLabel ? String(me._branchFolderLabel).toLowerCase() : null;
+
             var matches = geofences.filter(function (g) {
-                return g.group_name && me._matchGeofenceGroup(g.group_name);
+                if (!g.group_name || !me._matchGeofenceGroup(g.group_name)) { return false; }
+                if (!folderLabelLower) { return true; } // sin flota elegida — no acota
+                var tag = me._extractBracketTag(g.group_name);
+                return tag ? folderLabelLower.indexOf(tag.toLowerCase()) !== -1 : false;
             });
 
             sel.innerHTML = '';
             if (matches.length === 0) {
                 var emptyOpt = document.createElement('option');
                 emptyOpt.value = '';
-                emptyOpt.textContent = l('Sin geocercas de sucursal configuradas');
+                emptyOpt.textContent = folderLabelLower
+                    ? l('Sin sucursales/bases para esta flota')
+                    : l('Sin geocercas de sucursal configuradas');
                 sel.appendChild(emptyOpt);
-                me.updateCardBody('vehicles_by_branch',
-                    l('No se encontraron geocercas cuyo grupo coincida con "sucursal"/"base". Ajustar config.branches.namePatterns si Pilot usa otro nombre.'), 0, true);
+                me._updateBranchStatus(folderLabelLower
+                    ? l('No se encontraron geocercas cuyo grupo coincida con el nombre de esta flota.')
+                    : l('No se encontraron geocercas cuyo grupo coincida con "sucursal"/"base". Ajustar config.branches.namePatterns si Pilot usa otro nombre.'));
                 return;
             }
 
@@ -3236,8 +3277,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 });
             }
 
-            me.updateCardBody('vehicles_by_branch',
-                l('Elige una flota y luego una sucursal.'), 0, true);
+            me._updateBranchStatus(l('Elige una flota y luego una sucursal.'));
         });
     },
 
@@ -3261,13 +3301,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         me._branchPolygonId = null;
 
         if (!this._branchFolderFilter) {
-            this.updateCardBody('vehicles_by_branch',
-                l('Elige una flota y luego una sucursal.'), 0, true);
+            this._updateBranchStatus(l('Elige una flota y luego una sucursal.'));
             return;
         }
         if (!this._branchGeofenceFilter || !this._lastGeofences) {
-            this.updateCardBody('vehicles_by_branch',
-                l('Elige también una sucursal.'), 0, true);
+            this._updateBranchStatus(l('Elige también una sucursal.'));
             return;
         }
 
@@ -3279,14 +3317,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
         if (!geofence) {
-            this.updateCardBody('vehicles_by_branch', l('Geocerca no encontrada.'), 0, true);
+            this._updateBranchStatus(l('Geocerca no encontrada.'));
             return;
         }
 
         var points = (map && map.getPointsZoneData) ? map.getPointsZoneData(geofence.points) : null;
         if (!points || points.length < 3) {
-            this.updateCardBody('vehicles_by_branch',
-                l('La geocerca no tiene un polígono válido.'), 0, true);
+            this._updateBranchStatus(l('La geocerca no tiene un polígono válido.'));
             return;
         }
 
