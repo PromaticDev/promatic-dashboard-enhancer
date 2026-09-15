@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.20.0',
-    moduleBuild: '2026-09-15-1619',
+    moduleBuild: '2026-09-15-1706',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -3030,6 +3030,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //     Ext.getCmp('online_objects_tree') — específico del mapa nativo,
     //     NO reutilizable acá. Usamos tooltip individual por marcador en
     //     su lugar (mismo patrón que ya usa el resto del dashboard).
+    //
+    // Ícono del marcador: mismo endpoint nativo que usa el mapa "Main"
+    // (/backend/markers/get.php?a=1, con &i=1 = ignición encendida) — el
+    // usuario confirmó visualmente (15 sep) que `firing` del online_tree
+    // coincide 1:1 con el ícono de llave (naranja=encendido/gris=apagado),
+    // cruzando el payload de current_data.php contra decenas de vehículos
+    // sin excepciones. URL relativa a window.location.origin, nunca host
+    // fijo (NOC-006, la extensión corre en cualquier subdominio de Pilot).
     // -----------------------------------------------------------------------
     buildFleetMapPanel: function () {
         var me = this;
@@ -3145,14 +3153,27 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (!ll) { continue; }
             withCoords++;
             var online = records[i].get ? !!records[i].get('is_server_online') : false;
+            // Ícono nativo de PILOT (mismo que el mapa "Main"): ?a=1 = auto
+            // sin llave (apagado), ?a=1&i=1 = auto con llave naranja
+            // (ignición encendida). `firing` del online_tree confirma 1:1
+            // contra el sensor de ignición real (verificado por el usuario
+            // 15 sep, cruzando current_data.php contra el ícono visible en
+            // varias decenas de vehículos, sin excepciones).
+            var firing = records[i].get ? !!records[i].get('firing') : false;
+            // URL relativa al host actual — nunca 'global.pilot-gps.com'
+            // fijo (esta extensión corre en cualquier subdominio/cuenta de
+            // Pilot, mismo criterio que el resto del dashboard, NOC-006).
+            var iconUrl = window.location.origin + '/backend/markers/get.php?a=1' + (firing ? '&i=1' : '');
             markers.push({
                 id: 'promatic_dashboard_enhancer_fleet_map_veh_' + (records[i].get ? records[i].get('agentid') : i),
                 lat: ll[0],
                 lon: ll[1],
+                icon: iconUrl,
                 size: 'mini',
                 tooltip: {
                     msg: me.displayName(records[i].get ? records[i].get('name') : '') +
-                        (online ? ' — ' + l('En línea') : ' — ' + l('Sin conexión'))
+                        (online ? ' — ' + l('En línea') : ' — ' + l('Sin conexión')) +
+                        (firing ? ' — ' + l('Encendido') : ' — ' + l('Apagado'))
                 }
             });
         }
