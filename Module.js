@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.19.0',
-    moduleBuild: '2026-09-15-1529',
+    version: '0.20.0',
+    moduleBuild: '2026-09-15-1619',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -134,9 +134,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         // y su listener 'render' crea el MapContainer y llama
                         // loadHotspots. NUNCA toca window.mapContainer.
                         me.buildHotspotsMapPanel();
-                        // Vehículos por Sucursal (ADR-016) — mismo patrón,
-                        // instancia de MapContainer separada.
-                        me.buildBranchMapPanel();
+                        // buildBranchMapPanel() (ADR-016, 'vehicles_by_branch')
+                        // retirado del arranque 15 sep — la card ya no está
+                        // en el shell, ver buildRacShell. Reemplazada por
+                        // 'fleet_map' (Ubicación Global de la Flota, clustering).
+                        me.buildFleetMapPanel();
                         me.startClock();
                         me.renderLogo();
                         // scrollable:'y' de Ext mide el alto scrolleable
@@ -1087,8 +1089,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     skeleton: 'donut'
                 }),
                 this.cardMarkup('hotspots', {
-                    title: l('Ubicación de la Flota'),
-                    hint: l('Puntos de calor con la última posición GPS de los vehículos. El menú de arriba filtra por carpeta del panel "Principal".'),
+                    title: l('Hotspots de Desconexión GPS'),
+                    hint: l('Puntos de calor con los eventos de desconexión GPS ("No connection") de los últimos 30 días — dónde se pierde señal con más frecuencia. El menú de arriba filtra por carpeta del panel "Principal".'),
                     noFooter: true,
                     skeleton: 'map',
                     headExtra: {
@@ -1098,27 +1100,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         cn: [{ tag: 'option', value: '__all__', html: l('Ver todos los seleccionados') }]
                     }
                 }),
-                this.cardMarkup('vehicles_by_branch', {
-                    title: l('Vehículos por Sucursal'),
-                    hint: l('Vehículos cuya última posición GPS cae dentro del polígono de la sucursal seleccionada. El match se calcula en el navegador (no hay historial de entrada/salida). Elige una flota y una sucursal — son 2 selecciones independientes, sin relación automática entre ellas.'),
+                // Reemplaza 'vehicles_by_branch' (ADR-016, retirado 15 sep)
+                // — marcadores individuales + clustering NATIVO de
+                // MapContainer (addCluster, confirmado en vivo por el
+                // usuario: usa window.L.markerClusterGroup internamente).
+                this.cardMarkup('fleet_map', {
+                    title: l('Ubicación Global de la Flota'),
+                    hint: l('Última posición conocida de cada vehículo, agrupada en clusters cuando hay varios cerca. Click en un vehículo o en un cluster para ver el detalle. El menú de arriba filtra por carpeta del panel "Principal".'),
                     noFooter: true,
                     skeleton: 'map',
                     headExtra: {
-                        cls: 'promatic_dashboard_enhancer-branch-selects',
-                        cn: [
-                            {
-                                tag: 'select',
-                                id: 'promatic_dashboard_enhancer-branch-group',
-                                cls: 'promatic_dashboard_enhancer-map-folder',
-                                cn: [{ tag: 'option', value: '', html: l('Cargando flotas…') }]
-                            },
-                            {
-                                tag: 'select',
-                                id: 'promatic_dashboard_enhancer-branch-select',
-                                cls: 'promatic_dashboard_enhancer-map-folder',
-                                cn: [{ tag: 'option', value: '', html: l('Cargando sucursales…') }]
-                            }
-                        ]
+                        tag: 'select',
+                        id: 'promatic_dashboard_enhancer-fleetmap-folder',
+                        cls: 'promatic_dashboard_enhancer-map-folder',
+                        cn: [{ tag: 'option', value: '__all__', html: l('Ver todos los seleccionados') }]
                     }
                 })
             ]
@@ -1282,16 +1277,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // El dropdown puede tener carpetas nuevas si cambió la selección.
         this.populateMapFolderDropdown();
         this.loadFleetHeatmap();
-        // 'vehicles_by_branch' (ADR-016) NO se recarga acá a propósito —
-        // depende de una selección explícita del usuario en 2 dropdowns
-        // independientes (flota / sucursal), no de datos que cambien solos
-        // con el refresh del resto del dashboard. Si ambos ya están
-        // elegidos, re-corre el match sobre la flota recién refrescada
-        // (posiciones pueden haber cambiado). El dropdown de flota puede
-        // tener carpetas nuevas si cambió la selección — mismo criterio
-        // que populateMapFolderDropdown arriba.
-        this.populateBranchFleetDropdown();
-        if (this._branchFolderFilter && this._branchGeofenceFilter) { this.renderBranchVehicles(); }
+        this.populateFleetMapFolderDropdown();
+        this.loadFleetMapClusters();
     },
 
     // Pinta el skeleton de carga en el body de una card (si está montada).
@@ -2898,11 +2885,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // las hojas descendientes de ese nodo; si no, el alcance normal
     // (getScopedFleetRecords = selección de "Principal" o toda la flota).
     getMapScopedRecords: function (onlineTree) {
-        if (!this._mapFolderFilter) {
+        return this._folderScopedRecords(onlineTree, this._mapFolderFilter);
+    },
+
+    // Versión genérica — usada también por 'fleet_map' (Ubicación Global
+    // de la Flota) con su propio filtro (_fleetMapFolderFilter), sin
+    // compartir estado con el dropdown del mapa de hotspots.
+    _folderScopedRecords: function (onlineTree, folderId) {
+        if (!folderId) {
             return this.getScopedFleetRecords(onlineTree);
         }
         var store = onlineTree.getStore();
-        var folder = store.getNodeById ? store.getNodeById(this._mapFolderFilter) : null;
+        var folder = store.getNodeById ? store.getNodeById(folderId) : null;
         if (!folder) { return this.getScopedFleetRecords(onlineTree); }
         var recs = [];
         folder.cascadeBy(function (c) {
@@ -2911,66 +2905,282 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return recs;
     },
 
+    // Hotspots de desconexión GPS — fuente REAL: events.php type=15 ("No
+    // connection"), ventana de 30 días (REF-001 §0.3, verificado en vivo
+    // 21 ago: 2 blobs coincidiendo exactamente con los vehículos que más
+    // se desconectan). Corrección 15 sep: hasta hoy esta función usaba la
+    // ÚLTIMA POSICIÓN del online_tree (no desconexiones) — no coincidía
+    // con el propósito original de la card ("Ubicación de la Flota" ya no
+    // es el nombre correcto; el heatmap de última posición se reemplaza
+    // por un widget de marcadores/clusters aparte — ver ADR pendiente).
+    // Este mapa vuelve a su propósito documentado desde el inicio: mostrar
+    // DÓNDE se pierde señal GPS con más frecuencia.
     loadFleetHeatmap: function () {
         var me = this;
         var map = this._hotspotsMap;
         if (!map) { return; }
 
+        this.withFleetVehicleIds(function (vehIds) {
+            var csv = vehIds.join(',');
+            var stop = new Date();
+            var start = new Date();
+            start.setDate(start.getDate() - 30);
+            var fmt = function (d) { return d.toISOString().slice(0, 10); };
+
+            me.fetchEventPoints(csv, 15, fmt(start), fmt(stop))
+                .then(function (rawPoints) {
+                    var buckets = {};
+                    for (var i = 0; i < rawPoints.length; i++) {
+                        var ll = rawPoints[i];
+                        var key = ll[0].toFixed(3) + ',' + ll[1].toFixed(3);
+                        if (!buckets[key]) { buckets[key] = { lat: ll[0], lng: ll[1], count: 0 }; }
+                        buckets[key].count++;
+                    }
+                    var points = [];
+                    for (var k in buckets) {
+                        if (buckets.hasOwnProperty(k)) { points.push(buckets[k]); }
+                    }
+
+                    console.log('[promatic_dashboard_enhancer] hotspots desconexión: ' + rawPoints.length +
+                        ' eventos type=15 (30d)' + (me._mapFolderFilter ? ' (carpeta ' + me._mapFolderFilter + ')' : '') +
+                        ', ' + points.length + ' celdas');
+
+                    try {
+                        if (typeof map.removeAllHeatsMap === 'function') { map.removeAllHeatsMap(); }
+                    } catch (e) { /* no-op */ }
+
+                    if (points.length === 0) {
+                        console.warn('[promatic_dashboard_enhancer] hotspots desconexión: 0 eventos type=15 en 30d.');
+                        return;
+                    }
+
+                    // Reencuadra a los puntos reales cada vez que se recarga —
+                    // setMapCenter con un array de puntos llama fitBounds
+                    // internamente (MapContainer.md §"Map View Methods").
+                    try {
+                        if (typeof map.setMapCenter === 'function' && rawPoints.length > 0) {
+                            map.setMapCenter(rawPoints);
+                        }
+                    } catch (e) { /* no-op — el mapa sigue funcional sin reencuadre */ }
+
+                    try {
+                        if (typeof map.setHeatmap === 'function') {
+                            map.setHeatmap(points, true, l('Desconexiones'));
+                        }
+                        if (map.checkResize) { map.checkResize(); }
+                    } catch (err) {
+                        me.widgetErrorCode('FLEETMAP-HEATMAP', err);
+                    }
+                })
+                .catch(function (err) {
+                    me.widgetErrorCode('FLEETMAP-HEATMAP-FETCH', err);
+                });
+        });
+    },
+
+    // Trae los [lat, lon] de cada evento type=`type` en el rango dado —
+    // usado por el heatmap de desconexión. Mismo endpoint que
+    // fetchEventVehicles (Alertas Generales), pero devuelve coordenadas en
+    // vez de agent_ids. Descarta items sin lat/lon válidos.
+    fetchEventPoints: function (vehIdsCsv, type, dateStart, dateStop) {
+        var qs = 'cmd=search&veh=' + encodeURIComponent(vehIdsCsv) +
+            '&type=' + encodeURIComponent(type) +
+            '&date_start=' + encodeURIComponent(dateStart) +
+            '&date_stop=' + encodeURIComponent(dateStop) +
+            '&limit=1000&page=1&start=0';
+        return fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include' })
+            .then(function (resp) {
+                if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                return resp.json();
+            })
+            .then(function (data) {
+                var items = (data && data.items) || [];
+                var out = [];
+                for (var i = 0; i < items.length; i++) {
+                    var lat = Number(items[i].lat), lon = Number(items[i].lon);
+                    if (isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0) {
+                        out.push([lat, lon]);
+                    }
+                }
+                return out;
+            });
+    },
+
+    // -----------------------------------------------------------------------
+    // Ubicación Global de la Flota (card 'fleet_map') — 15 sep.
+    //
+    // Reemplaza el widget "Vehículos por Sucursal" (ADR-016, retirado del
+    // shell): en vez de match vehículo↔geocerca, muestra CADA vehículo en
+    // su última posición conocida, agrupado con el clustering NATIVO de
+    // MapContainer (addCluster/window.L.markerClusterGroup — confirmado
+    // en vivo por el usuario en el mapa "Main" de PILOT, mismo mecanismo,
+    // instancia propia). Sin heatmap: marcadores reales, visibles en
+    // cualquier nivel de zoom (el heatmap de última posición se ELIMINÓ —
+    // era el problema original reportado: "al hacer zoom el heatmap
+    // desaparece y no se ve el ícono del vehículo").
+    //
+    // addCluster(markersArray, options) — firma real volcada en consola
+    // por el usuario (no documentada en MapContainer.md):
+    //   markersArray: [{ lat, lon, id, size, tooltip, ... }] (mismo shape
+    //     que addMarker — internamente llama addMarker() por cada uno con
+    //     notBindToMap:true).
+    //   options: { id, isClusterHoverContent, ...opciones de Leaflet.
+    //     markercluster (chunkedLoading, disableClusteringAtZoom, etc.) }.
+    //   isClusterHoverContent:true arma un popup rico tirando de
+    //     Ext.getCmp('online_objects_tree') — específico del mapa nativo,
+    //     NO reutilizable acá. Usamos tooltip individual por marcador en
+    //     su lugar (mismo patrón que ya usa el resto del dashboard).
+    // -----------------------------------------------------------------------
+    buildFleetMapPanel: function () {
+        var me = this;
+        var body = Ext.get('promatic_dashboard_enhancer-card-body-fleet_map');
+        if (!body) {
+            me._fleetMapMountRetry = (me._fleetMapMountRetry || 0) + 1;
+            if (me._fleetMapMountRetry < 40) {
+                Ext.defer(me.buildFleetMapPanel, 300, me);
+            }
+            return;
+        }
+        if (me._fleetMapPanel) { return; }
+        if (!me.getMapContainerClass()) {
+            body.setHtml(l('El mapa no está disponible en este runtime.'));
+            return;
+        }
+
+        body.setHtml('');
+        me._fleetMapPanel = Ext.create('Ext.panel.Panel', {
+            renderTo: body,
+            cls: 'promatic_dashboard_enhancer-hotspots-map',
+            bodyCls: 'promatic_dashboard_enhancer-hotspots-map-body',
+            layout: 'fit',
+            height: 450,
+            border: false,
+            listeners: {
+                render: function () {
+                    try {
+                        var MC = me.getMapContainerClass();
+                        me._fleetMap = new MC('promatic_dashboard_enhancer_fleet_map');
+                        var centroid = me._fleetCentroid();
+                        var initLat = centroid ? centroid.center[0] : -33.45;
+                        var initLon = centroid ? centroid.center[1] : -70.66;
+                        var initZoom = centroid ? 11 : 5;
+                        me._fleetMap.init(initLat, initLon, initZoom, this.id + '-body', false);
+                        me.populateFleetMapFolderDropdown();
+                        me.loadFleetMapClusters();
+                        Ext.defer(function () {
+                            if (me._fleetMap && me._fleetMap.checkResize) { me._fleetMap.checkResize(); }
+                        }, 300);
+                        Ext.defer(function () {
+                            if (me._fleetMap && me._fleetMap.checkResize) { me._fleetMap.checkResize(); }
+                        }, 700);
+                        if (window.ResizeObserver && body.dom) {
+                            me._fleetMapResizeObserver = new ResizeObserver(function () {
+                                if (me._fleetMap && me._fleetMap.checkResize) { me._fleetMap.checkResize(); }
+                            });
+                            me._fleetMapResizeObserver.observe(body.dom);
+                        }
+                    } catch (err) {
+                        me.widgetErrorCode('FLEETMAP-INIT', err);
+                        this.body.setHtml(l('No se pudo inicializar el mapa de la flota.'));
+                    }
+                },
+                resize: function () {
+                    if (me._fleetMap && me._fleetMap.checkResize) {
+                        me._fleetMap.checkResize();
+                    }
+                }
+            }
+        });
+    },
+
+    populateFleetMapFolderDropdown: function () {
+        var me = this;
+        var sel = document.getElementById('promatic_dashboard_enhancer-fleetmap-folder');
+        if (!sel) { return; }
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) { return; }
 
-        var records = this.getMapScopedRecords(onlineTree);
-        var buckets = {};
+        var opts = this.getMapFolderOptions(onlineTree);
+        sel.innerHTML = '';
+        var all = document.createElement('option');
+        all.value = '__all__';
+        all.textContent = l('Ver todos los seleccionados');
+        sel.appendChild(all);
+        for (var i = 0; i < opts.length; i++) {
+            var o = document.createElement('option');
+            o.value = String(opts[i].value);
+            o.textContent = opts[i].label;
+            sel.appendChild(o);
+        }
+
+        if (!sel._pdeBound) {
+            sel._pdeBound = true;
+            sel.addEventListener('change', function () {
+                me._fleetMapFolderFilter = (sel.value === '__all__') ? null : sel.value;
+                me.loadFleetMapClusters();
+            });
+        }
+    },
+
+    // Arma 1 marcador por vehículo en alcance (posición actual del
+    // online_tree, sin request HTTP) y los agrupa con addCluster(). Un
+    // solo cluster fijo (id 'fleet_map_cluster') — se limpia y se
+    // reconstruye completo en cada carga (más simple y suficientemente
+    // barato para el tamaño de flota de esta cuenta; updateMarkers()
+    // existe para actualizar in-place si hiciera falta optimizar después).
+    loadFleetMapClusters: function () {
+        var me = this;
+        var map = this._fleetMap;
+        if (!map) { return; }
+
+        var onlineTree = this.getOnlineTree();
+        if (!onlineTree) { return; }
+
+        var records = this._folderScopedRecords(onlineTree, this._fleetMapFolderFilter);
+        var markers = [];
         var withCoords = 0;
-        var rawPoints = [];
 
         for (var i = 0; i < records.length; i++) {
             var ll = this._recordLatLon(records[i]);
             if (!ll) { continue; }
             withCoords++;
-            rawPoints.push(ll);
-            var key = ll[0].toFixed(3) + ',' + ll[1].toFixed(3);
-            if (!buckets[key]) { buckets[key] = { lat: ll[0], lng: ll[1], count: 0 }; }
-            buckets[key].count++;
+            var online = records[i].get ? !!records[i].get('is_server_online') : false;
+            markers.push({
+                id: 'promatic_dashboard_enhancer_fleet_map_veh_' + (records[i].get ? records[i].get('agentid') : i),
+                lat: ll[0],
+                lon: ll[1],
+                size: 'mini',
+                tooltip: {
+                    msg: me.displayName(records[i].get ? records[i].get('name') : '') +
+                        (online ? ' — ' + l('En línea') : ' — ' + l('Sin conexión'))
+                }
+            });
         }
 
-        var points = [];
-        for (var k in buckets) {
-            if (buckets.hasOwnProperty(k)) { points.push(buckets[k]); }
-        }
-
-        console.log('[promatic_dashboard_enhancer] mapa flota: ' + records.length +
-            ' vehículos en alcance' + (this._mapFolderFilter ? ' (carpeta ' + this._mapFolderFilter + ')' : '') +
-            ', ' + withCoords + ' con coords, ' + points.length + ' celdas');
+        console.log('[promatic_dashboard_enhancer] ubicación global de la flota: ' + records.length +
+            ' vehículos en alcance' + (this._fleetMapFolderFilter ? ' (carpeta ' + this._fleetMapFolderFilter + ')' : '') +
+            ', ' + withCoords + ' con coords');
 
         try {
-            if (typeof map.removeAllHeatsMap === 'function') { map.removeAllHeatsMap(); }
+            if (map.getCluster && map.getCluster('fleet_map_cluster') && map.removeCluster) {
+                map.removeCluster('fleet_map_cluster');
+            }
         } catch (e) { /* no-op */ }
 
-        if (points.length === 0) {
-            console.warn('[promatic_dashboard_enhancer] mapa flota: 0 vehículos con coordenadas. ' +
-                'Revisar los campos de posición del record del online_tree (_recordLatLon).');
+        if (markers.length === 0) {
+            console.warn('[promatic_dashboard_enhancer] ubicación global de la flota: 0 vehículos con coordenadas.');
             return;
         }
 
-        // Reencuadra a los puntos reales (no a los buckets agregados) cada
-        // vez que se recarga — cubre el montaje inicial (fallback Chile/
-        // zoom 5, sin vehículos todavía) Y cambios posteriores de alcance/
-        // filtro de carpeta. setMapCenter con un array de puntos llama
-        // fitBounds internamente (MapContainer.md §"Map View Methods").
         try {
-            if (typeof map.setMapCenter === 'function' && rawPoints.length > 0) {
-                map.setMapCenter(rawPoints);
+            if (typeof map.addCluster === 'function') {
+                map.addCluster(markers, { id: 'fleet_map_cluster' });
             }
-        } catch (e) { /* no-op — el mapa sigue funcional sin reencuadre */ }
-
-        try {
-            if (typeof map.setHeatmap === 'function') {
-                map.setHeatmap(points, true, l('Vehículos'));
-            }
+            var centroid = this._fleetCentroid();
+            if (centroid && map.setMapCenter) { map.setMapCenter(centroid.points); }
             if (map.checkResize) { map.checkResize(); }
         } catch (err) {
-            this.widgetErrorCode('FLEETMAP-HEATMAP', err);
+            this.widgetErrorCode('FLEETMAP-CLUSTER', err);
         }
     },
 
