@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.20.0',
-    moduleBuild: '2026-09-15-1706',
+    moduleBuild: '2026-09-15-1726',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -3169,7 +3169,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 lat: ll[0],
                 lon: ll[1],
                 icon: iconUrl,
-                size: 'mini',
+                // 'mini' se veía diminuto a cualquier nivel de zoom
+                // (reportado por el usuario, 15 sep, comparando con el
+                // tamaño real del ícono en el mapa nativo) — 'medium' es
+                // el tamaño de referencia de la documentación de
+                // MapContainer.md para íconos de vehículo con detalle.
+                size: 'medium',
                 tooltip: {
                     msg: me.displayName(records[i].get ? records[i].get('name') : '') +
                         (online ? ' — ' + l('En línea') : ' — ' + l('Sin conexión')) +
