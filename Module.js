@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.19.0',
-    moduleBuild: '2026-09-15-1507',
+    moduleBuild: '2026-09-15-1510',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -263,13 +263,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
         // (?) con tooltip nativo de Ext (data-qtip) — explica cómo/desde
         // cuándo se lee el dato de la card. QuickTips está activo en el
-        // runtime de PILOT.
+        // runtime de PILOT — NO agregar también `title`: con QuickTips
+        // activo, el atributo `title` nativo del navegador se dispara EN
+        // PARALELO al qtip de Ext, mostrando 2 tooltips superpuestos al
+        // hacer hover (bug reportado por el usuario, 15 sep).
         if (opts.hint) {
             headCn.push({
                 tag: 'span',
                 cls: 'promatic_dashboard_enhancer-card__hint',
                 'data-qtip': opts.hint,
-                title: opts.hint, // fallback si QuickTips no está activo
                 html: '?'
             });
         }
@@ -1057,7 +1059,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     skeleton: 'donut'
                 }),
                 this.cardMarkup('violations', {
-                    title: l('Tendencia de Infracciones'),
+                    title: l('Tendencia de Infracciones de Manejo'),
                     hint: l('Infracciones de manejo por categoría (velocidad, aceleración, frenado, ralentí, giro, cinturón) sumadas en la ventana configurada. Fuente: reports.php report_type=114.'),
                     noFooter: true,
                     skeleton: 'stats'
