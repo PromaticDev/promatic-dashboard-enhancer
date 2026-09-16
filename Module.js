@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.21.7',
-    moduleBuild: '2026-09-16-1433',
+    version: '0.21.8',
+    moduleBuild: '2026-09-16-1641',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2155,7 +2155,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // herramienta para tipar el parser real el día que haya un caso.
     fetchAccidentVehicles: function (vehIdsCsv, startDate, stopDate) {
         var me = this;
-        return this.fetchReportType(254, vehIdsCsv, startDate, stopDate, 20000)
+        // 20s → 45s (16 sep, BR-PILOT-0018): mismo motivo que ECO-SCORE —
+        // con fleet.maxVehicles=1500 el POST tarda más de 20s.
+        return this.fetchReportType(254, vehIdsCsv, startDate, stopDate, 45000)
             .then(function (resp) {
                 console.log('[promatic_dashboard_enhancer] accidentes (report_type=254):', resp);
                 var data = (resp && resp.data) || [];
@@ -2437,7 +2439,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 .replace(/(^|&)group=1(&|$)/, '$1group=6$2');
 
             var ctrl = new AbortController();
-            var to = setTimeout(function () { ctrl.abort(); }, 25000);
+            // 25s → 45s (16 sep): con fleet.maxVehicles=1500, el POST manda
+            // hasta 1500 agent_id en un solo request a reports.php — con
+            // flota chica sobraba margen, con la flota real completa
+            // empezó a dar timeout (ECO-SCORE-TIMEOUT). Ver BR-PILOT-0018.
+            var to = setTimeout(function () { ctrl.abort(); }, 45000);
 
             fetch('/backend/ax/reports.php', {
                 method: 'POST',
@@ -2692,7 +2698,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var start = new Date();
             start.setDate(start.getDate() - days);
 
-            me.fetchReportType(114, vehIds.join(','), start, stop, 25000)
+            // 25s → 45s (16 sep, BR-PILOT-0018): mismo motivo que ECO-SCORE
+            // — con fleet.maxVehicles=1500 el POST tarda más de 25s.
+            me.fetchReportType(114, vehIds.join(','), start, stop, 45000)
                 .then(function (data) {
                     me.renderViolationsTrend(data, days);
                 })
