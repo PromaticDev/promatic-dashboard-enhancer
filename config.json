@@ -11,7 +11,7 @@
   },
   "fleet": {
     "scope": "pilot-selection",
-    "maxVehicles": 500
+    "maxVehicles": 1500
   },
   "clock": {
     "timeZone": "America/Santiago",

@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.21.5',
-    moduleBuild: '2026-09-16-1321',
+    version: '0.21.6',
+    moduleBuild: '2026-09-16-1350',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -21,7 +21,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // 'all' = árbol Online completo. El slider del pie del dashboard
         // sobrescribe este valor por sesión (localStorage). maxVehicles =
         // tope de seguridad para no disparar jobs async en flotas enormes.
-        fleet: { scope: 'pilot-selection', maxVehicles: 500 },
+        // Subido de 500 a 1500 (16 sep) para probar con la flota real
+        // completa de DEMO_CLIENT (1398 vehículos) — antes el corte era
+        // ciego (primeros N del orden del árbol, no por relevancia/km) y
+        // dejaba varios widgets (Accidentes, Hotspots, Safety Score, etc.)
+        // trabajando sobre una muestra parcial sin que fuera evidente.
+        fleet: { scope: 'pilot-selection', maxVehicles: 1500 },
         // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
         clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' },
         // Safety Score (ECO) — ventana del Fleet ECO report (report_type=223).
