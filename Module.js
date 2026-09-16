@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.21.1',
-    moduleBuild: '2026-09-16-1131',
+    version: '0.21.2',
+    moduleBuild: '2026-09-16-1214',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -4414,13 +4414,23 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     // Rama "trips-v3" del Top KM. Consulta /api/v3/vehicles/trips por cada
     // vehículo candidato, en lotes de cfg.tripsBatchSize (concurrentes; los
-    // lotes van en serie). Un vehículo que falla cuenta 0 km y no aborta.
+    // lotes van en serie). Un vehículo que falla cuenta 0 km y no aborta el
+    // batch en sí — pero un CIRCUIT BREAKER corta toda la cola si se
+    // acumulan CONSECUTIVE_FAIL_LIMIT fallos seguidos (16 sep, hallazgo en
+    // vivo: al ampliar la flota visible de DEMO_CLIENT con vehículos que la
+    // API v3 rechaza con 401, el código completaba igual los ~100 intentos
+    // de tripsMaxVehicles en lotes de 4 sin pausa — esa ráfaga larga de
+    // 401 seguidos hizo que PILOT cortara la sesión del usuario por abuso.
+    // El breaker corta apenas queda claro que la API v3 está rechazando en
+    // cadena, dejando el resto de la cola sin consultar — el caller ya
+    // hace fallback a reports.php si el resultado queda sin km > 0).
     // Devuelve ranked = [{name, km, id}] ordenado desc — id = agentid, name
     // del árbol si se conoce, si no el agent_id como string.
     _top5FromTripsV3: function (vehIds, startDate, stopDate, nameToId, cfg) {
         var me = this;
         var batchSize = cfg.tripsBatchSize || 4;
         var kmField = cfg.kmField || 'gps';
+        var CONSECUTIVE_FAIL_LIMIT = 8;
         var tsUnix = Math.floor(startDate.getTime() / 1000);
         var teUnix = Math.floor(stopDate.getTime() / 1000);
         var idToName = {};
@@ -4430,23 +4440,36 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var results = [];
         var queue = vehIds.slice();
+        var consecutiveFails = 0;
+        var breakerTripped = false;
         var PromiseImpl = (typeof Ext !== 'undefined' && Ext.Promise) ? Ext.Promise : Promise;
 
         function runBatch() {
-            if (queue.length === 0) { return PromiseImpl.resolve(); }
+            if (queue.length === 0 || breakerTripped) { return PromiseImpl.resolve(); }
             var slice = queue.splice(0, batchSize);
             var calls = slice.map(function (id) {
                 return me.fetchVehicleTripsV3(id, tsUnix, teUnix, 8000)
                     .then(function (resp) {
+                        consecutiveFails = 0;
                         results.push({ id: id, km: me.sumTripsKm(resp, kmField) });
                     })
                     .catch(function (err) {
+                        consecutiveFails++;
                         console.warn('[promatic_dashboard_enhancer] Top KM trips-v3: vehículo ' +
                             id + ' falló (' + (err && err.message ? err.message : err) + ') — cuenta 0');
                         results.push({ id: id, km: 0 });
                     });
             });
-            return PromiseImpl.all(calls).then(runBatch);
+            return PromiseImpl.all(calls).then(function () {
+                if (consecutiveFails >= CONSECUTIVE_FAIL_LIMIT) {
+                    breakerTripped = true;
+                    console.warn('[promatic_dashboard_enhancer] Top KM trips-v3: ' + consecutiveFails +
+                        ' fallos consecutivos — se corta la cola (' + queue.length +
+                        ' vehículos sin consultar) para no arriesgar la sesión con PILOT.');
+                    return;
+                }
+                return runBatch();
+            });
         }
 
         return runBatch().then(function () {
