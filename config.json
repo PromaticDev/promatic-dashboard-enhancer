@@ -3,7 +3,7 @@
   "top5km": {
     "windowDays": 7,
     "activeVehicleCap": 300,
-    "tripsMaxVehicles": 100,
+    "tripsMaxVehicles": 30,
     "tripsBatchSize": 4,
     "source": "trips-v3",
     "count": 5,

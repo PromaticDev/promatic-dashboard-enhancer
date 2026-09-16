@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.21.6',
-    moduleBuild: '2026-09-16-1350',
+    version: '0.21.7',
+    moduleBuild: '2026-09-16-1433',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -15,7 +15,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // en config.json = igual requiere re-publicar hoy, pero deja el punto
     // de extensión listo para el override remoto.
     DEFAULT_CONFIG: {
-        top5km: { windowDays: 7, activeVehicleCap: 300, tripsMaxVehicles: 100, tripsBatchSize: 4, source: 'trips-v3', count: 5, kmField: 'gps' },
+        // tripsMaxVehicles bajado de 100 a 30 (16 sep) — con flota real
+        // grande (1398 vehículos, fleet.maxVehicles subido a 1500), 100
+        // requests individuales a api/v3/vehicles/trips en lotes de 4 sin
+        // pausa volvió a tumbar la sesión de PILOT pese al circuit breaker
+        // de BR-PILOT-0015 (corta tras 8 fallos consecutivos, pero ya
+        // disparó varios lotes antes de frenar). 30 se acerca al patrón que
+        // otro desarrollo del equipo probó sin problemas (60 vehículos cada
+        // 60s) — mitigación temporal hasta que exista backfill de
+        // analytics/data (FR-0013) como fuente batch real de 1 solo
+        // request.
+        top5km: { windowDays: 7, activeVehicleCap: 300, tripsMaxVehicles: 30, tripsBatchSize: 4, source: 'trips-v3', count: 5, kmField: 'gps' },
         // fleet.scope: 'pilot-selection' = los widgets siguen la selección
         // con checkbox del panel "Principal" de PILOT (online_tree.getChecked()).
         // 'all' = árbol Online completo. El slider del pie del dashboard
