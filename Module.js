@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.0',
-    moduleBuild: '2026-09-15-1841',
+    moduleBuild: '2026-09-16-1036',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1116,7 +1116,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 }),
                 this.cardMarkup('hotspots', {
                     title: l('Hotspots de Desconexión GPS'),
-                    hint: l('Puntos de calor con los eventos de desconexión GPS ("No connection") de los últimos 30 días — dónde se pierde señal con más frecuencia. El menú de arriba filtra por carpeta del panel "Principal".'),
+                    hint: l('Puntos de calor con la última posición conocida de los vehículos actualmente sin señal GPS — dónde están ahora mismo los desconectados. El menú de arriba filtra por carpeta del panel "Principal".'),
                     noFooter: true,
                     skeleton: 'map',
                     headExtra: {
@@ -2931,77 +2931,73 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return recs;
     },
 
-    // Hotspots de desconexión GPS — fuente REAL: events.php type=15 ("No
-    // connection"), ventana de 30 días (REF-001 §0.3, verificado en vivo
-    // 21 ago: 2 blobs coincidiendo exactamente con los vehículos que más
-    // se desconectan). Corrección 15 sep: hasta hoy esta función usaba la
-    // ÚLTIMA POSICIÓN del online_tree (no desconexiones) — no coincidía
-    // con el propósito original de la card ("Ubicación de la Flota" ya no
-    // es el nombre correcto; el heatmap de última posición se reemplaza
-    // por un widget de marcadores/clusters aparte — ver ADR pendiente).
-    // Este mapa vuelve a su propósito documentado desde el inicio: mostrar
-    // DÓNDE se pierde señal GPS con más frecuencia.
+    // Hotspots de desconexión GPS — fuente REAL: última posición conocida
+    // (online_tree, sin llamada HTTP) de los vehículos actualmente OFFLINE
+    // en el scope activo. Corrección FR-0024 (16 sep): la fuente anterior
+    // (events.php type=15, "No connection") da total:0 en DEMO_CLIENT para
+    // vehículos offline reales, en ventanas de 30 y 240 días — el evento
+    // explícito de desconexión no está poblado en esta cuenta. Se reemplaza
+    // por el mismo dato que ya usa "Sin Señal GPS" (is_server_online, ver
+    // updateGpsSignalCard): en vez de un histórico de eventos, es una foto
+    // del momento de dónde están los vehículos sin señal ahora mismo.
+    // Reutiliza _recordLatLon (helper de fleet_map) para la posición.
     loadFleetHeatmap: function () {
         var me = this;
         var map = this._hotspotsMap;
         if (!map) { return; }
 
-        this.withFleetVehicleIds(function (vehIds) {
-            var csv = vehIds.join(',');
-            var stop = new Date();
-            var start = new Date();
-            start.setDate(start.getDate() - 30);
-            var fmt = function (d) { return d.toISOString().slice(0, 10); };
+        var onlineTree = this.getOnlineTree();
+        if (!onlineTree) { return; }
 
-            me.fetchEventPoints(csv, 15, fmt(start), fmt(stop))
-                .then(function (rawPoints) {
-                    var buckets = {};
-                    for (var i = 0; i < rawPoints.length; i++) {
-                        var ll = rawPoints[i];
-                        var key = ll[0].toFixed(3) + ',' + ll[1].toFixed(3);
-                        if (!buckets[key]) { buckets[key] = { lat: ll[0], lng: ll[1], count: 0 }; }
-                        buckets[key].count++;
-                    }
-                    var points = [];
-                    for (var k in buckets) {
-                        if (buckets.hasOwnProperty(k)) { points.push(buckets[k]); }
-                    }
+        var records = this._folderScopedRecords(onlineTree, this._mapFolderFilter);
+        var buckets = {};
+        var rawPoints = [];
+        for (var i = 0; i < records.length; i++) {
+            var rec = records[i];
+            var isOnline = rec.get ? !!rec.get('is_server_online') : false;
+            if (isOnline) { continue; }
+            var ll = this._recordLatLon(rec);
+            if (!ll) { continue; }
+            rawPoints.push(ll);
+            var key = ll[0].toFixed(3) + ',' + ll[1].toFixed(3);
+            if (!buckets[key]) { buckets[key] = { lat: ll[0], lng: ll[1], count: 0 }; }
+            buckets[key].count++;
+        }
+        var points = [];
+        for (var k in buckets) {
+            if (buckets.hasOwnProperty(k)) { points.push(buckets[k]); }
+        }
 
-                    console.log('[promatic_dashboard_enhancer] hotspots desconexión: ' + rawPoints.length +
-                        ' eventos type=15 (30d)' + (me._mapFolderFilter ? ' (carpeta ' + me._mapFolderFilter + ')' : '') +
-                        ', ' + points.length + ' celdas');
+        console.log('[promatic_dashboard_enhancer] hotspots desconexión: ' + rawPoints.length +
+            ' vehículos offline con posición' + (me._mapFolderFilter ? ' (carpeta ' + me._mapFolderFilter + ')' : '') +
+            ', ' + points.length + ' celdas');
 
-                    try {
-                        if (typeof map.removeAllHeatsMap === 'function') { map.removeAllHeatsMap(); }
-                    } catch (e) { /* no-op */ }
+        try {
+            if (typeof map.removeAllHeatsMap === 'function') { map.removeAllHeatsMap(); }
+        } catch (e) { /* no-op */ }
 
-                    if (points.length === 0) {
-                        console.warn('[promatic_dashboard_enhancer] hotspots desconexión: 0 eventos type=15 en 30d.');
-                        return;
-                    }
+        if (points.length === 0) {
+            console.warn('[promatic_dashboard_enhancer] hotspots desconexión: sin vehículos offline con posición en el scope actual.');
+            return;
+        }
 
-                    // Reencuadra a los puntos reales cada vez que se recarga —
-                    // setMapCenter con un array de puntos llama fitBounds
-                    // internamente (MapContainer.md §"Map View Methods").
-                    try {
-                        if (typeof map.setMapCenter === 'function' && rawPoints.length > 0) {
-                            map.setMapCenter(rawPoints);
-                        }
-                    } catch (e) { /* no-op — el mapa sigue funcional sin reencuadre */ }
+        // Reencuadra a los puntos reales cada vez que se recarga —
+        // setMapCenter con un array de puntos llama fitBounds
+        // internamente (MapContainer.md §"Map View Methods").
+        try {
+            if (typeof map.setMapCenter === 'function' && rawPoints.length > 0) {
+                map.setMapCenter(rawPoints);
+            }
+        } catch (e) { /* no-op — el mapa sigue funcional sin reencuadre */ }
 
-                    try {
-                        if (typeof map.setHeatmap === 'function') {
-                            map.setHeatmap(points, true, l('Desconexiones'));
-                        }
-                        if (map.checkResize) { map.checkResize(); }
-                    } catch (err) {
-                        me.widgetErrorCode('FLEETMAP-HEATMAP', err);
-                    }
-                })
-                .catch(function (err) {
-                    me.widgetErrorCode('FLEETMAP-HEATMAP-FETCH', err);
-                });
-        });
+        try {
+            if (typeof map.setHeatmap === 'function') {
+                map.setHeatmap(points, true, l('Desconexiones'));
+            }
+            if (map.checkResize) { map.checkResize(); }
+        } catch (err) {
+            me.widgetErrorCode('FLEETMAP-HEATMAP', err);
+        }
     },
 
     // Trae los [lat, lon] de cada evento type=`type` en el rango dado —
