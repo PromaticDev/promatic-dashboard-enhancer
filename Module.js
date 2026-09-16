@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.21.8',
-    moduleBuild: '2026-09-16-1641',
+    version: '0.21.9',
+    moduleBuild: '2026-09-16-1756',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2045,7 +2045,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     // Alertas Generales (card 'alertas_generales') — 2 categorías:
-    //  - Accidentes: reports.php report_type=254 ("Crash detection", FR-0026,
+    //  - Accidentes: events.php type=4911 ("Crash Detection Alert", FR-0026,
     //    16 sep) — ventana de 30 días. Ver fetchAccidentVehicles.
     //  - Requiere mantención: dashboard.php cmd=ptm — recordatorios; contamos
     //    los ligados a vehículo (link_type != 'drivers'). El shape de ptm no
@@ -2066,24 +2066,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var fmt = function (d) { return d.toISOString().slice(0, 10); };
             me._alertRange = { start: start, stop: stop };
 
-            // Accidentes — FR-0026 (16 sep): fuente migrada de events.php
-            // type=29 ("Complex events", nunca confirmado como accidentes
-            // reales, ver spec/api.md) a reports.php report_type=254
-            // ("Crash detection", confirmado en vivo — mismo reporte que ya
-            // usa el link "Ver Detalle Pilot" desde el 7 sep). Sin ejemplo
-            // real de `data` no vacío todavía (3 meses sin accidentes en
-            // 1398 vehículos) — fetchAccidentVehicles parsea de forma
-            // conservadora y loguea la respuesta cruda para tipar el schema
-            // real el día que aparezca un caso.
+            // Accidentes — FR-0026 (16 sep, final): fuente real confirmada
+            // es events.php type=4911 ("Crash Detection Alert") — ver
+            // fetchAccidentVehicles y spec/api.md. Reemplaza el intento
+            // anterior con reports.php report_type=254 (desfase de huso
+            // horario + latencia de ~4h, BR-PILOT-0020/0021).
             var accidentes = me.fetchAccidentVehicles(csv, start, stop)
                 .then(function (ids) {
                     me._alertAccidentesIds = ids;
-                    // Conteo real de accidentes = ids reconocidos +
-                    // entradas sin id (schema aún sin tipar, ver
-                    // fetchAccidentVehicles) — nunca subestimar el conteo
-                    // aunque el link "Ver Detalle Pilot" no alcance a
-                    // preseleccionar esos vehículos.
-                    return ids.length + (me._alertAccidentesUntaggedCount || 0);
+                    return ids.length;
                 })
                 .catch(function (err) { me.widgetErrorCode('ALERT-ACC', err); me._alertAccidentesIds = []; return null; });
 
@@ -2153,45 +2144,58 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // igual el largo de `data` (mismo criterio conservador que
     // fetchMantencionCount). El console.log de la respuesta cruda es la
     // herramienta para tipar el parser real el día que haya un caso.
+    // Accidentes — FR-0026 (16 sep, migración final): fuente real
+    // confirmada es events.php type=4911 ("Crash Detection Alert"), NO
+    // report_type=254 — ese último tenía un desfase de huso horario
+    // (BR-PILOT-0020) y una latencia de ~4h (BR-PILOT-0021) del lado de
+    // PILOT. type=4911 se descubrió interceptando fetch/XHR mientras el
+    // usuario navegaba el panel nativo "Events" de PILOT — trae los
+    // eventos a tiempo y con el horario correcto (verificado con 5
+    // accidentes reales del mismo día). Ver spec/api.md §"events.php
+    // type=4911" para el schema completo (árbol anidado vehículo→carpeta
+    // "Crash Detection Alert"→eventos).
     fetchAccidentVehicles: function (vehIdsCsv, startDate, stopDate) {
         var me = this;
-        // 20s → 45s (16 sep, BR-PILOT-0018): mismo motivo que ECO-SCORE —
-        // con fleet.maxVehicles=1500 el POST tarda más de 20s.
-        return this.fetchReportType(254, vehIdsCsv, startDate, stopDate, 45000)
-            .then(function (resp) {
-                console.log('[promatic_dashboard_enhancer] accidentes (report_type=254):', resp);
-                var data = (resp && resp.data) || [];
-                if (!Array.isArray(data)) {
-                    data = (data && typeof data === 'object') ? Object.keys(data).map(function (k) { return data[k]; }) : [];
-                }
-                if (data.length === 0) { return []; }
+        var isoNoMs = function (d) { return d.toISOString().slice(0, 19); };
+        var qs = 'cmd=search&operating_mode=tree' +
+            '&veh=' + encodeURIComponent(vehIdsCsv) +
+            '&type=4911' +
+            '&date_start=' + encodeURIComponent(isoNoMs(startDate)) +
+            '&date_stop=' + encodeURIComponent(isoNoMs(stopDate)) +
+            '&limit=5000&page=1&start=0&node=root';
+        var ctrl = new AbortController();
+        var to = setTimeout(function () { ctrl.abort(); }, 45000);
 
-                var nameToId = {};
-                var onlineTree = me.getOnlineTree();
-                if (onlineTree) {
-                    var recs = me.getScopedFleetRecords(onlineTree);
-                    for (var r = 0; r < recs.length; r++) {
-                        var nm = recs[r].get('name');
-                        if (nm) { nameToId[String(nm)] = recs[r].get('agentid'); }
+        return fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include', signal: ctrl.signal })
+            .then(function (resp) {
+                if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                return resp.json();
+            })
+            .then(function (tree) {
+                console.log('[promatic_dashboard_enhancer] accidentes (events.php type=4911):', tree);
+                var vehicles = Array.isArray(tree) ? tree : [];
+                var seen = {}, ids = [];
+                for (var v = 0; v < vehicles.length; v++) {
+                    var folders = (vehicles[v] && vehicles[v].children) || [];
+                    for (var f = 0; f < folders.length; f++) {
+                        var events = (folders[f] && folders[f].children) || [];
+                        for (var e = 0; e < events.length; e++) {
+                            var ev = events[e] || {};
+                            // "Real crash detected, calibrated" = el evento
+                            // real; "Full crash trace, calibrated" es
+                            // ruido/repetición de la misma detección
+                            // (confirmado con datos reales — un vehículo
+                            // trae varios "Full crash trace" y como máximo
+                            // 1 "Real crash detected" por accidente).
+                            if (ev.text !== 'Real crash detected, calibrated') { continue; }
+                            var aid = ev.agent_id;
+                            if (aid != null && !seen[aid]) { seen[aid] = 1; ids.push(Number(aid)); }
+                        }
                     }
                 }
-
-                var seen = {}, ids = [];
-                for (var i = 0; i < data.length; i++) {
-                    var it = data[i] || {};
-                    var aid = it.agent_id || it.agentid || it.veh_id || it.vehid;
-                    if (aid == null && it.plate) { aid = nameToId[String(it.plate)]; }
-                    if (aid == null && it.veh) { aid = nameToId[String(it.veh)]; }
-                    if (aid != null && !seen[aid]) { seen[aid] = 1; ids.push(Number(aid)); }
-                }
-                // Si data no estaba vacío pero no reconocimos ningún id real
-                // (schema todavía sin tipar), NO inventar ids falsos — el
-                // conteo de la card usa data.length aparte (ver
-                // loadAlertasGenerales), acá solo importan ids reales para
-                // el link "Ver Detalle Pilot" (selectVehiclesInReports).
-                me._alertAccidentesUntaggedCount = data.length - ids.length;
                 return ids;
-            });
+            })
+            .finally(function () { clearTimeout(to); });
     },
 
     // Ralentí excesivo: vehículos con Excess Idle (c1 del report_type=223, en
