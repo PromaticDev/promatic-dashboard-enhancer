@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.0',
-    moduleBuild: '2026-09-16-1036',
+    moduleBuild: '2026-09-16-1128',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -73,7 +73,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // brain/trackers/bugs.md), y el cliente ya tiene contrato de
         // confidencialidad/seguridad firmado. Reactivar solo si se pide
         // explícitamente, o al resolver la numeración de forma más robusta.
-        privacy: { maskPlates: false }
+        privacy: { maskPlates: false },
+        // Hotspots de Desconexión GPS (FR-0024, 16 sep) — heatmap histórico
+        // vía reports.php report_type=73 ("Connection lost", confirmado en
+        // vivo con request real de DEMO_CLIENT). windowDays = rango que se
+        // pide al reporte; minGapSeconds = "Min time (sec)" del reporte
+        // nativo (parámetro contr_time en buildReportBody), filtra cortes
+        // cortos que no reflejan un problema real de cobertura.
+        hotspots: { windowDays: 30, minGapSeconds: 120 }
     },
 
     initModule: function () {
@@ -1116,7 +1123,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 }),
                 this.cardMarkup('hotspots', {
                     title: l('Hotspots de Desconexión GPS'),
-                    hint: l('Puntos de calor con la última posición conocida de los vehículos actualmente sin señal GPS — dónde están ahora mismo los desconectados. El menú de arriba filtra por carpeta del panel "Principal".'),
+                    hint: l('Puntos de calor con el historial de cortes de señal GPS (últimos 30 días) — dónde tiende a perderse la conexión con más frecuencia. Los íconos de vehículo marcan la posición actual de los que están sin señal ahora mismo. El menú de arriba filtra por carpeta del panel "Principal".'),
                     noFooter: true,
                     skeleton: 'map',
                     headExtra: {
@@ -2931,16 +2938,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return recs;
     },
 
-    // Hotspots de desconexión GPS — fuente REAL: última posición conocida
-    // (online_tree, sin llamada HTTP) de los vehículos actualmente OFFLINE
-    // en el scope activo. Corrección FR-0024 (16 sep): la fuente anterior
-    // (events.php type=15, "No connection") da total:0 en DEMO_CLIENT para
-    // vehículos offline reales, en ventanas de 30 y 240 días — el evento
-    // explícito de desconexión no está poblado en esta cuenta. Se reemplaza
-    // por el mismo dato que ya usa "Sin Señal GPS" (is_server_online, ver
-    // updateGpsSignalCard): en vez de un histórico de eventos, es una foto
-    // del momento de dónde están los vehículos sin señal ahora mismo.
-    // Reutiliza _recordLatLon (helper de fleet_map) para la posición.
+    // Hotspots de desconexión GPS — 2 capas sobre la misma instancia
+    // _hotspotsMap (FR-0024, 16 sep):
+    //  - Heatmap: HISTÓRICO real de cortes vía reports.php report_type=73
+    //    ("Connection lost" — confirmado en vivo con request real de
+    //    DEMO_CLIENT, ver spec/api.md). Reemplaza el intento anterior con
+    //    events.php type=15 (daba total:0 en esta cuenta) y también el
+    //    intento de esta misma mañana con "offline ahora" como fuente del
+    //    heatmap (ese dato pasa a ser la capa de marcadores, abajo).
+    //  - Marcadores: posición ACTUAL de los vehículos offline ahora mismo
+    //    (is_server_online===false + _recordLatLon, mismo helper que
+    //    fleet_map) — para distinguir "dónde tiende a cortarse la señal"
+    //    (heatmap) de "quién está desconectado en este momento" (markers).
+    // Decisión del usuario (16 sep): esta card es independiente de
+    // fleet_map — nunca se fusionan ni comparten estado.
     loadFleetHeatmap: function () {
         var me = this;
         var map = this._hotspotsMap;
@@ -2949,8 +2960,72 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) { return; }
 
+        this._renderHotspotsMarkers(onlineTree);
+
+        var cfg = (this.config && this.config.hotspots) || this.DEFAULT_CONFIG.hotspots;
+        var windowDays = (cfg && cfg.windowDays) || 30;
+        var minGapSeconds = (cfg && cfg.minGapSeconds) || 120;
+
+        this.withFleetVehicleIds(function (vehIds) {
+            var csv = vehIds.join(',');
+            var stop = new Date();
+            var start = new Date();
+            start.setDate(start.getDate() - windowDays);
+
+            me.fetchConnectionLostPoints(csv, start, stop, minGapSeconds)
+                .then(function (rawPoints) {
+                    var buckets = {};
+                    for (var i = 0; i < rawPoints.length; i++) {
+                        var ll = rawPoints[i];
+                        var key = ll[0].toFixed(3) + ',' + ll[1].toFixed(3);
+                        if (!buckets[key]) { buckets[key] = { lat: ll[0], lng: ll[1], count: 0 }; }
+                        buckets[key].count++;
+                    }
+                    var points = [];
+                    for (var k in buckets) {
+                        if (buckets.hasOwnProperty(k)) { points.push(buckets[k]); }
+                    }
+
+                    console.log('[promatic_dashboard_enhancer] hotspots desconexión: ' + rawPoints.length +
+                        ' cortes (report_type=73, ' + windowDays + 'd, min ' + minGapSeconds + 's)' +
+                        (me._mapFolderFilter ? ' (carpeta ' + me._mapFolderFilter + ')' : '') +
+                        ', ' + points.length + ' celdas');
+
+                    try {
+                        if (typeof map.removeAllHeatsMap === 'function') { map.removeAllHeatsMap(); }
+                    } catch (e) { /* no-op */ }
+
+                    if (points.length === 0) {
+                        console.warn('[promatic_dashboard_enhancer] hotspots desconexión: 0 cortes report_type=73 en ' + windowDays + 'd.');
+                        return;
+                    }
+
+                    try {
+                        if (typeof map.setHeatmap === 'function') {
+                            map.setHeatmap(points, true, l('Desconexiones'));
+                        }
+                        if (map.checkResize) { map.checkResize(); }
+                    } catch (err) {
+                        me.widgetErrorCode('FLEETMAP-HEATMAP', err);
+                    }
+                })
+                .catch(function (err) {
+                    me.widgetErrorCode('FLEETMAP-HEATMAP-FETCH', err);
+                });
+        });
+    },
+
+    // Capa de marcadores de la card 'hotspots' — vehículos OFFLINE ahora
+    // mismo en el scope activo. Sin match de sucursal ni ícono por
+    // ignición (eso es propio de fleet_map/ADR-018); acá el punto es solo
+    // "está sin señal, aquí está su última posición conocida".
+    _renderHotspotsMarkers: function (onlineTree) {
+        var me = this;
+        var map = this._hotspotsMap;
+        if (!map) { return; }
+
         var records = this._folderScopedRecords(onlineTree, this._mapFolderFilter);
-        var buckets = {};
+        var markers = [];
         var rawPoints = [];
         for (var i = 0; i < records.length; i++) {
             var rec = records[i];
@@ -2959,44 +3034,38 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var ll = this._recordLatLon(rec);
             if (!ll) { continue; }
             rawPoints.push(ll);
-            var key = ll[0].toFixed(3) + ',' + ll[1].toFixed(3);
-            if (!buckets[key]) { buckets[key] = { lat: ll[0], lng: ll[1], count: 0 }; }
-            buckets[key].count++;
+            markers.push({
+                id: 'promatic_dashboard_enhancer_hotspots_veh_' + (rec.get ? rec.get('agentid') : i),
+                lat: ll[0],
+                lon: ll[1],
+                icon: window.location.origin + '/backend/markers/get.php?a=1',
+                size: 'medium',
+                tooltip: { msg: me.displayName(rec.get ? rec.get('name') : '') + ' — ' + l('Sin conexión') }
+            });
         }
-        var points = [];
-        for (var k in buckets) {
-            if (buckets.hasOwnProperty(k)) { points.push(buckets[k]); }
-        }
-
-        console.log('[promatic_dashboard_enhancer] hotspots desconexión: ' + rawPoints.length +
-            ' vehículos offline con posición' + (me._mapFolderFilter ? ' (carpeta ' + me._mapFolderFilter + ')' : '') +
-            ', ' + points.length + ' celdas');
 
         try {
-            if (typeof map.removeAllHeatsMap === 'function') { map.removeAllHeatsMap(); }
+            if (map.getCluster && map.getCluster('hotspots_offline_cluster') && map.removeCluster) {
+                map.removeCluster('hotspots_offline_cluster');
+            }
         } catch (e) { /* no-op */ }
 
-        if (points.length === 0) {
-            console.warn('[promatic_dashboard_enhancer] hotspots desconexión: sin vehículos offline con posición en el scope actual.');
-            return;
-        }
+        console.log('[promatic_dashboard_enhancer] hotspots desconexión: ' + markers.length +
+            ' vehículos offline con posición (marcadores)' + (me._mapFolderFilter ? ' (carpeta ' + me._mapFolderFilter + ')' : ''));
 
-        // Reencuadra a los puntos reales cada vez que se recarga —
-        // setMapCenter con un array de puntos llama fitBounds
-        // internamente (MapContainer.md §"Map View Methods").
+        if (markers.length === 0) { return; }
+
         try {
+            if (typeof map.addCluster === 'function') {
+                map.addCluster(markers, { id: 'hotspots_offline_cluster' });
+            }
+            // Reencuadra a los offline actuales — el heatmap histórico llega
+            // después (async) y no reencuadra para no pisar este fitBounds.
             if (typeof map.setMapCenter === 'function' && rawPoints.length > 0) {
                 map.setMapCenter(rawPoints);
             }
-        } catch (e) { /* no-op — el mapa sigue funcional sin reencuadre */ }
-
-        try {
-            if (typeof map.setHeatmap === 'function') {
-                map.setHeatmap(points, true, l('Desconexiones'));
-            }
-            if (map.checkResize) { map.checkResize(); }
         } catch (err) {
-            me.widgetErrorCode('FLEETMAP-HEATMAP', err);
+            me.widgetErrorCode('FLEETMAP-HOTSPOTS-MARKERS', err);
         }
     },
 
@@ -3022,6 +3091,49 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     var lat = Number(items[i].lat), lon = Number(items[i].lon);
                     if (isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0) {
                         out.push([lat, lon]);
+                    }
+                }
+                return out;
+            });
+    },
+
+    // Trae [lat, lon] de cada corte de señal en el rango dado — fuente REAL
+    // del heatmap histórico de hotspots (FR-0024, 16 sep): reports.php
+    // report_type=73 ("Connection lost"), group=1. Confirmado en vivo con
+    // request real de DEMO_CLIENT (ver spec/api.md §"report_type=73"):
+    //
+    //   data: { "<rango legible>": [ { lat, lon, msg:"Connection Lost",
+    //     veh:"<patente>", data:[patente, modelo, ts_start, ts_stop,
+    //     duration_seconds, {lat, lon}] } ] }
+    //
+    // minGapSeconds viaja en el parámetro contr_time del body (mismo campo
+    // que "Min time (sec)" del reporte nativo) — filtra cortes cortos que
+    // no reflejan un problema real de cobertura.
+    fetchConnectionLostPoints: function (vehIdsCsv, startDate, stopDate, minGapSeconds) {
+        var body = this.buildReportBody(73, vehIdsCsv, startDate, stopDate)
+            .replace(/contr_time=\d+/, 'contr_time=' + encodeURIComponent(minGapSeconds))
+            .replace(/group=\d+/, 'group=1');
+        return fetch('/backend/ax/reports.php', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body
+        })
+            .then(function (resp) {
+                if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                return resp.json();
+            })
+            .then(function (json) {
+                var data = (json && json.data) || {};
+                var out = [];
+                for (var rangeKey in data) {
+                    if (!data.hasOwnProperty(rangeKey)) { continue; }
+                    var items = data[rangeKey] || [];
+                    for (var i = 0; i < items.length; i++) {
+                        var lat = Number(items[i].lat), lon = Number(items[i].lon);
+                        if (isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0) {
+                            out.push([lat, lon]);
+                        }
                     }
                 }
                 return out;

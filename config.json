@@ -24,5 +24,9 @@
   },
   "privacy": {
     "maskPlates": false
+  },
+  "hotspots": {
+    "windowDays": 30,
+    "minGapSeconds": 120
   }
 }
