@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.21.2',
-    moduleBuild: '2026-09-16-1214',
+    version: '0.21.3',
+    moduleBuild: '2026-09-16-1232',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1641,24 +1641,27 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (this.effectiveFleetScope() === 'pilot-selection' && onlineTree &&
             typeof onlineTree.getChecked === 'function') {
             scope = this.getPilotSelectionIds(onlineTree);
+            // FR-0004 (16 sep, ampliado): revisar carpetas colapsadas SIEMPRE
+            // que el scope activo sea 'pilot-selection', no solo cuando scope
+            // queda vacío. Con flotas grandes y árboles de varios niveles
+            // (confirmado en vivo: 944 de 1396 vehículos marcados detectados)
+            // es normal que ALGUNAS carpetas ya estén expandidas (de ahí que
+            // scope no esté vacío) mientras OTRAS sub-carpetas marcadas
+            // siguen colapsadas — el chequeo original solo corría con 0
+            // detectados y nunca encontraba ese caso intermedio.
+            if (this.hasCollapsedCheckedFolders(onlineTree)) {
+                this._selectionCollapsed = true;
+                this._selectionExpanding = this.expandCheckedFolders(onlineTree);
+            } else {
+                this._selectionCollapsed = false;
+                this._selectionExpanding = false;
+            }
             // getChecked() disponible pero ninguna hoja marcada: puede ser
             // (a) el usuario no seleccionó nada, o (b) marcó carpetas pero
             // las tiene colapsadas (PILOT no materializa los hijos hasta
-            // expandir). Distinguir para dar el mensaje correcto.
+            // expandir) — el bloque de arriba ya disparó la expansión.
             if (!scope) {
                 this._selectionEmpty = true;
-                // FR-0004: si hay carpetas marcadas pero colapsadas, PILOT
-                // no materializó sus vehículos como checked. Forzar la
-                // expansión de esas ramas; expand() dispara 'checkchange'
-                // en los hijos → el listener con debounce re-renderiza. En
-                // esta pasada mostramos un mensaje transitorio.
-                if (this.hasCollapsedCheckedFolders(onlineTree)) {
-                    this._selectionCollapsed = true;
-                    this._selectionExpanding = this.expandCheckedFolders(onlineTree);
-                } else {
-                    this._selectionCollapsed = false;
-                    this._selectionExpanding = false;
-                }
                 return [];
             }
         }
