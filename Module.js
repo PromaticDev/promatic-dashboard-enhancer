@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.21.3',
-    moduleBuild: '2026-09-16-1232',
+    version: '0.21.4',
+    moduleBuild: '2026-09-16-1312',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -85,6 +85,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
+        // Circuit breaker por sesión (16 sep) — endpoints propios que ya
+        // dieron 401 quedan marcados acá y se saltan (sin fetch) en el resto
+        // de la sesión del navegador, hasta el próximo F5. Reduce tráfico
+        // inútil contra rutas que sabemos bloqueadas para esta cuenta ahora
+        // mismo (ver NOC-008) — no aplica a llamadas NATIVAS de PILOT, solo
+        // a las que dispara nuestro propio código.
+        this._blockedEndpoints = {};
         this.config = this.DEFAULT_CONFIG;
         this.loadConfig();
         this.loadStyles();
@@ -2066,9 +2073,28 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
+    // Circuit breaker (16 sep, ver NOC-008): true si `key` ya dio 401 en esta
+    // sesión del navegador. Se resetea solo con F5 — Pilot podría desbloquear
+    // el endpoint en cualquier momento y no queremos que quede apagado para
+    // siempre por error.
+    _isEndpointBlocked: function (key) {
+        return !!(this._blockedEndpoints && this._blockedEndpoints[key]);
+    },
+    _markEndpointBlocked: function (key) {
+        if (!this._blockedEndpoints) { this._blockedEndpoints = {}; }
+        if (!this._blockedEndpoints[key]) {
+            this._blockedEndpoints[key] = true;
+            console.warn('[promatic_dashboard_enhancer] ' + key +
+                ' marcado como bloqueado (401) — no se reintenta hasta recargar la página.');
+        }
+    },
+
     // Como fetchEventCount pero devuelve la lista de agent_ids distintos que
     // aparecen en los eventos del tipo/rango — para el link "abrir informe".
     fetchEventVehicles: function (vehIdsCsv, type, dateStart, dateStop) {
+        var me = this;
+        var breakerKey = 'events.php:type=' + type;
+        if (this._isEndpointBlocked(breakerKey)) { return Promise.resolve([]); }
         var qs = 'cmd=search&veh=' + encodeURIComponent(vehIdsCsv) +
             '&type=' + encodeURIComponent(type) +
             '&date_start=' + encodeURIComponent(dateStart) +
@@ -2076,6 +2102,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '&limit=1000&page=1&start=0';
         return fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include' })
             .then(function (resp) {
+                if (resp.status === 401) { me._markEndpointBlocked(breakerKey); }
                 if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
                 return resp.json();
             })
@@ -2142,20 +2169,25 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // datos). Se prueban con y sin filtro de vehículos por si el schema
         // real de una cuenta con datos lo requiere.
         var endpoints = [
-            '/backend/ax/mod/to/inspections.php?cmd=forms&veh=' + encodeURIComponent(csv),
-            '/backend/ax/mod/to/inspections.php?cmd=forms',
-            '/backend/ax/mod/to/services.php?cmd=list&veh=' + encodeURIComponent(csv),
-            '/backend/ax/mod/to/services.php?cmd=list'
+            { url: '/backend/ax/mod/to/inspections.php?cmd=forms&veh=' + encodeURIComponent(csv), breakerKey: 'mod/to/inspections.php' },
+            { url: '/backend/ax/mod/to/inspections.php?cmd=forms', breakerKey: 'mod/to/inspections.php' },
+            { url: '/backend/ax/mod/to/services.php?cmd=list&veh=' + encodeURIComponent(csv), breakerKey: 'mod/to/services.php' },
+            { url: '/backend/ax/mod/to/services.php?cmd=list', breakerKey: 'mod/to/services.php' }
         ];
         var tryOne = function (i) {
             if (i >= endpoints.length) { return Promise.resolve(null); }
-            return fetch(endpoints[i], { credentials: 'include' })
+            // Un 401 previo en este mismo archivo (con o sin filtro de
+            // vehículos) es casi seguro que se repite — saltar directo al
+            // siguiente endpoint sin gastar el request.
+            if (me._isEndpointBlocked(endpoints[i].breakerKey)) { return tryOne(i + 1); }
+            return fetch(endpoints[i].url, { credentials: 'include' })
                 .then(function (resp) {
+                    if (resp.status === 401) { me._markEndpointBlocked(endpoints[i].breakerKey); }
                     if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
                     return resp.json();
                 })
                 .then(function (data) {
-                    console.log('[promatic_dashboard_enhancer] mantención sondeo ' + endpoints[i] + ':', data);
+                    console.log('[promatic_dashboard_enhancer] mantención sondeo ' + endpoints[i].url + ':', data);
                     var items = (data && (data.data || data.items || data.list || data.rows)) || [];
                     if (!Array.isArray(items)) {
                         // a veces viene como objeto keyed por id
