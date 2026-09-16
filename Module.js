@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.21.4',
-    moduleBuild: '2026-09-16-1312',
+    version: '0.21.5',
+    moduleBuild: '2026-09-16-1321',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2030,7 +2030,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     // Alertas Generales (card 'alertas_generales') — 2 categorías:
-    //  - Accidentes: events.php type=29, ventana de 30 días (REF-001 §11.3).
+    //  - Accidentes: reports.php report_type=254 ("Crash detection", FR-0026,
+    //    16 sep) — ventana de 30 días. Ver fetchAccidentVehicles.
     //  - Requiere mantención: dashboard.php cmd=ptm — recordatorios; contamos
     //    los ligados a vehículo (link_type != 'drivers'). El shape de ptm no
     //    está confirmado en DEMO_CLIENT (en la cuenta de pruebas solo había un
@@ -2050,13 +2051,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var fmt = function (d) { return d.toISOString().slice(0, 10); };
             me._alertRange = { start: start, stop: stop };
 
-            // Accidentes: en vez del conteo, traemos los eventos (limit alto)
-            // para quedarnos con los agent_ids afectados — el click de la
-            // tarjeta abre el informe de esos vehículos en ese rango.
-            var accidentes = me.fetchEventVehicles(csv, 29, fmt(start), fmt(stop))
+            // Accidentes — FR-0026 (16 sep): fuente migrada de events.php
+            // type=29 ("Complex events", nunca confirmado como accidentes
+            // reales, ver spec/api.md) a reports.php report_type=254
+            // ("Crash detection", confirmado en vivo — mismo reporte que ya
+            // usa el link "Ver Detalle Pilot" desde el 7 sep). Sin ejemplo
+            // real de `data` no vacío todavía (3 meses sin accidentes en
+            // 1398 vehículos) — fetchAccidentVehicles parsea de forma
+            // conservadora y loguea la respuesta cruda para tipar el schema
+            // real el día que aparezca un caso.
+            var accidentes = me.fetchAccidentVehicles(csv, start, stop)
                 .then(function (ids) {
                     me._alertAccidentesIds = ids;
-                    return ids.length;
+                    // Conteo real de accidentes = ids reconocidos +
+                    // entradas sin id (schema aún sin tipar, ver
+                    // fetchAccidentVehicles) — nunca subestimar el conteo
+                    // aunque el link "Ver Detalle Pilot" no alcance a
+                    // preseleccionar esos vehículos.
+                    return ids.length + (me._alertAccidentesUntaggedCount || 0);
                 })
                 .catch(function (err) { me.widgetErrorCode('ALERT-ACC', err); me._alertAccidentesIds = []; return null; });
 
@@ -2113,6 +2125,54 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     var aid = items[i].agent_id || items[i].agentid || items[i].veh || items[i].object_id;
                     if (aid != null && !seen[aid]) { seen[aid] = 1; ids.push(Number(aid)); }
                 }
+                return ids;
+            });
+    },
+
+    // Accidentes — FR-0026 (16 sep): reports.php report_type=254 ("Crash
+    // detection"). Confirmado en vivo: {"success":true,"data":[],
+    // "report_type":254,...} cuando no hay accidentes — el shape de un
+    // `data` NO vacío sigue sin capturar (3 meses sin accidentes reales en
+    // DEMO_CLIENT). Parser conservador: intenta varias formas razonables de
+    // extraer agent_id/patente de cada item; si no reconoce nada, cuenta
+    // igual el largo de `data` (mismo criterio conservador que
+    // fetchMantencionCount). El console.log de la respuesta cruda es la
+    // herramienta para tipar el parser real el día que haya un caso.
+    fetchAccidentVehicles: function (vehIdsCsv, startDate, stopDate) {
+        var me = this;
+        return this.fetchReportType(254, vehIdsCsv, startDate, stopDate, 20000)
+            .then(function (resp) {
+                console.log('[promatic_dashboard_enhancer] accidentes (report_type=254):', resp);
+                var data = (resp && resp.data) || [];
+                if (!Array.isArray(data)) {
+                    data = (data && typeof data === 'object') ? Object.keys(data).map(function (k) { return data[k]; }) : [];
+                }
+                if (data.length === 0) { return []; }
+
+                var nameToId = {};
+                var onlineTree = me.getOnlineTree();
+                if (onlineTree) {
+                    var recs = me.getScopedFleetRecords(onlineTree);
+                    for (var r = 0; r < recs.length; r++) {
+                        var nm = recs[r].get('name');
+                        if (nm) { nameToId[String(nm)] = recs[r].get('agentid'); }
+                    }
+                }
+
+                var seen = {}, ids = [];
+                for (var i = 0; i < data.length; i++) {
+                    var it = data[i] || {};
+                    var aid = it.agent_id || it.agentid || it.veh_id || it.vehid;
+                    if (aid == null && it.plate) { aid = nameToId[String(it.plate)]; }
+                    if (aid == null && it.veh) { aid = nameToId[String(it.veh)]; }
+                    if (aid != null && !seen[aid]) { seen[aid] = 1; ids.push(Number(aid)); }
+                }
+                // Si data no estaba vacío pero no reconocimos ningún id real
+                // (schema todavía sin tipar), NO inventar ids falsos — el
+                // conteo de la card usa data.length aparte (ver
+                // loadAlertasGenerales), acá solo importan ids reales para
+                // el link "Ver Detalle Pilot" (selectVehiclesInReports).
+                me._alertAccidentesUntaggedCount = data.length - ids.length;
                 return ids;
             });
     },
