@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.9',
-    moduleBuild: '2026-09-21-1709',
+    moduleBuild: '2026-09-21-1728',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -1397,22 +1397,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     noFooter: true,
                     skeleton: 'donut'
                 }),
-                this.cardMarkup('hotspots', {
-                    title: l('Hotspots de Desconexión GPS'),
-                    hint: l('Puntos de calor con el historial de cortes de señal GPS (últimos 30 días) — dónde tiende a perderse la conexión con más frecuencia. Los íconos de vehículo marcan la posición actual de los que están sin señal ahora mismo. El menú de arriba filtra por carpeta del panel "Principal".'),
-                    noFooter: true,
-                    skeleton: 'map',
-                    headExtra: {
-                        tag: 'select',
-                        id: 'promatic_dashboard_enhancer-map-folder',
-                        cls: 'promatic_dashboard_enhancer-map-folder',
-                        cn: [{ tag: 'option', value: '__all__', html: l('Ver todos los seleccionados') }]
-                    }
-                }),
                 // Reemplaza 'vehicles_by_branch' (ADR-016, retirado 15 sep)
                 // — marcadores individuales + clustering NATIVO de
                 // MapContainer (addCluster, confirmado en vivo por el
                 // usuario: usa window.L.markerClusterGroup internamente).
+                // Orden 21 sep (pedido en reunión): fleet_map arriba,
+                // hotspots abajo — el mapa de ubicación actual es de
+                // consulta más frecuente que el histórico de cortes.
                 this.cardMarkup('fleet_map', {
                     title: l('Ubicación Global de la Flota'),
                     hint: l('Última posición conocida de cada vehículo, agrupada en clusters cuando hay varios cerca. Click en un vehículo o en un cluster para ver el detalle. El menú de arriba filtra por carpeta del panel "Principal".'),
@@ -1421,6 +1412,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     headExtra: {
                         tag: 'select',
                         id: 'promatic_dashboard_enhancer-fleetmap-folder',
+                        cls: 'promatic_dashboard_enhancer-map-folder',
+                        cn: [{ tag: 'option', value: '__all__', html: l('Ver todos los seleccionados') }]
+                    }
+                }),
+                this.cardMarkup('hotspots', {
+                    title: l('Hotspots de Desconexión GPS'),
+                    hint: l('Puntos de calor con el historial de cortes de señal GPS (últimos 30 días) — dónde tiende a perderse la conexión con más frecuencia. Los íconos de vehículo marcan la posición actual de los que están sin señal ahora mismo. El menú de arriba filtra por carpeta del panel "Principal".'),
+                    noFooter: true,
+                    skeleton: 'map',
+                    headExtra: {
+                        tag: 'select',
+                        id: 'promatic_dashboard_enhancer-map-folder',
                         cls: 'promatic_dashboard_enhancer-map-folder',
                         cn: [{ tag: 'option', value: '__all__', html: l('Ver todos los seleccionados') }]
                     }
