@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.9',
-    moduleBuild: '2026-09-21-1733',
+    moduleBuild: '2026-09-21-1753',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2197,6 +2197,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var total = 0;
         var moving = 0, parked = 0, offlineCount = 0;
         var gps24 = 0, gps48 = 0, gpsMore = 0;
+        var offlineNoTimestamp = 0;
         var DAY = 86400;
 
         for (var i = 0; i < records.length; i++) {
@@ -2213,13 +2214,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (!isOnline) {
                 offlineCount++;
                 var age = this.secondsSinceLastEvent(r);
-                if (age !== null && age < DAY) {
+                if (age === null) {
+                    // last_event aún sin sincronizar para este vehículo —
+                    // ver guard de reintento más abajo, que evita contarlo
+                    // en el bucket "Más de 48h" mientras siga así.
+                    offlineNoTimestamp++;
+                    gpsMore++;
+                } else if (age < DAY) {
                     gps24++;
-                } else if (age !== null && age < 2 * DAY) {
+                } else if (age < 2 * DAY) {
                     gps48++;
                 } else {
-                    // age >= 48h, o sin timestamp usable — al bucket más
-                    // severo (llevamos ≥48h sin saber nada del device).
                     gpsMore++;
                 }
             } else if (statusText.indexOf('movimiento') !== -1) {
@@ -2231,10 +2236,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
-        // Falsa pinta inicial: 100% offline con flota no vacía suele ser
-        // is_server_online aún sin sincronizar (no un apagón real de la
-        // flota completa) — reintentar antes de pintar el estado transitorio.
-        if (total > 0 && offlineCount === total &&
+        // Falsa pinta inicial, 2 variantes de la misma causa raíz
+        // (is_server_online/last_event aún sin sincronizar tras montar o
+        // cambiar de carpeta — no un apagón real):
+        //  1. 100% offline con flota no vacía.
+        //  2. Vehículos offline cuyo last_event todavía no llegó — sin este
+        //     guard, secondsSinceLastEvent() devuelve null y los mete a
+        //     todos en "Más de 48h" (ej. 1227 en vez de los ~142 reales)
+        //     hasta que la sincronización termina sola varios refrescos
+        //     después. Umbral: más de la mitad de los offline sin dato.
+        var settleNeeded = total > 0 && (
+            offlineCount === total ||
+            (offlineCount > 0 && offlineNoTimestamp > offlineCount / 2)
+        );
+        if (settleNeeded &&
             (this._fleetSettleAttempt || 0) < this.FLEET_SETTLE_MAX_RETRIES) {
             this._fleetSettleAttempt = (this._fleetSettleAttempt || 0) + 1;
             Ext.defer(this.refreshFleetStore, this.FLEET_SETTLE_RETRY_MS, this);
