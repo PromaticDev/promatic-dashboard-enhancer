@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.9',
-    moduleBuild: '2026-09-21-1557',
+    moduleBuild: '2026-09-21-1709',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -645,7 +645,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         me._reportModalMapPanel = Ext.create('Ext.panel.Panel', {
             renderTo: body,
             layout: 'fit',
-            height: 220,
+            height: 240,
             border: false,
             listeners: {
                 render: function () {
@@ -823,6 +823,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
+    // "yyyy-mm-dd" de un timestamp Unix en la zona horaria configurada — para
+    // comparar días de calendario (hoy/ayer vs. histórico) sin arrastrar
+    // desfases de huso horario del cliente.
+    _eventDayKey: function (ts) {
+        if (ts == null || !isFinite(ts)) { return null; }
+        var cfg = this.clockConfig();
+        try {
+            var parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: cfg.timeZone, day: '2-digit', month: '2-digit', year: 'numeric'
+            }).formatToParts(new Date(ts * 1000));
+            var m = {};
+            parts.forEach(function (p) { m[p.type] = p.value; });
+            return m.year + '-' + m.month + '-' + m.day;
+        } catch (e) { return null; }
+    },
+
     // Link a Google Maps para una coordenada — sin geocoding inverso (no hay
     // nombre de calle/ciudad en la respuesta de events.php type=4911, solo
     // lat/lon). Formato estándar de Maps: ?q=lat,lon.
@@ -925,36 +941,60 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // objeto de navegación (skeleton.navigation.events) equivalente a este
     // árbol de eventos (confirmado 21 sep, ver spec/api.md).
     buildAccidentesReport: function () {
+        var me = this;
         var esc = Ext.String.htmlEncode;
         var rows = this._alertAccidentesRows || [];
         var days = 30;
         var title = l('Accidentes — detalle');
+
+        // Recientes (hoy/ayer, zona horaria configurada) vs. histórico del
+        // resto de la ventana de 30 días — pedido del usuario 21 sep, para
+        // no tener que "buscar" los accidentes más urgentes entre 18+ filas.
+        var todayKey = this._eventDayKey(Math.floor(Date.now() / 1000));
+        var yesterdayKey = this._eventDayKey(Math.floor(Date.now() / 1000) - 86400);
+        var isRecent = function (r) {
+            var k = me._eventDayKey(r.ts);
+            return k === todayKey || k === yesterdayKey;
+        };
+
+        var rowHtml = function (r) {
+            var link = me._mapsLink(r.lat, r.lon);
+            var locCell;
+            if (r.lat != null && r.lon != null) {
+                locCell = r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) +
+                    (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '') +
+                    ' — <button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + r.lat + '" data-focus-lon="' + r.lon + '">' + l('ver en mapa interno') + '</button>';
+            } else {
+                locCell = l('N/D');
+            }
+            var calCell = r.calibrated === false ? l('No') : l('Sí');
+            return '<tr><td>' + esc(me._fmtEventDateTime(r.ts)) + '</td><td>' +
+                esc(me.displayName(r.veh)) + '</td><td>' + calCell + '</td><td>' + locCell + '</td></tr>';
+        };
+        var tableHtml = function (list) {
+            var h = '<table id="promatic_dashboard_enhancer-accidentes-table"><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
+                '</th><th>' + l('Calibrado') + '</th><th>' + l('Ubicación') + '</th></tr>';
+            for (var i = 0; i < list.length; i++) { h += rowHtml(list[i]); }
+            return h + '</table>';
+        };
 
         var body;
         if (!rows.length) {
             body = '<p>' + l('Sin accidentes reales detectados en el período.') + '</p>';
         } else {
             var sorted = rows.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
-            body = '<table id="promatic_dashboard_enhancer-accidentes-table"><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
-                '</th><th>' + l('Ubicación') + '</th></tr>';
-            for (var i = 0; i < sorted.length; i++) {
-                var r = sorted[i];
-                var link = this._mapsLink(r.lat, r.lon);
-                var locCell;
-                if (r.lat != null && r.lon != null) {
-                    locCell = r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) +
-                        (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '') +
-                        ' — <button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + r.lat + '" data-focus-lon="' + r.lon + '">' + l('ver en mapa interno') + '</button>';
-                } else {
-                    locCell = l('N/D');
-                }
-                body += '<tr><td>' + esc(this._fmtEventDateTime(r.ts)) + '</td><td>' +
-                    esc(this.displayName(r.veh)) + '</td><td>' + locCell + '</td></tr>';
+            var recent = sorted.filter(isRecent);
+            var historic = sorted.filter(function (r) { return !isRecent(r); });
+            body = '';
+            if (recent.length) {
+                body += '<h2>' + l('Recientes (hoy y ayer)') + '</h2>' + tableHtml(recent);
             }
-            body += '</table>';
+            if (historic.length) {
+                body += '<h2>' + l('Histórico del mes') + '</h2>' + tableHtml(historic);
+            }
         }
 
-        var desc = '<p class="desc">' + l('Eventos de colisión detectados por el acelerómetro del dispositivo ("Real crash detected, calibrated"), fuente events.php type=4911. Cada fila es un accidente real — no incluye el ruido de detección repetida ("Full crash trace"). Total: ' + rows.length + '.') + '</p>';
+        var desc = '<p class="desc">' + l('Eventos de colisión detectados por el acelerómetro del dispositivo ("Real crash detected"), fuente events.php type=4911. Cada fila es un accidente real — no incluye el ruido de detección repetida ("Full crash trace"). La columna Calibrado indica si el sensor completó su calibración al momento de la detección. Total: ' + rows.length + '.') + '</p>';
 
         // Botón "ver en mapa interno" — el iframe es un documento aislado sin
         // acceso al MapContainer del padre, así que se comunica el punto
@@ -1204,17 +1244,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var rows = this._alertAccidentesRows || [];
         var name = this.displayName.bind(this);
         var C = doc.content;
-        C.push({ text: l('Eventos de colisión detectados por el acelerómetro del dispositivo ("Real crash detected, calibrated"), fuente events.php type=4911.'), style: 'desc' });
+        C.push({ text: l('Eventos de colisión detectados por el acelerómetro del dispositivo ("Real crash detected"), fuente events.php type=4911.'), style: 'desc' });
 
         if (!rows.length) {
             C.push({ text: l('Sin accidentes reales detectados en el período.') });
         } else {
             var sorted = rows.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
             var me = this;
-            C.push(this._pdfTable([l('Fecha y hora'), l('Vehículo'), l('Ubicación')],
+            C.push(this._pdfTable([l('Fecha y hora'), l('Vehículo'), l('Calibrado'), l('Ubicación')],
                 sorted.map(function (r) {
                     var loc = (r.lat != null && r.lon != null) ? (r.lat.toFixed(5) + ', ' + r.lon.toFixed(5)) : l('N/D');
-                    return [me._fmtEventDateTime(r.ts), name(r.veh), loc];
+                    var cal = r.calibrated === false ? l('No') : l('Sí');
+                    return [me._fmtEventDateTime(r.ts), name(r.veh), cal, loc];
                 })));
         }
         C.push({ text: l('Reporte generado por el Dashboard sobre datos de PILOT Telematics — sin informe nativo equivalente disponible en PILOT.'), style: 'foot' });
@@ -2402,13 +2443,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         var events = (folders[f] && folders[f].children) || [];
                         for (var e = 0; e < events.length; e++) {
                             var ev = events[e] || {};
-                            // "Real crash detected, calibrated" = el evento
-                            // real; "Full crash trace, calibrated" es
+                            // "Real crash detected, calibrated/not calibrated"
+                            // = el evento real; "Full crash trace, ..." es
                             // ruido/repetición de la misma detección
                             // (confirmado con datos reales — un vehículo
                             // trae varios "Full crash trace" y como máximo
-                            // 1 "Real crash detected" por accidente).
-                            if (ev.text !== 'Real crash detected, calibrated') { continue; }
+                            // 1 "Real crash detected" por accidente). El
+                            // sufijo "not calibrated" (visto 21 sep en
+                            // FRX331) también cuenta — decisión del usuario:
+                            // no subestimar el conteo real, pero se guarda
+                            // `calibrated` para mostrarlo en la tabla/PDF.
+                            if (!ev.text || ev.text.indexOf('Real crash detected') !== 0) { continue; }
                             if (ev.id != null && seenEventIds[ev.id]) { continue; }
                             if (ev.id != null) { seenEventIds[ev.id] = 1; }
                             rows.push({
@@ -2416,7 +2461,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                                 veh: ev.veh != null ? String(ev.veh) : '',
                                 ts: ev.ts != null ? Number(ev.ts) : null,
                                 lat: ev.lat != null ? Number(ev.lat) : null,
-                                lon: ev.lon != null ? Number(ev.lon) : null
+                                lon: ev.lon != null ? Number(ev.lon) : null,
+                                calibrated: ev.text.indexOf('not calibrated') === -1
                             });
                         }
                     }
