@@ -400,6 +400,15 @@
     background: #f8fafc;
 }
 
+.promatic_dashboard_enhancer-report-modal__map {
+    flex: 0 0 220px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.promatic_dashboard_enhancer-report-modal__map .x-panel-body {
+    height: 100%;
+}
+
 .promatic_dashboard_enhancer-report-modal__title {
     font-size: 13px;
     font-weight: 700;

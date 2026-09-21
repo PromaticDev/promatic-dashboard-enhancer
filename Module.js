@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.9',
-    moduleBuild: '2026-09-21-1209',
+    moduleBuild: '2026-09-21-1504',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -518,7 +518,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // una pestaña nueva). El HTML va en un <iframe> srcdoc — aislado del CSS de
     // PILOT. "Imprimir / Guardar PDF" llama print() del iframe; "Cerrar" quita
     // el overlay. Esc también cierra.
-    openReportModal: function (html, title, pdfDoc) {
+    openReportModal: function (html, title, pdfDoc, mapPoints) {
         var me = this;
         this.closeReportModal();
 
@@ -527,6 +527,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // bajo demanda al hacer clic (ver ensurePdfMake).
         var pdfBtn = pdfDoc
             ? '<button type="button" data-act="pdf" class="promatic_dashboard_enhancer-report-modal__btn promatic_dashboard_enhancer-report-modal__btn--primary">⬇ ' + l('Descargar PDF') + '</button>'
+            : '';
+
+        // mapPoints (opcional, 21 sep) — cuando viene con datos se agrega un
+        // panel de mapa REAL (MapContainer, no el iframe) entre la barra y el
+        // iframe. El iframe de la tabla no tiene acceso a MapContainer/Ext JS
+        // (documento aislado) — por eso el mapa vive acá, en el overlay
+        // padre, y la fila del iframe le pide centrar un punto vía
+        // postMessage (ver buildAccidentesReport). Solo el modal de
+        // Accidentes pasa esto hoy; Golden Report/reportes de widget no lo
+        // usan y no cambian.
+        var hasMap = Array.isArray(mapPoints) && mapPoints.length > 0;
+        var mapHtml = hasMap
+            ? '<div id="promatic_dashboard_enhancer-report-modal-map" class="promatic_dashboard_enhancer-report-modal__map"></div>'
             : '';
 
         var ov = document.createElement('div');
@@ -542,6 +555,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         '<button type="button" data-act="close" class="promatic_dashboard_enhancer-report-modal__btn">✕ ' + l('Cerrar') + '</button>' +
                     '</span>' +
                 '</div>' +
+                mapHtml +
                 '<iframe class="promatic_dashboard_enhancer-report-modal__frame" title="' + Ext.String.htmlEncode(title || 'Reporte') + '"></iframe>' +
             '</div>';
         document.body.appendChild(ov);
@@ -556,6 +570,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         fd.open();
         fd.write(html);
         fd.close();
+
+        if (hasMap) {
+            me._buildReportModalMap(mapPoints);
+            // Mensajes del iframe (click en "ver en mapa interno" de una
+            // fila) — centra/zoom al punto pedido. Un solo listener por
+            // apertura de modal; se limpia en closeReportModal.
+            me._reportModalMsgHandler = function (ev) {
+                if (ev.source !== frame.contentWindow) { return; }
+                var data = ev.data || {};
+                if (data.type !== 'promatic_dashboard_enhancer_focus_point') { return; }
+                me._focusReportModalMapPoint(data.lat, data.lon);
+            };
+            window.addEventListener('message', me._reportModalMsgHandler);
+        }
 
         ov.addEventListener('click', function (ev) {
             var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
@@ -602,6 +630,62 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         document.addEventListener('keydown', this._reportModalEsc);
     },
 
+    // Crea el panel MapContainer del modal (mapPoints ya validado no-vacío
+    // por el llamador). Mismo patrón que buildFleetMapPanel (Ext.panel.Panel
+    // + layout:'fit' + init() + checkResize diferido) — adaptado a vivir
+    // dentro del overlay del modal en vez de una card del RAC.
+    _buildReportModalMap: function (mapPoints) {
+        var me = this;
+        var body = Ext.get('promatic_dashboard_enhancer-report-modal-map');
+        if (!body || !me.getMapContainerClass()) {
+            if (body) { body.setHtml(l('El mapa no está disponible en este runtime.')); }
+            return;
+        }
+        me._reportModalMapPoints = mapPoints;
+        me._reportModalMapPanel = Ext.create('Ext.panel.Panel', {
+            renderTo: body,
+            layout: 'fit',
+            border: false,
+            listeners: {
+                render: function () {
+                    try {
+                        var MC = me.getMapContainerClass();
+                        me._reportModalMap = new MC('promatic_dashboard_enhancer_report_modal_map');
+                        var first = mapPoints[0];
+                        me._reportModalMap.init(first.lat, first.lon, 12, this.id + '-body', false);
+                        for (var i = 0; i < mapPoints.length; i++) {
+                            var p = mapPoints[i];
+                            me._reportModalMap.addMarker({
+                                id: 'promatic_dashboard_enhancer_report_modal_marker_' + i,
+                                lat: p.lat, lon: p.lon,
+                                size: 'mini',
+                                tooltip: p.label ? { msg: p.label, options: { direction: 'top' } } : undefined
+                            });
+                        }
+                        if (mapPoints.length > 1 && me._reportModalMap.setMapCenter) {
+                            me._reportModalMap.setMapCenter(mapPoints.map(function (p) { return [p.lat, p.lon]; }));
+                        }
+                        Ext.defer(function () {
+                            if (me._reportModalMap && me._reportModalMap.checkResize) { me._reportModalMap.checkResize(); }
+                        }, 300);
+                    } catch (err) {
+                        me.widgetErrorCode('REPORTMODAL-MAP-INIT', err);
+                        this.body.setHtml(l('No se pudo inicializar el mapa.'));
+                    }
+                }
+            }
+        });
+    },
+
+    // Centra/zoom a un punto específico (click en una fila del iframe, ver
+    // buildAccidentesReport). No hace nada si el mapa no llegó a montarse.
+    _focusReportModalMapPoint: function (lat, lon) {
+        var map = this._reportModalMap;
+        if (!map || !map.setMapCenter || lat == null || lon == null) { return; }
+        try { map.setMapCenter(lat, lon, { zoom: 16 }); }
+        catch (err) { console.warn('[promatic_dashboard_enhancer] focus de punto en mapa del modal falló:', err); }
+    },
+
     // Resuelve con window.pdfMake. Si no está, intenta cargarlo desde el propio
     // host de PILOT (mismo origen — no viola la regla de CDN). Cachea la promesa.
     // pdfMake necesita pdfmake.min.js + vfs_fonts.js; PILOT sirve ambos bajo
@@ -646,6 +730,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             document.removeEventListener('keydown', this._reportModalEsc);
             this._reportModalEsc = null;
         }
+        if (this._reportModalMsgHandler) {
+            window.removeEventListener('message', this._reportModalMsgHandler);
+            this._reportModalMsgHandler = null;
+        }
+        if (this._reportModalMapPanel) {
+            try { this._reportModalMapPanel.destroy(); } catch (e) { /* no-op */ }
+            this._reportModalMapPanel = null;
+        }
+        this._reportModalMap = null;
+        this._reportModalMapPoints = null;
     },
 
     // CSS común de los reportes (impresión A4, tabla, cajas de score).
@@ -672,6 +766,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '.guide strong{color:#0a3d5c}' +
             '.guide ol{margin:6px 0 0;padding-left:20px}.guide li{margin:4px 0}' +
             '.foot{margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:10.5px}' +
+            '.promatic_dashboard_enhancer-focus-btn{font:inherit;color:#0a67a0;background:none;border:0;padding:0;text-decoration:underline;cursor:pointer}' +
             '@media print{body{padding:14mm}h2{page-break-after:avoid}table,.grid,.guide{page-break-inside:avoid}}' +
             '</style>';
     },
@@ -841,10 +936,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             for (var i = 0; i < sorted.length; i++) {
                 var r = sorted[i];
                 var link = this._mapsLink(r.lat, r.lon);
-                var locCell = (r.lat != null && r.lon != null)
-                    ? (r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) +
-                        (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : ''))
-                    : l('N/D');
+                var locCell;
+                if (r.lat != null && r.lon != null) {
+                    locCell = r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) +
+                        (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '') +
+                        ' — <button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + r.lat + '" data-focus-lon="' + r.lon + '">' + l('ver en mapa interno') + '</button>';
+                } else {
+                    locCell = l('N/D');
+                }
                 body += '<tr><td>' + esc(this._fmtEventDateTime(r.ts)) + '</td><td>' +
                     esc(this.displayName(r.veh)) + '</td><td>' + locCell + '</td></tr>';
             }
@@ -853,12 +952,29 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var desc = '<p class="desc">' + l('Eventos de colisión detectados por el acelerómetro del dispositivo ("Real crash detected, calibrated"), fuente events.php type=4911. Cada fila es un accidente real — no incluye el ruido de detección repetida ("Full crash trace"). Total: ' + rows.length + '.') + '</p>';
 
+        // Botón "ver en mapa interno" — el iframe es un documento aislado sin
+        // acceso al MapContainer del padre, así que se comunica el punto
+        // elegido vía postMessage; openReportModal (padre) escucha y centra
+        // el panel de mapa que vive fuera del iframe (ver _buildReportModalMap
+        // / _focusReportModalMapPoint).
+        var focusScript =
+            '<script>' +
+            'document.addEventListener("click", function (e) {' +
+            'var b = e.target.closest(".promatic_dashboard_enhancer-focus-btn");' +
+            'if (!b) { return; }' +
+            'var lat = parseFloat(b.getAttribute("data-focus-lat"));' +
+            'var lon = parseFloat(b.getAttribute("data-focus-lon"));' +
+            'if (isNaN(lat) || isNaN(lon)) { return; }' +
+            'window.parent.postMessage({type: "promatic_dashboard_enhancer_focus_point", lat: lat, lon: lon}, "*");' +
+            '});' +
+            '<\/script>';
+
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
             '</title>' + this._reportStyles() + '</head><body>' +
             this._reportHeader(title, days) + desc + body +
             '<div class="foot">' +
             l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. PILOT no expone hoy un informe nativo equivalente a este listado — este reporte sirve como base para reportar el requerimiento a Pilot Telematics.') +
-            '</div></body></html>';
+            '</div>' + focusScript + '</body></html>';
     },
 
     // Golden Report — resumen de todo el panel + guía para el Excel de PILOT.
@@ -5114,8 +5230,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // data-alert-report (que ya no se emite para esta card).
             if (a.hasCls && a.hasCls('promatic_dashboard_enhancer-stat-card--clickable') &&
                 a.dom && a.dom.querySelector('.pde_alert-accidentes')) {
+                var accidentesRows = me._alertAccidentesRows || [];
+                var accidentesMapPoints = accidentesRows
+                    .filter(function (r) { return r.lat != null && r.lon != null; })
+                    .map(function (r) { return { lat: r.lat, lon: r.lon, label: me.displayName(r.veh) }; });
                 me.openReportModal(me.buildAccidentesReport(), l('Accidentes — detalle'),
-                    me._safe(function () { return me.buildAccidentesPdfDoc(); }));
+                    me._safe(function () { return me.buildAccidentesPdfDoc(); }),
+                    accidentesMapPoints);
                 return;
             }
 
