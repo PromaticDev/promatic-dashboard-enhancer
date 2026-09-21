@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.9',
-    moduleBuild: '2026-09-21-1504',
+    moduleBuild: '2026-09-21-1557',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -645,6 +645,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         me._reportModalMapPanel = Ext.create('Ext.panel.Panel', {
             renderTo: body,
             layout: 'fit',
+            height: 220,
             border: false,
             listeners: {
                 render: function () {
@@ -668,6 +669,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         Ext.defer(function () {
                             if (me._reportModalMap && me._reportModalMap.checkResize) { me._reportModalMap.checkResize(); }
                         }, 300);
+                        Ext.defer(function () {
+                            if (me._reportModalMap && me._reportModalMap.checkResize) { me._reportModalMap.checkResize(); }
+                        }, 700);
                     } catch (err) {
                         me.widgetErrorCode('REPORTMODAL-MAP-INIT', err);
                         this.body.setHtml(l('No se pudo inicializar el mapa.'));
