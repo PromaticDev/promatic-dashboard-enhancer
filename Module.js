@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.9',
-    moduleBuild: '2026-09-21-1728',
+    moduleBuild: '2026-09-21-1733',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -195,6 +195,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         // 'fleet_map' (Ubicación Global de la Flota, clustering).
                         me.buildFleetMapPanel();
                         me.startClock();
+                        me.startAutoRefresh();
                         me.renderLogo();
                         // scrollable:'y' de Ext mide el alto scrolleable
                         // contra el navTab contenedor, no contra el contenido
@@ -1593,6 +1594,43 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.loadFleetMapClusters();
     },
 
+    // Refresco automático corto (FR-0027, 21 sep): SOLO Alertas Generales
+    // (Accidentes/Mantención/Ralentí) y Señal GPS/Estado de Flota, cada 60s
+    // — los rankings/reportes (Top KM, Safety Score, Tendencia de
+    // Infracciones) y los 2 mapas siguen siendo manual/por cambio de
+    // selección, no entran acá (más caros, no necesitan la misma frecuencia).
+    // Señal GPS/Estado de Flota se recalculan desde online_tree ya en
+    // memoria (refreshFleetStore, sin request HTTP propio); Alertas sí
+    // dispara requests reales (events.php type=4911, mod/to/*) — el guard
+    // `_autoRefreshBusy` evita apilar otra pasada si la anterior (flota
+    // grande) todavía no terminó cuando cae el siguiente tick, mismo
+    // problema que causó BR-PILOT-0015/BR-PILOT-0018 con ráfagas sin freno.
+    startAutoRefresh: function () {
+        var me = this;
+        if (me._autoRefreshTimer) { return; }
+        me._autoRefreshTimer = setInterval(function () {
+            if (me._autoRefreshBusy) { return; }
+            me._autoRefreshBusy = true;
+            me.refreshFleetStore();
+            // withFleetVehicleIds reintenta hasta 40 veces cada 500ms (~20s)
+            // si el árbol Online todavía no está listo — el guard de
+            // respaldo evita que _autoRefreshBusy quede pegado en `true`
+            // para siempre si por algún motivo onDone nunca llega.
+            var settled = false;
+            var guard = setTimeout(function () {
+                if (settled) { return; }
+                settled = true;
+                me._autoRefreshBusy = false;
+            }, 30000);
+            me.loadAlertasGenerales(function () {
+                if (settled) { return; }
+                settled = true;
+                clearTimeout(guard);
+                me._autoRefreshBusy = false;
+            });
+        }, 60000);
+    },
+
     // Pinta el skeleton de carga en el body de una card (si está montada).
     showCardSkeleton: function (id, kind) {
         this.updateCardBody(id, Ext.DomHelper.markup(this.skeletonSpec(kind)), 0, true);
@@ -2312,7 +2350,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //    tumba la otra.
     // "En taller" se retiró (chip decorativo sin fuente, pedido del Dev de
     // Pilot 25 ago).
-    loadAlertasGenerales: function () {
+    // onDone (opcional, 21 sep, ver startAutoRefresh) se llama cuando el
+    // ciclo completo terminó (accidentes + mantención resueltos) — permite
+    // a un llamador esperar el fin real sin convertir toda la función a
+    // promesa (withFleetVehicleIds es callback-based con reintentos, no
+    // retorna una promesa que se pueda encadenar directo).
+    loadAlertasGenerales: function (onDone) {
         var me = this;
 
         this.withFleetVehicleIds(function (vehIds) {
@@ -2352,6 +2395,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 console.log('[promatic_dashboard_enhancer] alertas generales: accidentes=' +
                     r[0] + ' requiere_mantencion=' + r[1]);
                 me.renderAlertasGenerales();
+                if (typeof onDone === 'function') { onDone(); }
             });
         });
     },
