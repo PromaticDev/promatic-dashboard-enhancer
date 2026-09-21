@@ -1050,14 +1050,12 @@
     background: rgba(255, 255, 255, 0.22);
 }
 
-/* Cuando alguna categoría CONECTADA tiene incidencias (> 0): la card entera
-   de Alertas Generales vira a naranja de alerta, en vez del azul de "todo
-   en orden". Se pinta el fondo del contenedor; las tarjetas quedan encima. */
-.promatic_dashboard_enhancer-stat-card-grid--alert {
-    background: var(--status-alert-bright);
-    border-radius: 0.75em;
-    padding: 0.625em;
-    margin: -0.625em;
+/* Categorías GRAVES (Accidentes, Requiere mantención) con incidencia (> 0):
+   solo ESA tarjeta vira a naranja de alerta, no el grid completo — el fondo
+   ya lo pone el `style` inline (ver card() en renderAlertasGenerales), esta
+   clase solo ajusta detalles visuales que dependían antes del contenedor. */
+.promatic_dashboard_enhancer-stat-card--severe-alert {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35) inset;
 }
 
 /* ===== Estado de Flota (card 'flota') ===== */

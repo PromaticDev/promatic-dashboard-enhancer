@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.9',
-    moduleBuild: '2026-09-21-1122',
+    moduleBuild: '2026-09-21-1209',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -836,7 +836,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             body = '<p>' + l('Sin accidentes reales detectados en el período.') + '</p>';
         } else {
             var sorted = rows.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
-            body = '<table><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
+            body = '<table id="promatic_dashboard_enhancer-accidentes-table"><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
                 '</th><th>' + l('Ubicación') + '</th></tr>';
             for (var i = 0; i < sorted.length; i++) {
                 var r = sorted[i];
@@ -851,7 +851,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             body += '</table>';
         }
 
-        var desc = '<p class="desc">' + l('Eventos de colisión detectados por el acelerómetro del dispositivo ("Real crash detected, calibrated"), fuente events.php type=4911. Cada fila es un accidente real — no incluye el ruido de detección repetida ("Full crash trace").') + '</p>';
+        var desc = '<p class="desc">' + l('Eventos de colisión detectados por el acelerómetro del dispositivo ("Real crash detected, calibrated"), fuente events.php type=4911. Cada fila es un accidente real — no incluye el ruido de detección repetida ("Full crash trace"). Total: ' + rows.length + '.') + '</p>';
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
             '</title>' + this._reportStyles() + '</head><body>' +
@@ -2447,7 +2447,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // vehIds: agent_ids afectados — si hay incidencia y hay ids, la
         // tarjeta es clicable y abre el panel Informes con esos vehículos
         // marcados (el usuario elige el informe).
-        var card = function (bg, title, count, iconSvg, titleAttr, isBeta, iconCls, vehIds, reportType) {
+        // `severe` marca las categorías GRAVES (accidentes, mantención
+        // vencida) — su fondo vira a naranja de alerta individualmente
+        // cuando count>0. Ralentí y el resto son informativos: muestran su
+        // número normal aunque count>0, no pintan naranjo (decisión ya
+        // tomada, ver comentario más abajo).
+        var card = function (bg, title, count, iconSvg, titleAttr, isBeta, iconCls, vehIds, reportType, severe) {
             var body;
             if (isBeta) {
                 body = { cls: 'promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta', html: l('EN DESARROLLO') };
@@ -2457,14 +2462,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 body = { cls: 'promatic_dashboard_enhancer-stat-card__count', html: String(count) };
             }
             var hasIncident = !isBeta && typeof count === 'number' && count > 0;
+            var isSevereAlert = hasIncident && severe;
             var clickable = hasIncident && vehIds && vehIds.length;
             var spec = {
                 tag: 'a', href: '#',
-                style: 'background:' + bg,
+                style: 'background:' + (isSevereAlert ? 'var(--status-alert-bright)' : bg),
                 title: clickable ? (titleAttr + ' — ' + l('clic: abre estos vehículos en el panel Informes')) : titleAttr,
                 cls: 'promatic_dashboard_enhancer-stat-card' +
                     (isBeta ? ' promatic_dashboard_enhancer-stat-card--beta' : '') +
                     (hasIncident ? ' promatic_dashboard_enhancer-stat-card--has-alert' : '') +
+                    (isSevereAlert ? ' promatic_dashboard_enhancer-stat-card--severe-alert' : '') +
                     (clickable ? ' promatic_dashboard_enhancer-stat-card--clickable' : ''),
                 cn: [
                     { tag: 'span', cls: 'promatic_dashboard_enhancer-stat-card__icon' + (iconCls ? ' ' + iconCls : ''), html: iconSvg },
@@ -2479,30 +2486,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return spec;
         };
 
-        // Si alguna categoría CONECTADA tiene incidencias (> 0), la card entera
-        // vira de azul a naranja de alerta. Las beta y las que fallaron (N/D)
-        // no cuentan para esto.
         var idleMin = (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).idleThresholdMin) || 120;
-        // hasAlert vira toda la card a naranja — reservado para incidencias
-        // GRAVES (accidentes, mantención vencida). Ralentí es informativo:
-        // muestra su número pero no dispara el fondo de alerta.
-        var hasAlert = (typeof accidentes === 'number' && accidentes > 0) ||
-                       (typeof mantencion === 'number' && mantencion > 0);
-        var gridCls = 'promatic_dashboard_enhancer-stat-card-grid' +
-            (hasAlert ? ' promatic_dashboard_enhancer-stat-card-grid--alert' : '');
+        var gridCls = 'promatic_dashboard_enhancer-stat-card-grid';
 
         this.updateCardBody('alertas_generales', Ext.DomHelper.markup({
             cls: gridCls,
             cn: [
                 card('var(--g6)', l('Accidentes'), accidentes, svgAccidente,
                     l('Accidentes — eventos de los últimos 30 días'), false, 'pde_alert-accidentes',
-                    this._alertAccidentesIds || []),
+                    this._alertAccidentesIds || [], null, true),
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
-                    l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion'),
+                    l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion',
+                    null, null, true),
                 // Ralentí: sin click por ahora — el informe con el detalle es el
                 // "Fleet ECO report" (report_type=223 group=6), que runNativeReport
                 // no soporta (necesita group=6). Se conecta en FR-0016. La tarjeta
                 // muestra el número pero no es clicable (no pasamos vehIds).
+                // Informativa, no "severe" — no pinta naranjo (ver comentario en
+                // la función card() más arriba).
                 card('var(--g6)', l('Ralentí excesivo'), ralenti, svgRalenti,
                     l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti'),
                 card('var(--g7)', l('Inconsistencias en Carga'), null, svgCombustible,
