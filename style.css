@@ -775,6 +775,14 @@
     filter: brightness(1.05);
 }
 
+.promatic_dashboard_enhancer-signal-chip--clickable {
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-signal-chip--clickable:hover {
+    filter: brightness(1.12);
+}
+
 .promatic_dashboard_enhancer-signal-chip__label {
     font-size: 0.8rem;
     font-weight: 700;
@@ -844,6 +852,22 @@
 
 .promatic_dashboard_enhancer-signal-chip--red .promatic_dashboard_enhancer-signal-chip__badge {
     background-color: var(--status-danger-bright);
+    color: #ffffff;
+}
+
+/* "Sin dato de última conexión" — separado de "Más de 48h" (21 sep, pedido
+   del usuario): no sabemos hace cuánto está sin señal, así que no merece la
+   misma alarma roja que un caso confirmado. Gris neutro, sin pulso. */
+.promatic_dashboard_enhancer-signal-chip--gray {
+    background: #94a3b8;
+}
+
+.promatic_dashboard_enhancer-signal-chip--gray .promatic_dashboard_enhancer-signal-chip__label {
+    color: #ffffff;
+}
+
+.promatic_dashboard_enhancer-signal-chip--gray .promatic_dashboard_enhancer-signal-chip__badge {
+    background-color: #64748b;
     color: #ffffff;
 }
 

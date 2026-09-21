@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.9',
-    moduleBuild: '2026-09-21-1753',
+    moduleBuild: '2026-09-21-1812',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -535,9 +535,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // iframe. El iframe de la tabla no tiene acceso a MapContainer/Ext JS
         // (documento aislado) — por eso el mapa vive acá, en el overlay
         // padre, y la fila del iframe le pide centrar un punto vía
-        // postMessage (ver buildAccidentesReport). Solo el modal de
-        // Accidentes pasa esto hoy; Golden Report/reportes de widget no lo
-        // usan y no cambian.
+        // postMessage (ver buildAccidentesReport/buildGpsSignalReport).
+        // Golden Report/reportes de widget no lo usan y no cambian.
         var hasMap = Array.isArray(mapPoints) && mapPoints.length > 0;
         var mapHtml = hasMap
             ? '<div id="promatic_dashboard_enhancer-report-modal-map" class="promatic_dashboard_enhancer-report-modal__map"></div>'
@@ -870,7 +869,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             body = '<table><tr><th>' + l('Tiempo sin señal') + '</th><th>' + l('Vehículos') + '</th></tr>' +
                 '<tr><td>' + l('Menos de 24h') + '</td><td class="n">' + (g.b24 || 0) + '</td></tr>' +
                 '<tr><td>' + l('Entre 24 y 48h') + '</td><td class="n">' + (g.b48 || 0) + '</td></tr>' +
-                '<tr><td>' + l('Más de 48h') + '</td><td class="n">' + (g.bMore || 0) + '</td></tr></table>';
+                '<tr><td>' + l('Más de 48h') + '</td><td class="n">' + (g.bMore || 0) + '</td></tr>' +
+                '<tr><td>' + l('Sin dato') + '</td><td class="n">' + (g.bNoData || 0) + '</td></tr></table>';
         } else if (which === 'alertas') {
             title = l('Alertas Generales');
             var mk = function (lbl, v) {
@@ -963,8 +963,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var locCell;
             if (r.lat != null && r.lon != null) {
                 locCell = r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) +
-                    (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '') +
-                    ' — <button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + r.lat + '" data-focus-lon="' + r.lon + '">' + l('ver en mapa interno') + '</button>';
+                    ' — <button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + r.lat + '" data-focus-lon="' + r.lon + '">' + l('ver en mapa interno') + '</button>' +
+                    (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '');
             } else {
                 locCell = l('N/D');
             }
@@ -1051,8 +1051,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         // Sin Señal GPS
         s += '<h2>' + l('Sin Señal GPS') + '</h2><table>' +
-            '<tr><th>' + l('Menos de 24h') + '</th><th>' + l('Entre 24 y 48h') + '</th><th>' + l('Más de 48h') + '</th></tr>' +
-            '<tr><td class="n">' + (g.b24 || 0) + '</td><td class="n">' + (g.b48 || 0) + '</td><td class="n">' + (g.bMore || 0) + '</td></tr></table>';
+            '<tr><th>' + l('Menos de 24h') + '</th><th>' + l('Entre 24 y 48h') + '</th><th>' + l('Más de 48h') + '</th><th>' + l('Sin dato') + '</th></tr>' +
+            '<tr><td class="n">' + (g.b24 || 0) + '</td><td class="n">' + (g.b48 || 0) + '</td><td class="n">' + (g.bMore || 0) + '</td><td class="n">' + (g.bNoData || 0) + '</td></tr></table>';
 
         // Alertas
         s += '<h2>' + l('Alertas Generales') + '</h2><table><tr><th>' + l('Categoría') + '</th><th>' + l('Incidencias') + '</th></tr>';
@@ -1263,6 +1263,102 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return doc;
     },
 
+    // Metadata de los 3 buckets de "Sin Señal GPS" — clave compartida por
+    // buildGpsSignalReport, buildGpsSignalPdfDoc y el click handler (ver
+    // bindAlertReportLinks), 21 sep.
+    _GPS_BUCKET_META: {
+        '24': { rowsKey: 'rows24', title: l('Sin señal — menos de 24h') },
+        '48': { rowsKey: 'rows48', title: l('Sin señal — entre 24 y 48h') },
+        'more': { rowsKey: 'rowsMore', title: l('Sin señal — más de 48h') },
+        'nodata': { rowsKey: 'rowsNoData', title: l('Sin señal — sin dato de última conexión') }
+    },
+
+    // Modal de detalle al hacer click en un chip de la card "Sin Señal GPS"
+    // (id 'gps_signal'). Mismo patrón que buildAccidentesReport: tabla +
+    // mini-mapa interno vía openReportModal(html, title, pdfDoc, mapPoints).
+    // Sin columna Calibrado (no aplica) ni secciones Recientes/Histórico
+    // (todas las filas son "ahora mismo sin señal", no hace falta separar).
+    buildGpsSignalReport: function (bucket) {
+        var me = this;
+        var esc = Ext.String.htmlEncode;
+        var meta = this._GPS_BUCKET_META[bucket] || this._GPS_BUCKET_META['24'];
+        var rows = (this._lastGpsBuckets && this._lastGpsBuckets[meta.rowsKey]) || [];
+        var title = meta.title;
+
+        var rowHtml = function (r) {
+            var link = me._mapsLink(r.lat, r.lon);
+            var locCell;
+            if (r.lat != null && r.lon != null) {
+                locCell = '<button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + r.lat + '" data-focus-lon="' + r.lon + '">' + l('ver en mapa interno') + '</button>' +
+                    (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '') +
+                    ' — ' + r.lat.toFixed(5) + ', ' + r.lon.toFixed(5);
+            } else {
+                locCell = l('N/D');
+            }
+            var tsCell = r.ts != null ? esc(me._fmtEventDateTime(r.ts)) : l('N/D');
+            return '<tr><td>' + tsCell + '</td><td>' + esc(me.displayName(r.veh)) + '</td><td>' + locCell + '</td></tr>';
+        };
+
+        var body;
+        if (!rows.length) {
+            body = '<p>' + l('Ningún vehículo en este rango.') + '</p>';
+        } else {
+            var sorted = rows.slice().sort(function (a, b) { return (a.ts || 0) - (b.ts || 0); });
+            body = '<table id="promatic_dashboard_enhancer-gps-signal-table"><tr><th>' + l('Última señal') + '</th><th>' + l('Vehículo') +
+                '</th><th>' + l('Ubicación') + '</th></tr>';
+            for (var i = 0; i < sorted.length; i++) { body += rowHtml(sorted[i]); }
+            body += '</table>';
+        }
+
+        var desc = '<p class="desc">' + l('Última posición conocida antes de perder señal — mientras el vehículo está desconectado no hay una ubicación "actual" distinta de esta. Total: ' + rows.length + '.') + '</p>';
+
+        var focusScript =
+            '<script>' +
+            'document.addEventListener("click", function (e) {' +
+            'var b = e.target.closest(".promatic_dashboard_enhancer-focus-btn");' +
+            'if (!b) { return; }' +
+            'var lat = parseFloat(b.getAttribute("data-focus-lat"));' +
+            'var lon = parseFloat(b.getAttribute("data-focus-lon"));' +
+            'if (isNaN(lat) || isNaN(lon)) { return; }' +
+            'window.parent.postMessage({type: "promatic_dashboard_enhancer_focus_point", lat: lat, lon: lon}, "*");' +
+            '});' +
+            '<\/script>';
+
+        var header = '<h1>' + esc(title) + '</h1><div class="sub">' +
+            l('Estado') + ': ' + l('ahora mismo') + ' · ' + l('generado') + ' ' + this.chileTime() + '</div>';
+
+        return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
+            '</title>' + this._reportStyles() + '</head><body>' +
+            header + desc + body +
+            '<div class="foot">' +
+            l('Reporte generado por el Dashboard sobre datos de PILOT Telematics.') +
+            '</div>' + focusScript + '</body></html>';
+    },
+
+    buildGpsSignalPdfDoc: function (bucket) {
+        var meta = this._GPS_BUCKET_META[bucket] || this._GPS_BUCKET_META['24'];
+        var rows = (this._lastGpsBuckets && this._lastGpsBuckets[meta.rowsKey]) || [];
+        var doc = this._pdfBase(meta.title, l('Estado: ahora mismo') + ' · ' + this.chileTime());
+        var name = this.displayName.bind(this);
+        var me = this;
+        var C = doc.content;
+        C.push({ text: l('Última posición conocida antes de perder señal.'), style: 'desc' });
+
+        if (!rows.length) {
+            C.push({ text: l('Ningún vehículo en este rango.') });
+        } else {
+            var sorted = rows.slice().sort(function (a, b) { return (a.ts || 0) - (b.ts || 0); });
+            C.push(this._pdfTable([l('Última señal'), l('Vehículo'), l('Ubicación')],
+                sorted.map(function (r) {
+                    var loc = (r.lat != null && r.lon != null) ? (r.lat.toFixed(5) + ', ' + r.lon.toFixed(5)) : l('N/D');
+                    var ts = r.ts != null ? me._fmtEventDateTime(r.ts) : l('N/D');
+                    return [ts, name(r.veh), loc];
+                })));
+        }
+        C.push({ text: l('Reporte generado por el Dashboard sobre datos de PILOT Telematics.'), style: 'foot' });
+        return doc;
+    },
+
     buildGoldenPdfDoc: function () {
         var doc = this._pdfBase('Golden Report — ' + l('Resumen semanal de flota'), this._pdfRange(7));
         var C = doc.content;
@@ -1283,8 +1379,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         C.push(this._pdfBoxes(boxes));
 
         C.push({ text: l('Sin Señal GPS'), style: 'h2' });
-        C.push(this._pdfTable([l('Menos de 24h'), l('Entre 24 y 48h'), l('Más de 48h')],
-            [[{ text: String(g.b24 || 0), alignment: 'right' }, { text: String(g.b48 || 0), alignment: 'right' }, { text: String(g.bMore || 0), alignment: 'right' }]]));
+        C.push(this._pdfTable([l('Menos de 24h'), l('Entre 24 y 48h'), l('Más de 48h'), l('Sin dato')],
+            [[{ text: String(g.b24 || 0), alignment: 'right' }, { text: String(g.b48 || 0), alignment: 'right' }, { text: String(g.bMore || 0), alignment: 'right' }, { text: String(g.bNoData || 0), alignment: 'right' }]]));
 
         C.push({ text: l('Alertas Generales'), style: 'h2' });
         var av = function (x) { return typeof x === 'number' ? String(x) : l('N/D'); };
@@ -2196,8 +2292,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var total = 0;
         var moving = 0, parked = 0, offlineCount = 0;
-        var gps24 = 0, gps48 = 0, gpsMore = 0;
+        var gps24 = 0, gps48 = 0, gpsMore = 0, gpsNoData = 0;
         var offlineNoTimestamp = 0;
+        var gps24Rows = [], gps48Rows = [], gpsMoreRows = [], gpsNoDataRows = [];
         var DAY = 86400;
 
         for (var i = 0; i < records.length; i++) {
@@ -2214,18 +2311,31 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (!isOnline) {
                 offlineCount++;
                 var age = this.secondsSinceLastEvent(r);
+                var latLon = this._recordLatLon(r);
+                var row = {
+                    veh: r.get('name'),
+                    ts: age !== null ? (Math.floor(Date.now() / 1000) - age) : null,
+                    lat: latLon ? latLon[0] : null,
+                    lon: latLon ? latLon[1] : null
+                };
                 if (age === null) {
-                    // last_event aún sin sincronizar para este vehículo —
-                    // ver guard de reintento más abajo, que evita contarlo
-                    // en el bucket "Más de 48h" mientras siga así.
+                    // last_event ausente incluso tras agotar los reintentos
+                    // de sincronización (ver guard más abajo) — bucket propio
+                    // en vez de "Más de 48h" (21 sep, pedido del usuario):
+                    // "sin dato" no es lo mismo que "confirmado hace más de
+                    // 48h", mezclarlos exageraba el bucket más severo.
                     offlineNoTimestamp++;
-                    gpsMore++;
+                    gpsNoData++;
+                    gpsNoDataRows.push(row);
                 } else if (age < DAY) {
                     gps24++;
+                    gps24Rows.push(row);
                 } else if (age < 2 * DAY) {
                     gps48++;
+                    gps48Rows.push(row);
                 } else {
                     gpsMore++;
+                    gpsMoreRows.push(row);
                 }
             } else if (statusText.indexOf('movimiento') !== -1) {
                 // "En movimientos X km/h" vs. "Estacionamiento..." — texto
@@ -2259,21 +2369,26 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         // Log solo cuando los números cambian — con flota estable, silencio.
         var sig = total + '/' + offlineCount + '/' + moving + '/' + parked +
-            '/' + gps24 + '/' + gps48 + '/' + gpsMore;
+            '/' + gps24 + '/' + gps48 + '/' + gpsMore + '/' + gpsNoData;
         if (sig !== this._fleetSig) {
             this._fleetSig = sig;
             console.log('[promatic_dashboard_enhancer] flota: total=' + total +
                 ' online=' + (total - offlineCount) + ' offline=' + offlineCount +
-                ' | señal GPS <24h=' + gps24 + ' 24-48h=' + gps48 + ' >48h/sin dato=' + gpsMore);
+                ' | señal GPS <24h=' + gps24 + ' 24-48h=' + gps48 + ' >48h=' + gpsMore + ' sin dato=' + gpsNoData);
         }
 
-        // Cache para los exportadores de reportes.
+        // Cache para los exportadores de reportes. rows24/rows48/rowsMore/
+        // rowsNoData alimentan buildGpsSignalReport (modal de detalle al
+        // hacer click en cada chip de la card "Sin Señal GPS", 21 sep).
         this._lastFleetCounts = { total: total, moving: moving, parked: parked, offline: offlineCount };
-        this._lastGpsBuckets = { b24: gps24, b48: gps48, bMore: gpsMore };
+        this._lastGpsBuckets = {
+            b24: gps24, b48: gps48, bMore: gpsMore, bNoData: gpsNoData,
+            rows24: gps24Rows, rows48: gps48Rows, rowsMore: gpsMoreRows, rowsNoData: gpsNoDataRows
+        };
 
         this.updateSummary(total, total - offlineCount);
         this.updateFlotaLopCard(total, moving, parked, offlineCount);
-        this.updateGpsSignalCard(gps24, gps48, gpsMore);
+        this.updateGpsSignalCard(gps24, gps48, gpsMore, gpsNoData);
     },
 
     // Reloj "Hora exacta Chile" — puro cliente, sin API. Se pinta la card una
@@ -4365,19 +4480,23 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (mount) { mount.setHtml(listHtml); }
     },
 
-    updateGpsSignalCard: function (b24, b48, bMore) {
+    updateGpsSignalCard: function (b24, b48, bMore, bNoData) {
         // 3 buckets en fila horizontal (rediseño 3 sep). Sin footer — las
         // fichas son el único elemento de la card. El chip "Más de 48h"
         // (--red) es el único que pulsa (@keyframes ...-alert-pulse).
-        // TODO: conectar el click de cada chip al panel de alertas nativo.
-        var chip = function (mod, label, count, title, hideBadge) {
+        // Click en cada chip abre el modal de detalle (buildGpsSignalReport,
+        // ver bindAlertReportLinks) — data-gps-bucket es la clave que usa
+        // ese handler.
+        var chip = function (mod, label, count, title, bucket, hideBadge) {
             var cn = [{ tag: 'span', cls: 'promatic_dashboard_enhancer-signal-chip__label', html: label }];
             if (!hideBadge) {
                 cn.push({ tag: 'span', cls: 'promatic_dashboard_enhancer-signal-chip__badge', html: String(count) });
             }
             return {
-                cls: 'promatic_dashboard_enhancer-signal-chip promatic_dashboard_enhancer-signal-chip--' + mod,
+                cls: 'promatic_dashboard_enhancer-signal-chip promatic_dashboard_enhancer-signal-chip--' + mod +
+                    (bucket ? ' promatic_dashboard_enhancer-signal-chip--clickable' : ''),
                 title: title,
+                'data-gps-bucket': bucket || undefined,
                 cn: cn
             };
         };
@@ -4397,13 +4516,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // set de 3 chips (con el rojo pulsando) por un único chip verde
         // "Todo OK" — evita la falsa alarma visual con flotas chicas donde
         // el bucket ">48h" nunca tiene datos reales que mostrar.
-        var track = (b24 === 0 && b48 === 0 && bMore === 0)
-            ? { cn: [chip('ok', l('Todo OK — sin desconexiones'), 0, l('Ningún vehículo desconectado actualmente'), true)] }
+        var track = (b24 === 0 && b48 === 0 && bMore === 0 && bNoData === 0)
+            ? { cn: [chip('ok', l('Todo OK — sin desconexiones'), 0, l('Ningún vehículo desconectado actualmente'), null, true)] }
             : {
                 cn: [
-                    chip('yellow', l('Menos de 24h'), b24, l('Vehículos desconectados hace menos de 24h')),
-                    chip('orange', l('Entre 24 y 48h'), b48, l('Vehículos desconectados entre 24 y 48h')),
-                    chip('red', l('Más de 48h'), bMore, l('Vehículos desconectados hace más de 48h o sin dato reciente'))
+                    chip('yellow', l('Menos de 24h'), b24, l('Vehículos desconectados hace menos de 24h — click para ver detalle'), '24'),
+                    chip('orange', l('Entre 24 y 48h'), b48, l('Vehículos desconectados entre 24 y 48h — click para ver detalle'), '48'),
+                    chip('red', l('Más de 48h'), bMore, l('Vehículos desconectados hace más de 48h — click para ver detalle'), 'more'),
+                    chip('gray', l('Sin dato'), bNoData, l('Sin dato de última conexión — click para ver detalle'), 'nodata')
                 ]
             };
         track.cls = 'promatic_dashboard_enhancer-signal-track';
@@ -5353,6 +5473,23 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
 
             var raw = a.getAttribute('data-alert-ids');
+            if (!raw) {
+                var gpsChip = e.getTarget('[data-gps-bucket]', 8, true);
+                if (gpsChip) {
+                    var bucket = gpsChip.getAttribute('data-gps-bucket');
+                    var meta = me._GPS_BUCKET_META[bucket];
+                    if (!meta) { return; }
+                    var gpsRows = (me._lastGpsBuckets && me._lastGpsBuckets[meta.rowsKey]) || [];
+                    var gpsMapPoints = gpsRows
+                        .filter(function (r) { return r.lat != null && r.lon != null; })
+                        .map(function (r) { return { lat: r.lat, lon: r.lon, label: me.displayName(r.veh) }; });
+                    me.openReportModal(me.buildGpsSignalReport(bucket), meta.title,
+                        me._safe(function () { return me.buildGpsSignalPdfDoc(bucket); }),
+                        gpsMapPoints);
+                    return;
+                }
+            }
+
             var ids = (raw || '').split(',').map(Number).filter(function (n) { return !isNaN(n) && n > 0; });
             if (!ids.length) { return; }
             var rt = Number(a.getAttribute('data-alert-report'));
