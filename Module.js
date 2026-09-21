@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.21.9',
-    moduleBuild: '2026-09-16-1756',
+    moduleBuild: '2026-09-21-1122',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -704,6 +704,34 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return 'bad';
     },
 
+    // Formatea un timestamp Unix (segundos) a "dd/mm/aaaa HH:MM" en la zona
+    // horaria configurada (mismo locale/timeZone que el reloj del header,
+    // clockConfig() — no confundir con chileTime(), que solo da la hora).
+    _fmtEventDateTime: function (ts) {
+        if (ts == null || !isFinite(ts)) { return '—'; }
+        var cfg = this.clockConfig();
+        try {
+            var parts = new Intl.DateTimeFormat(cfg.locale, {
+                timeZone: cfg.timeZone,
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: false
+            }).formatToParts(new Date(ts * 1000));
+            var m = {};
+            parts.forEach(function (p) { m[p.type] = p.value; });
+            return m.day + '/' + m.month + '/' + m.year + ' ' + m.hour + ':' + m.minute;
+        } catch (e) {
+            return new Date(ts * 1000).toLocaleString();
+        }
+    },
+
+    // Link a Google Maps para una coordenada — sin geocoding inverso (no hay
+    // nombre de calle/ciudad en la respuesta de events.php type=4911, solo
+    // lat/lon). Formato estándar de Maps: ?q=lat,lon.
+    _mapsLink: function (lat, lon) {
+        if (lat == null || lon == null || !isFinite(lat) || !isFinite(lon)) { return null; }
+        return 'https://www.google.com/maps?q=' + encodeURIComponent(lat) + ',' + encodeURIComponent(lon);
+    },
+
     // Reporte de un widget puntual.
     buildWidgetReport: function (which) {
         var esc = Ext.String.htmlEncode;
@@ -787,6 +815,49 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             this._reportHeader(title, days) + descHtml + body +
             '<div class="foot">' +
             l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. Para ver la información al detalle por evento, revisa el panel Informes de PILOT (ver la guía en el Golden Report).') +
+            '</div></body></html>';
+    },
+
+    // Detalle de accidentes reales (events.php type=4911, FR-0026) — 1 fila
+    // por evento "Real crash detected, calibrated" en la ventana de
+    // loadAlertasGenerales (30 días). Sin geocoding inverso: la columna
+    // Ubicación muestra lat/lon crudos + link a Google Maps. Sin link a un
+    // informe nativo de PILOT por fila — no existe un report_type ni un
+    // objeto de navegación (skeleton.navigation.events) equivalente a este
+    // árbol de eventos (confirmado 21 sep, ver spec/api.md).
+    buildAccidentesReport: function () {
+        var esc = Ext.String.htmlEncode;
+        var rows = this._alertAccidentesRows || [];
+        var days = 30;
+        var title = l('Accidentes — detalle');
+
+        var body;
+        if (!rows.length) {
+            body = '<p>' + l('Sin accidentes reales detectados en el período.') + '</p>';
+        } else {
+            var sorted = rows.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+            body = '<table><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
+                '</th><th>' + l('Ubicación') + '</th></tr>';
+            for (var i = 0; i < sorted.length; i++) {
+                var r = sorted[i];
+                var link = this._mapsLink(r.lat, r.lon);
+                var locCell = (r.lat != null && r.lon != null)
+                    ? (r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) +
+                        (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : ''))
+                    : l('N/D');
+                body += '<tr><td>' + esc(this._fmtEventDateTime(r.ts)) + '</td><td>' +
+                    esc(this.displayName(r.veh)) + '</td><td>' + locCell + '</td></tr>';
+            }
+            body += '</table>';
+        }
+
+        var desc = '<p class="desc">' + l('Eventos de colisión detectados por el acelerómetro del dispositivo ("Real crash detected, calibrated"), fuente events.php type=4911. Cada fila es un accidente real — no incluye el ruido de detección repetida ("Full crash trace").') + '</p>';
+
+        return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
+            '</title>' + this._reportStyles() + '</head><body>' +
+            this._reportHeader(title, days) + desc + body +
+            '<div class="foot">' +
+            l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. PILOT no expone hoy un informe nativo equivalente a este listado — este reporte sirve como base para reportar el requerimiento a Pilot Telematics.') +
             '</div></body></html>';
     },
 
@@ -1005,6 +1076,28 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
         C.push({ text: l('Reporte generado por el Dashboard sobre datos de PILOT Telematics.'), style: 'foot' });
+        return doc;
+    },
+
+    buildAccidentesPdfDoc: function () {
+        var doc = this._pdfBase(l('Accidentes — detalle'), this._pdfRange(30));
+        var rows = this._alertAccidentesRows || [];
+        var name = this.displayName.bind(this);
+        var C = doc.content;
+        C.push({ text: l('Eventos de colisión detectados por el acelerómetro del dispositivo ("Real crash detected, calibrated"), fuente events.php type=4911.'), style: 'desc' });
+
+        if (!rows.length) {
+            C.push({ text: l('Sin accidentes reales detectados en el período.') });
+        } else {
+            var sorted = rows.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+            var me = this;
+            C.push(this._pdfTable([l('Fecha y hora'), l('Vehículo'), l('Ubicación')],
+                sorted.map(function (r) {
+                    var loc = (r.lat != null && r.lon != null) ? (r.lat.toFixed(5) + ', ' + r.lon.toFixed(5)) : l('N/D');
+                    return [me._fmtEventDateTime(r.ts), name(r.veh), loc];
+                })));
+        }
+        C.push({ text: l('Reporte generado por el Dashboard sobre datos de PILOT Telematics — sin informe nativo equivalente disponible en PILOT.'), style: 'foot' });
         return doc;
     },
 
@@ -2072,11 +2165,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // anterior con reports.php report_type=254 (desfase de huso
             // horario + latencia de ~4h, BR-PILOT-0020/0021).
             var accidentes = me.fetchAccidentVehicles(csv, start, stop)
-                .then(function (ids) {
-                    me._alertAccidentesIds = ids;
-                    return ids.length;
+                .then(function (rows) {
+                    me._alertAccidentesRows = rows;
+                    me._alertAccidentesIds = rows
+                        .map(function (r) { return r.agentId; })
+                        .filter(function (id) { return id != null; });
+                    return rows.length;
                 })
-                .catch(function (err) { me.widgetErrorCode('ALERT-ACC', err); me._alertAccidentesIds = []; return null; });
+                .catch(function (err) {
+                    me.widgetErrorCode('ALERT-ACC', err);
+                    me._alertAccidentesRows = [];
+                    me._alertAccidentesIds = [];
+                    return null;
+                });
 
             var mantencion = me.fetchMantencionCount(vehIds)
                 .catch(function (err) { me.widgetErrorCode('ALERT-MANT', err); return null; });
@@ -2174,7 +2275,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             .then(function (tree) {
                 console.log('[promatic_dashboard_enhancer] accidentes (events.php type=4911):', tree);
                 var vehicles = Array.isArray(tree) ? tree : [];
-                var seen = {}, ids = [];
+                var seenEventIds = {}, rows = [];
                 for (var v = 0; v < vehicles.length; v++) {
                     var folders = (vehicles[v] && vehicles[v].children) || [];
                     for (var f = 0; f < folders.length; f++) {
@@ -2188,12 +2289,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                             // trae varios "Full crash trace" y como máximo
                             // 1 "Real crash detected" por accidente).
                             if (ev.text !== 'Real crash detected, calibrated') { continue; }
-                            var aid = ev.agent_id;
-                            if (aid != null && !seen[aid]) { seen[aid] = 1; ids.push(Number(aid)); }
+                            if (ev.id != null && seenEventIds[ev.id]) { continue; }
+                            if (ev.id != null) { seenEventIds[ev.id] = 1; }
+                            rows.push({
+                                agentId: ev.agent_id != null ? Number(ev.agent_id) : null,
+                                veh: ev.veh != null ? String(ev.veh) : '',
+                                ts: ev.ts != null ? Number(ev.ts) : null,
+                                lat: ev.lat != null ? Number(ev.lat) : null,
+                                lon: ev.lon != null ? Number(ev.lon) : null
+                            });
                         }
                     }
                 }
-                return ids;
+                return rows;
             })
             .finally(function () { clearTimeout(to); });
     },
@@ -2388,7 +2496,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cn: [
                 card('var(--g6)', l('Accidentes'), accidentes, svgAccidente,
                     l('Accidentes — eventos de los últimos 30 días'), false, 'pde_alert-accidentes',
-                    this._alertAccidentesIds || [], 254),
+                    this._alertAccidentesIds || []),
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
                     l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion'),
                 // Ralentí: sin click por ahora — el informe con el detalle es el
@@ -4997,6 +5105,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var a = e.getTarget('[data-alert-ids]', 8, true);
             if (!a) { return; }
             e.preventDefault();
+
+            // Accidentes (events.php type=4911, FR-0026) no tiene report_type
+            // nativo equivalente — abre la tabla propia en vez de
+            // runNativeReport (ver bug del click a "Speed violations", 21
+            // sep). Detectado por la clase de ícono de la card, no por
+            // data-alert-report (que ya no se emite para esta card).
+            if (a.hasCls && a.hasCls('promatic_dashboard_enhancer-stat-card--clickable') &&
+                a.dom && a.dom.querySelector('.pde_alert-accidentes')) {
+                me.openReportModal(me.buildAccidentesReport(), l('Accidentes — detalle'),
+                    me._safe(function () { return me.buildAccidentesPdfDoc(); }));
+                return;
+            }
+
             var raw = a.getAttribute('data-alert-ids');
             var ids = (raw || '').split(',').map(Number).filter(function (n) { return !isNaN(n) && n > 0; });
             if (!ids.length) { return; }
