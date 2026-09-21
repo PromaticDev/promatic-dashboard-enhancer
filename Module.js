@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.22.0',
-    moduleBuild: '2026-09-21-1815',
+    moduleBuild: '2026-09-21-1822',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -89,7 +89,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // confidencialidad/seguridad firmado. Reactivar solo si se pide
         // explícitamente, o al resolver la numeración de forma más robusta.
         privacy: { maskPlates: false },
-        // Hotspots de Desconexión GPS (FR-0024, 16 sep) — heatmap histórico
+        // Hotspots de Pérdida de Conexión (FR-0024, 16 sep; renombrado 21 sep
+        // — "Desconexión" sonaba a manipulación intencional, pedido del
+        // cliente en reunión) — heatmap histórico
         // vía reports.php report_type=73 ("Connection lost", confirmado en
         // vivo con request real de DEMO_CLIENT). windowDays = rango que se
         // pide al reporte; minGapSeconds = "Min time (sec)" del reporte
@@ -1514,7 +1516,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     }
                 }),
                 this.cardMarkup('hotspots', {
-                    title: l('Hotspots de Desconexión GPS'),
+                    title: l('Hotspots de Pérdida de Conexión'),
                     hint: l('Puntos de calor con el historial de cortes de señal GPS (últimos 30 días) — dónde tiende a perderse la conexión con más frecuencia. Los íconos de vehículo marcan la posición actual de los que están sin señal ahora mismo. El menú de arriba filtra por carpeta del panel "Principal".'),
                     noFooter: true,
                     skeleton: 'map',
@@ -1816,8 +1818,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ]),
             this.rowMarkup([
                 this.cardMarkup('hotspots', {
-                    title: l('Hotspots de desconexión'), meta: 'type=15',
-                    footerLabel: l('Abrir mapa de desconexión')
+                    title: l('Hotspots de pérdida de conexión'), meta: 'type=15',
+                    footerLabel: l('Abrir mapa de pérdida de conexión')
                 }),
                 this.cardMarkup('disponibles', {
                     title: l('Disponibles/ubicación'),
@@ -3366,7 +3368,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         }
                     } catch (err) {
                         me.widgetErrorCode('HOTSPOTS-INIT', err);
-                        this.body.setHtml(l('No se pudo inicializar el mapa de desconexión.'));
+                        this.body.setHtml(l('No se pudo inicializar el mapa de pérdida de conexión.'));
                     }
                 },
                 resize: function () {
@@ -3576,7 +3578,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
                     try {
                         if (typeof map.setHeatmap === 'function') {
-                            map.setHeatmap(points, true, l('Desconexiones'));
+                            map.setHeatmap(points, true, l('Pérdidas de conexión'));
                         }
                         if (map.checkResize) { map.checkResize(); }
                     } catch (err) {
