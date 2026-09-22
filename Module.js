@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.23.0',
-    moduleBuild: '2026-09-22-1506',
+    version: '0.23.1',
+    moduleBuild: '2026-09-22-1730',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -757,7 +757,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             'h2{font-size:14px;margin:26px 0 6px;color:#0a3d5c;border-bottom:2px solid #cbd5e1;padding-bottom:4px;text-transform:uppercase;letter-spacing:.4px}' +
             '.sub{color:#64748b;font-size:11.5px;margin-bottom:4px}' +
             '.lead{color:#334155;font-size:12.5px;margin:2px 0 14px;max-width:52em}' +
-            '.desc{color:#475569;font-size:11.5px;font-style:italic;margin:2px 0 10px;max-width:52em}' +
+            '.desc{color:#475569;font-size:14px;font-style:italic;margin:2px 0 10px;max-width:52em}' +
             'table{border-collapse:collapse;width:100%;margin:8px 0 4px;font-size:11.5px}' +
             'th,td{border:1px solid #e2e8f0;padding:6px 9px;text-align:left}' +
             'th{background:#f1f5f9;font-weight:600;color:#334155}' +
@@ -948,7 +948,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var esc = Ext.String.htmlEncode;
         var rows = this._alertAccidentesRows || [];
         var days = 30;
-        var title = l('Accidentes — detalle');
+        var title = l('Detalle Alarma de Posibles Accidentes');
 
         // Recientes (hoy/ayer, zona horaria configurada) vs. histórico del
         // resto de la ventana de 30 días — pedido del usuario 21 sep, para
@@ -997,7 +997,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
-        var desc = '<p class="desc">' + l('Eventos de colisión detectados por el acelerómetro del dispositivo ("Real crash detected"), fuente events.php type=4911. Cada fila es un accidente real — no incluye el ruido de detección repetida ("Full crash trace"). La columna Calibrado indica si el sensor completó su calibración al momento de la detección. Total: ' + rows.length + '.') + '</p>';
+        // Descripción del widget separada de la fuente técnica (22 sep,
+        // pedido del usuario) — el primer <p> es de cara al usuario final,
+        // el segundo es la trazabilidad técnica (endpoint/type), útil hoy
+        // para verificar y fácil de quitar después si ya no hace falta
+        // mostrarla en el modal.
+        var desc = '<p class="desc">' + l('Alarmas de eventos de posible colisión detectadas por el acelerómetro. Cada fila es una alerta generada de un potencial accidente real, sin agregar ni incluir el ruido de detección repetida. La columna Calibrado indica si el sensor completó su calibración al momento de la detección. Total: ' + rows.length + '.') + '</p>' +
+            '<p class="desc">' + l('Fuente: events.php type=4911') + '</p>';
 
         // Botón "ver en mapa interno" — el iframe es un documento aislado sin
         // acceso al MapContainer del padre, así que se comunica el punto
@@ -1243,7 +1249,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     buildAccidentesPdfDoc: function () {
-        var doc = this._pdfBase(l('Accidentes — detalle'), this._pdfRange(30));
+        var doc = this._pdfBase(l('Detalle Alarma de Posibles Accidentes'), this._pdfRange(30));
         var rows = this._alertAccidentesRows || [];
         var name = this.displayName.bind(this);
         var C = doc.content;
@@ -5537,7 +5543,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 var accidentesMapPoints = accidentesRows
                     .filter(function (r) { return r.lat != null && r.lon != null; })
                     .map(function (r) { return { lat: r.lat, lon: r.lon, label: me.displayName(r.veh) }; });
-                me.openReportModal(me.buildAccidentesReport(), l('Posible Accidente — detalle'),
+                me.openReportModal(me.buildAccidentesReport(), l('Detalle Alarma de Posibles Accidentes'),
                     me._safe(function () { return me.buildAccidentesPdfDoc(); }),
                     accidentesMapPoints);
                 return;
