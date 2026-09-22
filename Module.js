@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.22.1',
-    moduleBuild: '2026-09-22-1330',
+    version: '0.22.2',
+    moduleBuild: '2026-09-22-1428',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -3622,9 +3622,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // report_type=73 ("Connection lost"), group=1. Confirmado en vivo con
     // request real de DEMO_CLIENT (ver spec/api.md §"report_type=73"):
     //
-    //   data: { "<rango legible>": [ { lat, lon, msg:"Connection Lost",
-    //     veh:"<patente>", data:[patente, modelo, ts_start, ts_stop,
-    //     duration_seconds, {lat, lon}] } ] }
+    //   data: { "<rango legible>": { "<índice disperso>": { lat, lon,
+    //     msg:"Connection Lost", veh:"<patente>", data:[patente, modelo,
+    //     ts_start, ts_stop, duration_seconds, {lat, lon}] }, ... } }
+    //
+    // OJO: cada rango es un OBJETO con claves numéricas dispersas (ej.
+    // "0","8","41"...), NO un array — confirmado 22 sep con flota completa
+    // (~400 vehículos, cientos de cortes reales en la respuesta). Iterar
+    // con for...in, nunca asumir .length/índices consecutivos (bug real
+    // encontrado: el heatmap daba "0 celdas" siempre pese a datos reales).
     //
     // minGapSeconds viaja en el parámetro contr_time del body (mismo campo
     // que "Min time (sec)" del reporte nativo) — filtra cortes cortos que
@@ -3648,9 +3654,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 var out = [];
                 for (var rangeKey in data) {
                     if (!data.hasOwnProperty(rangeKey)) { continue; }
-                    var items = data[rangeKey] || [];
-                    for (var i = 0; i < items.length; i++) {
-                        var lat = Number(items[i].lat), lon = Number(items[i].lon);
+                    // items llega como OBJETO con claves numéricas dispersas
+                    // (ej. "0","8","41"...), no como array — confirmado 22
+                    // sep con payload real de DEMO_CLIENT (flota completa,
+                    // ~400 vehículos). El `for` sobre items.length quedaba
+                    // siempre en 0 (undefined en un objeto plano), por eso
+                    // el heatmap nunca pintaba pese a que la API sí traía
+                    // cientos de cortes reales — bug de parseo, no de datos.
+                    var items = data[rangeKey] || {};
+                    for (var itemKey in items) {
+                        if (!items.hasOwnProperty(itemKey)) { continue; }
+                        var item = items[itemKey];
+                        var lat = Number(item.lat), lon = Number(item.lon);
                         if (isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0) {
                             out.push([lat, lon]);
                         }
