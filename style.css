@@ -1693,6 +1693,23 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     cursor: pointer;
 }
 
+/* Controles del head de 'hotspots' (22 sep) — 2 selects: modo de corte
+   (largos/breves) + carpeta. Mismo patrón que .branch-selects: flex,
+   margin-left:auto en el contenedor, no en cada <select> hijo. */
+.promatic_dashboard_enhancer-map-controls {
+    display: flex;
+    gap: 0.375em;
+    margin-left: auto;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.promatic_dashboard_enhancer-map-controls .promatic_dashboard_enhancer-map-folder {
+    margin-left: 0;
+    max-width: none;
+    min-width: 0;
+}
+
 /* ===== Vehículos por Sucursal (card 'vehicles_by_branch') — 2 selects
    encadenados en el head + mapa (300px) + lista de vehículos debajo
    (ADR-016). Reusa .map-folder para el estilo base de cada <select>, pero

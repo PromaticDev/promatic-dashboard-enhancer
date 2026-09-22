@@ -27,6 +27,8 @@
   },
   "hotspots": {
     "windowDays": 30,
-    "minGapSeconds": 120
+    "minGapSeconds": 120,
+    "shortGapMinSeconds": 10,
+    "shortGapMaxSeconds": 90
   }
 }

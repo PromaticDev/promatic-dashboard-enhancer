@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     //   minor = lote de feedback / widget nuevo · patch = fix puntual.
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
-    version: '0.22.2',
-    moduleBuild: '2026-09-22-1428',
+    version: '0.23.0',
+    moduleBuild: '2026-09-22-1506',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -97,7 +97,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // pide al reporte; minGapSeconds = "Min time (sec)" del reporte
         // nativo (parámetro contr_time en buildReportBody), filtra cortes
         // cortos que no reflejan un problema real de cobertura.
-        hotspots: { windowDays: 30, minGapSeconds: 120 }
+        hotspots: { windowDays: 30, minGapSeconds: 120, shortGapMinSeconds: 10, shortGapMaxSeconds: 90 }
     },
 
     initModule: function () {
@@ -1517,14 +1517,28 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 }),
                 this.cardMarkup('hotspots', {
                     title: l('Hotspots de Pérdida de Conexión'),
-                    hint: l('Puntos de calor con el historial de cortes de señal GPS (últimos 30 días) — dónde tiende a perderse la conexión con más frecuencia. Los íconos de vehículo marcan la posición actual de los que están sin señal ahora mismo. El menú de arriba filtra por carpeta del panel "Principal".'),
+                    hint: l('Puntos de calor con el historial de cortes de señal GPS (últimos 30 días) — dónde tiende a perderse la conexión con más frecuencia. "Cortes largos" son vehículos apagados/fuera de cobertura por mucho tiempo; "Intermitencias breves" son cortes cortos típicos de túneles y pasos subterráneos. El menú de carpeta filtra por selección del panel "Principal".'),
                     noFooter: true,
                     skeleton: 'map',
                     headExtra: {
-                        tag: 'select',
-                        id: 'promatic_dashboard_enhancer-map-folder',
-                        cls: 'promatic_dashboard_enhancer-map-folder',
-                        cn: [{ tag: 'option', value: '__all__', html: l('Ver todos los seleccionados') }]
+                        cls: 'promatic_dashboard_enhancer-map-controls',
+                        cn: [
+                            {
+                                tag: 'select',
+                                id: 'promatic_dashboard_enhancer-hotspots-gap-mode',
+                                cls: 'promatic_dashboard_enhancer-map-folder',
+                                cn: [
+                                    { tag: 'option', value: 'long', html: l('Cortes largos') },
+                                    { tag: 'option', value: 'short', html: l('Intermitencias breves') }
+                                ]
+                            },
+                            {
+                                tag: 'select',
+                                id: 'promatic_dashboard_enhancer-map-folder',
+                                cls: 'promatic_dashboard_enhancer-map-folder',
+                                cn: [{ tag: 'option', value: '__all__', html: l('Ver todos los seleccionados') }]
+                            }
+                        ]
                     }
                 })
             ]
@@ -3338,6 +3352,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         // pérdida de conexión en la región", no la flota.
                         me._hotspotsMap.init(-33.45, -70.66, 12, this.id + '-body', false);
                         me.populateMapFolderDropdown();
+                        me.bindHotspotsGapModeToggle();
                         me.loadFleetHeatmap();
                         // Leaflet midió el contenedor antes de que el layout
                         // flex terminara — recalcular a los 300/700ms para
@@ -3487,6 +3502,23 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
+    // Toggle "Cortes largos" / "Intermitencias breves" del head de
+    // 'hotspots' (22 sep). A diferencia del dropdown de carpeta, no
+    // dispara un fetch nuevo — ambos buckets ya están calculados en
+    // _hotspotsPointsByMode (loadFleetHeatmap), solo redibuja el heatmap
+    // con _paintHotspotsHeatmap.
+    bindHotspotsGapModeToggle: function () {
+        var me = this;
+        var sel = document.getElementById('promatic_dashboard_enhancer-hotspots-gap-mode');
+        if (!sel || sel._pdeBound) { return; }
+        sel._pdeBound = true;
+        me._hotspotsGapMode = sel.value || 'long';
+        sel.addEventListener('change', function () {
+            me._hotspotsGapMode = sel.value;
+            me._paintHotspotsHeatmap();
+        });
+    },
+
     // Records de vehículos para el mapa: si hay filtro de carpeta activo, solo
     // las hojas descendientes de ese nodo; si no, el alcance normal
     // (getScopedFleetRecords = selección de "Principal" o toda la flota).
@@ -3512,11 +3544,25 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     // Hotspots de desconexión GPS — heatmap puro sobre _hotspotsMap
-    // (FR-0024, 16 sep; heatmap-only 22 sep):
+    // (FR-0024, 16 sep; heatmap-only 22 sep; 2 capas 22 sep):
     //  - HISTÓRICO real de cortes vía reports.php report_type=73
     //    ("Connection lost" — confirmado en vivo con request real de
     //    DEMO_CLIENT, ver spec/api.md). Reemplaza el intento anterior con
     //    events.php type=15 (daba total:0 en esta cuenta).
+    //  - 2 CAPAS (22 sep, pedido del usuario): el usuario esperaba ver
+    //    túneles/pasos subterráneos (Túnel San Cristóbal, tramos de
+    //    Américo Vespucio Oriente, Zapata-Lo Prado) y solo aparecían
+    //    sucursales/estacionamientos — porque esos cortes breves (10-90s)
+    //    quedaban por debajo del piso minGapSeconds=120 que se usaba para
+    //    TODO el request. Ahora se pide con el piso más bajo posible
+    //    (shortGapMinSeconds) para traer todo en 1 sola llamada, y se
+    //    separa client-side en 2 buckets por duración real: "Cortes largos"
+    //    (>minGapSeconds, vehículo apagado/fuera de cobertura) vs.
+    //    "Intermitencias breves" (shortGapMinSeconds–shortGapMaxSeconds,
+    //    candidatos a túnel/subterráneo). Toggle en el head de la card
+    //    (_hotspotsGapMode, default 'long') decide cuál se pinta — nunca
+    //    se mezclan en el mismo heatmap (las sucursales dominarían
+    //    visualmente sobre los túneles).
     // La capa de marcadores de vehículos offline ahora mismo se retiró
     // (22 sep, pedido del usuario) — ese detalle ahora vive en el modal de
     // "Sin Señal GPS" (buildGpsSignalReport). Esta card queda enfocada
@@ -3535,6 +3581,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var cfg = (this.config && this.config.hotspots) || this.DEFAULT_CONFIG.hotspots;
         var windowDays = (cfg && cfg.windowDays) || 30;
         var minGapSeconds = (cfg && cfg.minGapSeconds) || 120;
+        var shortMin = (cfg && cfg.shortGapMinSeconds) || 10;
+        var shortMax = (cfg && cfg.shortGapMaxSeconds) || 90;
 
         this.withFleetVehicleIds(function (vehIds) {
             var csv = vehIds.join(',');
@@ -3542,51 +3590,81 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var start = new Date();
             start.setDate(start.getDate() - windowDays);
 
-            me.fetchConnectionLostPoints(csv, start, stop, minGapSeconds)
+            // Piso bajo (shortMin) trae TODO — largos y breves — en 1 sola
+            // llamada; la clasificación real ocurre abajo por duración.
+            me.fetchConnectionLostPoints(csv, start, stop, shortMin)
                 .then(function (rawPoints) {
-                    var buckets = {};
+                    var bucketsLong = {}, bucketsShort = {};
+                    var countLong = 0, countShort = 0;
                     for (var i = 0; i < rawPoints.length; i++) {
-                        var ll = rawPoints[i];
-                        var key = ll[0].toFixed(3) + ',' + ll[1].toFixed(3);
-                        if (!buckets[key]) { buckets[key] = { lat: ll[0], lng: ll[1], count: 0 }; }
-                        buckets[key].count++;
+                        var p = rawPoints[i];
+                        var duration = p[2] || 0;
+                        var isShort = duration >= shortMin && duration <= shortMax;
+                        var isLong = duration >= minGapSeconds;
+                        if (!isShort && !isLong) { continue; } // zona muerta entre bandas, no clasificable
+                        var key = p[0].toFixed(3) + ',' + p[1].toFixed(3);
+                        var target = isShort ? bucketsShort : bucketsLong;
+                        if (!target[key]) { target[key] = { lat: p[0], lng: p[1], count: 0 }; }
+                        target[key].count++;
+                        if (isShort) { countShort++; } else { countLong++; }
                     }
-                    var points = [];
-                    for (var k in buckets) {
-                        if (buckets.hasOwnProperty(k)) { points.push(buckets[k]); }
-                    }
+                    var toPoints = function (buckets) {
+                        var pts = [];
+                        for (var k in buckets) { if (buckets.hasOwnProperty(k)) { pts.push(buckets[k]); } }
+                        return pts;
+                    };
+                    me._hotspotsPointsByMode = {
+                        long: toPoints(bucketsLong),
+                        short: toPoints(bucketsShort)
+                    };
 
                     console.log('[promatic_dashboard_enhancer] hotspots desconexión: ' + rawPoints.length +
-                        ' cortes (report_type=73, ' + windowDays + 'd, min ' + minGapSeconds + 's)' +
-                        (me._mapFolderFilter ? ' (carpeta ' + me._mapFolderFilter + ')' : '') +
-                        ', ' + points.length + ' celdas');
+                        ' cortes totales (report_type=73, ' + windowDays + 'd) — ' +
+                        countLong + ' largos (>' + minGapSeconds + 's, ' + me._hotspotsPointsByMode.long.length + ' celdas), ' +
+                        countShort + ' breves (' + shortMin + '-' + shortMax + 's, ' + me._hotspotsPointsByMode.short.length + ' celdas)' +
+                        (me._mapFolderFilter ? ' (carpeta ' + me._mapFolderFilter + ')' : ''));
 
-                    try {
-                        if (typeof map.removeAllHeatsMap === 'function') { map.removeAllHeatsMap(); }
-                    } catch (e) { /* no-op */ }
-
-                    if (points.length === 0) {
-                        console.warn('[promatic_dashboard_enhancer] hotspots desconexión: 0 cortes report_type=73 en ' + windowDays + 'd.');
-                        return;
-                    }
-
-                    try {
-                        if (typeof map.setHeatmap === 'function') {
-                            // isBounds=false (22 sep) — el mapa mantiene el
-                            // centro/zoom fijo de la Región Metropolitana
-                            // fijado en el render del panel, no se reencuadra
-                            // según la dispersión de los puntos.
-                            map.setHeatmap(points, false, l('Pérdidas de conexión'));
-                        }
-                        if (map.checkResize) { map.checkResize(); }
-                    } catch (err) {
-                        me.widgetErrorCode('FLEETMAP-HEATMAP', err);
-                    }
+                    me._paintHotspotsHeatmap();
                 })
                 .catch(function (err) {
                     me.widgetErrorCode('FLEETMAP-HEATMAP-FETCH', err);
                 });
         });
+    },
+
+    // Pinta el bucket activo (_hotspotsGapMode, 'long'|'short') sobre
+    // _hotspotsMap. Separado de loadFleetHeatmap (22 sep) para que el
+    // toggle del head pueda redibujar sin volver a pedir datos a la API —
+    // ambos buckets ya están calculados en _hotspotsPointsByMode.
+    _paintHotspotsHeatmap: function () {
+        var me = this;
+        var map = this._hotspotsMap;
+        if (!map || !this._hotspotsPointsByMode) { return; }
+
+        var mode = this._hotspotsGapMode || 'long';
+        var points = this._hotspotsPointsByMode[mode] || [];
+        var label = mode === 'short' ? l('Intermitencias breves') : l('Pérdidas de conexión');
+
+        try {
+            if (typeof map.removeAllHeatsMap === 'function') { map.removeAllHeatsMap(); }
+        } catch (e) { /* no-op */ }
+
+        if (points.length === 0) {
+            console.warn('[promatic_dashboard_enhancer] hotspots desconexión: 0 celdas para el modo "' + mode + '".');
+            return;
+        }
+
+        try {
+            if (typeof map.setHeatmap === 'function') {
+                // isBounds=false (22 sep) — el mapa mantiene el centro/zoom
+                // fijo de la Región Metropolitana fijado en el render del
+                // panel, no se reencuadra según la dispersión de los puntos.
+                map.setHeatmap(points, false, label);
+            }
+            if (map.checkResize) { map.checkResize(); }
+        } catch (err) {
+            me.widgetErrorCode('FLEETMAP-HEATMAP', err);
+        }
     },
 
     // Trae los [lat, lon] de cada evento type=`type` en el rango dado —
@@ -3632,12 +3710,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // con for...in, nunca asumir .length/índices consecutivos (bug real
     // encontrado: el heatmap daba "0 celdas" siempre pese a datos reales).
     //
-    // minGapSeconds viaja en el parámetro contr_time del body (mismo campo
-    // que "Min time (sec)" del reporte nativo) — filtra cortes cortos que
-    // no reflejan un problema real de cobertura.
-    fetchConnectionLostPoints: function (vehIdsCsv, startDate, stopDate, minGapSeconds) {
+    // contrTimeFloor viaja en el parámetro contr_time del body (mismo campo
+    // que "Min time (sec)" del reporte nativo) — es el PISO que la API de
+    // PILOT aplica en el request; cualquier corte más corto que eso ni
+    // siquiera viaja en la respuesta. loadFleetHeatmap (22 sep) siempre
+    // pide con el piso más bajo configurado (shortGapMinSeconds) para traer
+    // TODO (breves + largos) en una sola llamada, y separa client-side por
+    // duración real (ver duration abajo) — evita 2 requests HTTP.
+    //
+    // Devuelve [lat, lon, durationSeconds] por corte (antes solo [lat,lon]
+    // — duration se agrega 22 sep para poder clasificar breve/largo).
+    fetchConnectionLostPoints: function (vehIdsCsv, startDate, stopDate, contrTimeFloor) {
         var body = this.buildReportBody(73, vehIdsCsv, startDate, stopDate)
-            .replace(/contr_time=\d+/, 'contr_time=' + encodeURIComponent(minGapSeconds))
+            .replace(/contr_time=\d+/, 'contr_time=' + encodeURIComponent(contrTimeFloor))
             .replace(/group=\d+/, 'group=1');
         return fetch('/backend/ax/reports.php', {
             method: 'POST',
@@ -3667,7 +3752,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         var item = items[itemKey];
                         var lat = Number(item.lat), lon = Number(item.lon);
                         if (isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0) {
-                            out.push([lat, lon]);
+                            // item.data = [patente, modelo, ts_start, ts_stop,
+                            // duration_seconds, {lat, lon}] — confirmado 22
+                            // sep con payload real.
+                            var duration = (item.data && Number(item.data[4])) || 0;
+                            out.push([lat, lon, duration]);
                         }
                     }
                 }
