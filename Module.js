@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.22.0',
-    moduleBuild: '2026-09-21-1822',
+    moduleBuild: '2026-09-22-1329',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2837,8 +2837,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.updateCardBody('alertas_generales', Ext.DomHelper.markup({
             cls: gridCls,
             cn: [
-                card('var(--g6)', l('Accidentes'), accidentes, svgAccidente,
-                    l('Accidentes — eventos de los últimos 30 días'), false, 'pde_alert-accidentes',
+                card('var(--g6)', l('POSIBLE ACCIDENTE'), accidentes, svgAccidente,
+                    l('Posible accidente — eventos de los últimos 30 días'), false, 'pde_alert-accidentes',
                     this._alertAccidentesIds || [], null, true),
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
                     l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion',
@@ -3329,17 +3329,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     try {
                         var MC = me.getMapContainerClass();
                         me._hotspotsMap = new MC('promatic_dashboard_enhancer_hotspots');
-                        // Centrado inicial: centroide de la flota en alcance
-                        // con fitBounds automático si ya hay vehículos con
-                        // coords; si el árbol Online todavía no cargó
-                        // (montaje inicial), fallback a Chile continental/
-                        // zoom 5 — loadFleetHeatmap() reencuadra el mapa
-                        // después de todas formas (ADR-016).
-                        var centroid = me._fleetCentroid();
-                        var initLat = centroid ? centroid.center[0] : -33.45;
-                        var initLon = centroid ? centroid.center[1] : -70.66;
-                        var initZoom = centroid ? 11 : 5;
-                        me._hotspotsMap.init(initLat, initLon, initZoom, this.id + '-body', false);
+                        // Centrado FIJO en la Región Metropolitana (Santiago),
+                        // zoom 12 (22 sep, pedido del usuario) — a diferencia
+                        // de fleet_map, este mapa ya no sigue el centroide de
+                        // la flota ni se reencuadra por fitBounds al recibir
+                        // el heatmap (setHeatmap corre con isBounds=false más
+                        // abajo, ver loadFleetHeatmap): el foco es "zonas de
+                        // pérdida de conexión en la región", no la flota.
+                        me._hotspotsMap.init(-33.45, -70.66, 12, this.id + '-body', false);
                         me.populateMapFolderDropdown();
                         me.loadFleetHeatmap();
                         // Leaflet midió el contenedor antes de que el layout
@@ -3514,18 +3511,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return recs;
     },
 
-    // Hotspots de desconexión GPS — 2 capas sobre la misma instancia
-    // _hotspotsMap (FR-0024, 16 sep):
-    //  - Heatmap: HISTÓRICO real de cortes vía reports.php report_type=73
+    // Hotspots de desconexión GPS — heatmap puro sobre _hotspotsMap
+    // (FR-0024, 16 sep; heatmap-only 22 sep):
+    //  - HISTÓRICO real de cortes vía reports.php report_type=73
     //    ("Connection lost" — confirmado en vivo con request real de
     //    DEMO_CLIENT, ver spec/api.md). Reemplaza el intento anterior con
-    //    events.php type=15 (daba total:0 en esta cuenta) y también el
-    //    intento de esta misma mañana con "offline ahora" como fuente del
-    //    heatmap (ese dato pasa a ser la capa de marcadores, abajo).
-    //  - Marcadores: posición ACTUAL de los vehículos offline ahora mismo
-    //    (is_server_online===false + _recordLatLon, mismo helper que
-    //    fleet_map) — para distinguir "dónde tiende a cortarse la señal"
-    //    (heatmap) de "quién está desconectado en este momento" (markers).
+    //    events.php type=15 (daba total:0 en esta cuenta).
+    // La capa de marcadores de vehículos offline ahora mismo se retiró
+    // (22 sep, pedido del usuario) — ese detalle ahora vive en el modal de
+    // "Sin Señal GPS" (buildGpsSignalReport). Esta card queda enfocada
+    // 100% en dónde se pierde conexión con más frecuencia, no en quién
+    // está desconectado ahora.
     // Decisión del usuario (16 sep): esta card es independiente de
     // fleet_map — nunca se fusionan ni comparten estado.
     loadFleetHeatmap: function () {
@@ -3535,8 +3531,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) { return; }
-
-        this._renderHotspotsMarkers(onlineTree);
 
         var cfg = (this.config && this.config.hotspots) || this.DEFAULT_CONFIG.hotspots;
         var windowDays = (cfg && cfg.windowDays) || 30;
@@ -3578,7 +3572,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
                     try {
                         if (typeof map.setHeatmap === 'function') {
-                            map.setHeatmap(points, true, l('Pérdidas de conexión'));
+                            // isBounds=false (22 sep) — el mapa mantiene el
+                            // centro/zoom fijo de la Región Metropolitana
+                            // fijado en el render del panel, no se reencuadra
+                            // según la dispersión de los puntos.
+                            map.setHeatmap(points, false, l('Pérdidas de conexión'));
                         }
                         if (map.checkResize) { map.checkResize(); }
                     } catch (err) {
@@ -3589,60 +3587,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me.widgetErrorCode('FLEETMAP-HEATMAP-FETCH', err);
                 });
         });
-    },
-
-    // Capa de marcadores de la card 'hotspots' — vehículos OFFLINE ahora
-    // mismo en el scope activo. Sin match de sucursal ni ícono por
-    // ignición (eso es propio de fleet_map/ADR-018); acá el punto es solo
-    // "está sin señal, aquí está su última posición conocida".
-    _renderHotspotsMarkers: function (onlineTree) {
-        var me = this;
-        var map = this._hotspotsMap;
-        if (!map) { return; }
-
-        var records = this._folderScopedRecords(onlineTree, this._mapFolderFilter);
-        var markers = [];
-        var rawPoints = [];
-        for (var i = 0; i < records.length; i++) {
-            var rec = records[i];
-            var isOnline = rec.get ? !!rec.get('is_server_online') : false;
-            if (isOnline) { continue; }
-            var ll = this._recordLatLon(rec);
-            if (!ll) { continue; }
-            rawPoints.push(ll);
-            markers.push({
-                id: 'promatic_dashboard_enhancer_hotspots_veh_' + (rec.get ? rec.get('agentid') : i),
-                lat: ll[0],
-                lon: ll[1],
-                icon: window.location.origin + '/backend/markers/get.php?a=1',
-                size: 'medium',
-                tooltip: { msg: me.displayName(rec.get ? rec.get('name') : '') + ' — ' + l('Sin conexión') }
-            });
-        }
-
-        try {
-            if (map.getCluster && map.getCluster('hotspots_offline_cluster') && map.removeCluster) {
-                map.removeCluster('hotspots_offline_cluster');
-            }
-        } catch (e) { /* no-op */ }
-
-        console.log('[promatic_dashboard_enhancer] hotspots desconexión: ' + markers.length +
-            ' vehículos offline con posición (marcadores)' + (me._mapFolderFilter ? ' (carpeta ' + me._mapFolderFilter + ')' : ''));
-
-        if (markers.length === 0) { return; }
-
-        try {
-            if (typeof map.addCluster === 'function') {
-                map.addCluster(markers, { id: 'hotspots_offline_cluster' });
-            }
-            // Reencuadra a los offline actuales — el heatmap histórico llega
-            // después (async) y no reencuadra para no pisar este fitBounds.
-            if (typeof map.setMapCenter === 'function' && rawPoints.length > 0) {
-                map.setMapCenter(rawPoints);
-            }
-        } catch (err) {
-            me.widgetErrorCode('FLEETMAP-HOTSPOTS-MARKERS', err);
-        }
     },
 
     // Trae los [lat, lon] de cada evento type=`type` en el rango dado —
@@ -5453,6 +5397,27 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (!el || el._alertReportBound) { return; }
         el._alertReportBound = true;
         el.on('click', function (e) {
+            // Chips de "Sin Señal GPS" (data-gps-bucket) viven fuera de
+            // [data-alert-ids] — se revisan primero e independientemente,
+            // si no el early-return de abajo (falta de data-alert-ids en el
+            // target) nunca dejaba llegar a este bloque (bug 22 sep: el
+            // modal de Sin Señal GPS no abría).
+            var gpsChip = e.getTarget('[data-gps-bucket]', 8, true);
+            if (gpsChip) {
+                e.preventDefault();
+                var bucket = gpsChip.getAttribute('data-gps-bucket');
+                var meta = me._GPS_BUCKET_META[bucket];
+                if (!meta) { return; }
+                var gpsRows = (me._lastGpsBuckets && me._lastGpsBuckets[meta.rowsKey]) || [];
+                var gpsMapPoints = gpsRows
+                    .filter(function (r) { return r.lat != null && r.lon != null; })
+                    .map(function (r) { return { lat: r.lat, lon: r.lon, label: me.displayName(r.veh) }; });
+                me.openReportModal(me.buildGpsSignalReport(bucket), meta.title,
+                    me._safe(function () { return me.buildGpsSignalPdfDoc(bucket); }),
+                    gpsMapPoints);
+                return;
+            }
+
             var a = e.getTarget('[data-alert-ids]', 8, true);
             if (!a) { return; }
             e.preventDefault();
@@ -5468,30 +5433,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 var accidentesMapPoints = accidentesRows
                     .filter(function (r) { return r.lat != null && r.lon != null; })
                     .map(function (r) { return { lat: r.lat, lon: r.lon, label: me.displayName(r.veh) }; });
-                me.openReportModal(me.buildAccidentesReport(), l('Accidentes — detalle'),
+                me.openReportModal(me.buildAccidentesReport(), l('Posible Accidente — detalle'),
                     me._safe(function () { return me.buildAccidentesPdfDoc(); }),
                     accidentesMapPoints);
                 return;
             }
 
             var raw = a.getAttribute('data-alert-ids');
-            if (!raw) {
-                var gpsChip = e.getTarget('[data-gps-bucket]', 8, true);
-                if (gpsChip) {
-                    var bucket = gpsChip.getAttribute('data-gps-bucket');
-                    var meta = me._GPS_BUCKET_META[bucket];
-                    if (!meta) { return; }
-                    var gpsRows = (me._lastGpsBuckets && me._lastGpsBuckets[meta.rowsKey]) || [];
-                    var gpsMapPoints = gpsRows
-                        .filter(function (r) { return r.lat != null && r.lon != null; })
-                        .map(function (r) { return { lat: r.lat, lon: r.lon, label: me.displayName(r.veh) }; });
-                    me.openReportModal(me.buildGpsSignalReport(bucket), meta.title,
-                        me._safe(function () { return me.buildGpsSignalPdfDoc(bucket); }),
-                        gpsMapPoints);
-                    return;
-                }
-            }
-
             var ids = (raw || '').split(',').map(Number).filter(function (n) { return !isNaN(n) && n > 0; });
             if (!ids.length) { return; }
             var rt = Number(a.getAttribute('data-alert-report'));
