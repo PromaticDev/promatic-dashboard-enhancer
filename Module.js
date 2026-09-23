@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.23.1',
-    moduleBuild: '2026-09-23-1657',
+    moduleBuild: '2026-09-23-1712',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -3966,6 +3966,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var markers = [];
         var withCoords = 0;
         var branchMatches = 0;
+        // Geocercas (Bases/Sucursales) que coinciden con al menos 1
+        // vehículo del scope actual — se dibuja el polígono solo de esas,
+        // no de las ~80 del grupo completo (saturaría el mapa). Keyed por
+        // id de geocerca; { geofence, count } — el count arma el label del
+        // polígono ("BASE 40 - 46 (2 vehículos)"), pedido del usuario 23
+        // sep tras verificar en vivo el match del vehículo 138.
+        var matchedBranches = {};
 
         for (var i = 0; i < records.length; i++) {
             var ll = this._recordLatLon(records[i]);
@@ -3993,11 +4000,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // tooltip — nunca debe tumbar el render del mapa completo (bug
             // real encontrado 15 sep: un error sin catch en esta lógica
             // dejaba "Ubicación Global de la Flota" completamente vacío).
-            var branchLabel = null;
+            var branch = null;
             if (!firing && this._lastGeofences) {
                 try {
-                    branchLabel = this._findVehicleBranchLabel(records[i], this._lastGeofences);
-                    if (branchLabel) { branchMatches++; }
+                    branch = this._findVehicleBranch(records[i], this._lastGeofences);
+                    if (branch) {
+                        branchMatches++;
+                        if (!matchedBranches[branch.id]) {
+                            matchedBranches[branch.id] = { geofence: branch, count: 0 };
+                        }
+                        matchedBranches[branch.id].count++;
+                    }
                 } catch (branchErr) {
                     me.widgetErrorCode('FLEETMAP-BRANCH-MATCH', branchErr);
                 }
@@ -4006,8 +4019,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var tooltipMsg = me.displayName(records[i].get ? records[i].get('name') : '') +
                 (online ? ' — ' + l('En línea') : ' — ' + l('Sin conexión')) +
                 (firing ? ' — ' + l('Encendido') : ' — ' + l('Apagado'));
-            if (branchLabel) {
-                tooltipMsg += ' — ' + l('En') + ' ' + branchLabel;
+            if (branch) {
+                tooltipMsg += ' — ' + l('En') + ' ' + branch.name;
             }
 
             markers.push({
@@ -4036,6 +4049,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         } catch (e) { /* no-op */ }
 
+        // Limpia los polígonos de geocerca de la pasada anterior antes de
+        // dibujar los nuevos — ids guardados en _fleetMapBranchPolygonIds
+        // (23 sep, ver más abajo).
+        try {
+            var prevIds = me._fleetMapBranchPolygonIds || [];
+            for (var pi = 0; pi < prevIds.length; pi++) {
+                if (map.removePolygon) { map.removePolygon(prevIds[pi]); }
+            }
+        } catch (e2) { /* no-op */ }
+        me._fleetMapBranchPolygonIds = [];
+
         if (markers.length === 0) {
             console.warn('[promatic_dashboard_enhancer] ubicación global de la flota: 0 vehículos con coordenadas.');
             return;
@@ -4044,6 +4068,35 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         try {
             if (typeof map.addCluster === 'function') {
                 map.addCluster(markers, { id: 'fleet_map_cluster' });
+            }
+            // Polígonos de geocerca (Bases/Sucursales) para las que hubo al
+            // menos 1 match de vehículo apagado (23 sep, pedido del usuario
+            // tras verificar en vivo BASE 40-46/vehículo 138) — solo las
+            // que coinciden, no el grupo completo (~80 geocercas SAMU
+            // saturaría el mapa). Reusa setPolygon (mismo patrón que el
+            // widget retirado 'vehicles_by_branch', ADR-016).
+            if (typeof map.setPolygon === 'function') {
+                for (var bId in matchedBranches) {
+                    if (!matchedBranches.hasOwnProperty(bId)) { continue; }
+                    var entryB = matchedBranches[bId];
+                    var polyPoints = me._geofencePolygonPoints(entryB.geofence);
+                    if (!polyPoints || polyPoints.length < 3) { continue; }
+                    var polyId = 'promatic_dashboard_enhancer_fleet_map_branch_' + bId;
+                    var polyLabel = entryB.geofence.name + ' (' + entryB.count + ' ' +
+                        (entryB.count === 1 ? l('vehículo') : l('vehículos')) + ')';
+                    try {
+                        map.setPolygon(polyPoints, {
+                            id: polyId,
+                            label: polyLabel,
+                            tooltip: { msg: polyLabel },
+                            color: '#008be3',
+                            fillOpacity: 0.15
+                        });
+                        me._fleetMapBranchPolygonIds.push(polyId);
+                    } catch (polyErr) {
+                        me.widgetErrorCode('FLEETMAP-BRANCH-POLYGON', polyErr);
+                    }
+                }
             }
             // Bug encontrado 23 sep: se reencuadraba con _fleetCentroid(),
             // que lee getMapScopedRecords() (scope general del mapa) — un
@@ -4203,12 +4256,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     // Dado un record de vehículo APAGADO y las geocercas ya cargadas
     // (_lastGeofences — reusa loadBranchGeofences, código de ADR-016),
-    // devuelve el `name` de la geocerca de sucursal/base que contiene su
+    // devuelve la geocerca de sucursal/base COMPLETA que contiene su
     // posición actual, o null si no hay match de cliente o no cae dentro
     // de ninguna. Solo compara contra los group_names EXACTOS listados
     // para ese cliente — nunca "Taller [Cliente]" aunque sea el mismo
     // corchete, porque no está en la lista explícita.
-    _findVehicleBranchLabel: function (record, geofences) {
+    // Devuelve el objeto geocerca completo (antes solo `name`, 23 sep) —
+    // _renderFleetMapMarkers necesita también `id`/`points` para dibujar
+    // el polígono de la geocerca donde coincide un vehículo (FR pedido
+    // por el usuario tras verificar en vivo el match BASE 40-46/veh 138).
+    _findVehicleBranch: function (record, geofences) {
         var entry = this._clientMapEntryForRecord(record);
         if (!entry || !entry.groupNames || entry.groupNames.length === 0) { return null; }
 
@@ -4224,7 +4281,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var points = this._geofencePolygonPoints(g);
             if (!points || points.length < 3) { continue; }
             if (this._pointInPolygon(ll[0], ll[1], points)) {
-                return g.name || null;
+                return g;
             }
         }
         return null;
