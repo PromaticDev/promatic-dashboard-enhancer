@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.23.1',
-    moduleBuild: '2026-09-23-1712',
+    moduleBuild: '2026-09-23-1842',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -2468,15 +2468,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         setInterval(tick, 1000);
     },
 
-    // moduleBuild "2026-09-07-1839" → "7 sep 2026" (fecha legible, sin la hora
-    // — no hace falta exponer el minuto exacto de publicación).
-    _buildDateLabel: function () {
-        var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(this.moduleBuild || '');
-        if (!m) { return this.moduleBuild || ''; }
-        var meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-        return Number(m[3]) + ' ' + (meses[Number(m[2]) - 1] || m[2]) + ' ' + m[1];
-    },
-
     renderLogo: function () {
         this.updateCardBody('logo', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-logo',
@@ -2485,7 +2476,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 {
                     tag: 'span',
                     cls: 'promatic_dashboard_enhancer-version',
-                    html: 'v' + this.version + ' · ' + this._buildDateLabel()
+                    // moduleBuild completo (fecha+hora), no la fecha legible
+                    // (23 sep, pedido del usuario) — con solo el SemVer +
+                    // fecha, publicaciones múltiples el mismo día (cambios
+                    // sutiles que no ameritan bump de SemVer) eran
+                    // indistinguibles en PILOT; el moduleBuild crudo permite
+                    // confirmar cuál publicación exacta cargó el navegador.
+                    html: 'v' + this.version + ' · build ' + (this.moduleBuild || '')
                 }
             ]
         }));
