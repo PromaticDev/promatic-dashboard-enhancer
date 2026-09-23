@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.23.1',
-    moduleBuild: '2026-09-23-1630',
+    moduleBuild: '2026-09-23-1657',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -4057,7 +4057,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (map.setMapCenter) {
                 var pts = [];
                 for (var m = 0; m < markers.length; m++) { pts.push([markers[m].lat, markers[m].lon]); }
-                if (pts.length > 0) { map.setMapCenter(pts); }
+                if (pts.length > 0) {
+                    map.setMapCenter(pts);
+                    // +1x de zoom sobre el resultado del fitBounds (23 sep,
+                    // pedido del usuario) — relativo al zoom que Leaflet
+                    // calculó según la dispersión real de los puntos, no un
+                    // valor fijo (un fijo se vería mal tanto con flota muy
+                    // concentrada como muy dispersa).
+                    if (map.setMapZoom && map.getMap) {
+                        var leafletMap = map.getMap();
+                        if (leafletMap && leafletMap.getZoom) {
+                            map.setMapZoom(leafletMap.getZoom() + 1);
+                        }
+                    }
+                }
             }
             if (map.checkResize) { map.checkResize(); }
         } catch (err) {
