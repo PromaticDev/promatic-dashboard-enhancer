@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.23.1',
-    moduleBuild: '2026-09-23-1622',
+    moduleBuild: '2026-09-23-1630',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -3358,13 +3358,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         var MC = me.getMapContainerClass();
                         me._hotspotsMap = new MC('promatic_dashboard_enhancer_hotspots');
                         // Centrado FIJO en la Región Metropolitana (Santiago),
-                        // zoom 12 (22 sep, pedido del usuario) — a diferencia
-                        // de fleet_map, este mapa ya no sigue el centroide de
-                        // la flota ni se reencuadra por fitBounds al recibir
-                        // el heatmap (setHeatmap corre con isBounds=false más
-                        // abajo, ver loadFleetHeatmap): el foco es "zonas de
-                        // pérdida de conexión en la región", no la flota.
-                        me._hotspotsMap.init(-33.45, -70.66, 12, this.id + '-body', false);
+                        // zoom 11 (23 sep, bajado 1x desde 12 — pedido del
+                        // usuario: se aprecian mejor los hotspots sin
+                        // necesidad de ver el detalle de calles) — a
+                        // diferencia de fleet_map, este mapa ya no sigue el
+                        // centroide de la flota ni se reencuadra por
+                        // fitBounds al recibir el heatmap (setHeatmap corre
+                        // con isBounds=false más abajo, ver
+                        // loadFleetHeatmap): el foco es "zonas de pérdida de
+                        // conexión en la región", no la flota.
+                        me._hotspotsMap.init(-33.45, -70.66, 11, this.id + '-body', false);
                         me.populateMapFolderDropdown();
                         me.bindHotspotsGapModeToggle();
                         me.loadFleetHeatmap();
@@ -4042,8 +4045,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (typeof map.addCluster === 'function') {
                 map.addCluster(markers, { id: 'fleet_map_cluster' });
             }
-            var centroid = this._fleetCentroid();
-            if (centroid && map.setMapCenter) { map.setMapCenter(centroid.points); }
+            // Bug encontrado 23 sep: se reencuadraba con _fleetCentroid(),
+            // que lee getMapScopedRecords() (scope general del mapa) — un
+            // set de puntos DISTINTO al que realmente se dibujó acá
+            // (_folderScopedRecords con _fleetMapFolderFilter). Con la
+            // flota completa eso daba un bounds enorme (fitBounds sobre
+            // TODA la dispersión geográfica) → zoom-out extremo, 1 solo
+            // cluster gigante con el 100% de los vehículos en vez de los
+            // 3-4 clusters regionales esperados. Fix: fitBounds contra los
+            // puntos de los marcadores realmente dibujados (`markers`).
+            if (map.setMapCenter) {
+                var pts = [];
+                for (var m = 0; m < markers.length; m++) { pts.push([markers[m].lat, markers[m].lon]); }
+                if (pts.length > 0) { map.setMapCenter(pts); }
+            }
             if (map.checkResize) { map.checkResize(); }
         } catch (err) {
             this.widgetErrorCode('FLEETMAP-CLUSTER', err);
