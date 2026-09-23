@@ -533,6 +533,44 @@
     }
 }
 
+/* ===== Overlay de carga sobre el mapa de hotspots (23 sep) =====
+   El mapa base (Leaflet) se monta y se ve vacío mientras loadFleetHeatmap
+   trae la data del heatmap por fetch — este overlay cubre ese hueco con un
+   spinner, igual al que ya se usaba mientras cargaba el mapa completo. Se
+   muestra al montar el panel/antes de cada fetch y se oculta en
+   _paintHotspotsHeatmap (éxito, incluso 0 celdas) o en el catch de error. */
+.promatic_dashboard_enhancer-hotspots-map-loading {
+    position: absolute;
+    inset: 8px 12px;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.72);
+    pointer-events: none;
+}
+
+.promatic_dashboard_enhancer-hotspots-map-loading__spinner {
+    width: 2.5em;
+    height: 2.5em;
+    border-radius: 50%;
+    border: 0.3em solid var(--g1);
+    border-top-color: var(--g2, #0a7cc4);
+    animation: promatic_dashboard_enhancer-sk-spin 0.8s linear infinite;
+}
+
+@keyframes promatic_dashboard_enhancer-sk-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .promatic_dashboard_enhancer-hotspots-map-loading__spinner {
+        animation: none;
+    }
+}
+
 /* ===== Mapa de hotspots (Ext.panel.Panel embebido, patrón examples/airports) ===== */
 .promatic_dashboard_enhancer-hotspots-map,
 .promatic_dashboard_enhancer-hotspots-map-body {
@@ -562,6 +600,10 @@
        widgets. Pedido del usuario, 4 sep. */
     padding: 8px 12px;
     overflow: hidden;
+    /* relative: ancla el overlay de carga (.hotspots-map-loading) mientras
+       llega la data del heatmap (23 sep) — sin esto el overlay absolute se
+       posiciona contra un ancestro más lejos y no cubre el mapa. */
+    position: relative;
     /* 650px → 500px → 450px (14 sep, pedido del usuario) — con Safety Score
        arriba, la columna quedaba con scroll. Mantener en sync con el
        height del Ext.panel.Panel del mapa en Module.js
@@ -572,9 +614,12 @@
 /* Controles nativos de Leaflet (zoom +/-, selector de capas incl. "GPS
    JAM" — ver FR-0014) anclados top-left por defecto con poco margen. Con
    el mapa más bajo (450px, antes 650) quedaban muy pegados al borde
-   superior de la card. Empujarlos un poco más adentro. */
+   superior de la card. Empujarlos un poco más adentro.
+   top bajado de 10px a 0px (23 sep) — el checkbox "Pérdidas de conexión"
+   del selector de capas quedaba oculto por el overflow:hidden de
+   #card-body-hotspots al expandirse hacia abajo. */
 .promatic_dashboard_enhancer-hotspots-map .leaflet-top.leaflet-left {
-    top: 10px;
+    top: 0px;
     left: 10px;
 }
 

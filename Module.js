@@ -6,7 +6,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
     //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.23.1',
-    moduleBuild: '2026-09-22-1730',
+    moduleBuild: '2026-09-23-1622',
 
     // Config runtime — fallback si dist/config.json no carga. loadConfig()
     // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
@@ -3332,6 +3332,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         // Limpia el skeleton 'map' y monta el panel Ext ahí.
         body.setHtml('');
+        // Overlay de carga (23 sep) — el mapa base se ve vacío mientras
+        // loadFleetHeatmap trae la data por fetch; se muestra/oculta con
+        // _showHotspotsMapLoading, ver ahí.
+        Ext.DomHelper.append(body, {
+            cls: 'promatic_dashboard_enhancer-hotspots-map-loading',
+            id: 'promatic_dashboard_enhancer-hotspots-map-loading',
+            cn: [{ cls: 'promatic_dashboard_enhancer-hotspots-map-loading__spinner' }]
+        });
         me._hotspotsPanel = Ext.create('Ext.panel.Panel', {
             renderTo: body,
             cls: 'promatic_dashboard_enhancer-hotspots-map',
@@ -3576,6 +3584,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // está desconectado ahora.
     // Decisión del usuario (16 sep): esta card es independiente de
     // fleet_map — nunca se fusionan ni comparten estado.
+    // Muestra/oculta el overlay de carga sobre el mapa de hotspots (23 sep).
+    // El div se crea una sola vez en buildHotspotsMapPanel; acá solo se
+    // togglea su visibilidad — se llama antes de cada fetch (show) y al
+    // recibir data o error (hide).
+    _showHotspotsMapLoading: function (show) {
+        var el = Ext.get('promatic_dashboard_enhancer-hotspots-map-loading');
+        if (!el) { return; }
+        el.setDisplayed(!!show);
+    },
+
     loadFleetHeatmap: function () {
         var me = this;
         var map = this._hotspotsMap;
@@ -3583,6 +3601,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) { return; }
+
+        me._showHotspotsMapLoading(true);
 
         var cfg = (this.config && this.config.hotspots) || this.DEFAULT_CONFIG.hotspots;
         var windowDays = (cfg && cfg.windowDays) || 30;
@@ -3633,6 +3653,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me._paintHotspotsHeatmap();
                 })
                 .catch(function (err) {
+                    me._showHotspotsMapLoading(false);
                     me.widgetErrorCode('FLEETMAP-HEATMAP-FETCH', err);
                 });
         });
@@ -3657,6 +3678,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         if (points.length === 0) {
             console.warn('[promatic_dashboard_enhancer] hotspots desconexión: 0 celdas para el modo "' + mode + '".');
+            me._showHotspotsMapLoading(false);
             return;
         }
 
@@ -3670,6 +3692,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (map.checkResize) { map.checkResize(); }
         } catch (err) {
             me.widgetErrorCode('FLEETMAP-HEATMAP', err);
+        } finally {
+            me._showHotspotsMapLoading(false);
         }
     },
 
