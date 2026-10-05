@@ -22,6 +22,12 @@
     "windowDays": 8,
     "idleThresholdMin": 120
   },
+  "branches": {
+    "clientMap": [
+      { "nombreFlota": ["FLOTA"], "groupNames": ["SUCURSALES"] },
+      { "nombreFlota": ["SAMU"], "groupNames": ["Bases"] }
+    ]
+  },
   "privacy": {
     "maskPlates": false
   },

@@ -1,113 +1,25 @@
 Ext.define('Store.promatic_dashboard_enhancer.Module', {
     extend: 'Ext.Component',
     extensionName: 'promatic_dashboard_enhancer',
-    // version: SemVer de release, se sube a mano (ver brain/INT-006).
-    //   minor = lote de feedback / widget nuevo · patch = fix puntual.
-    // moduleBuild: fecha+hora, lo bumpea publish-plugin.sh en cada --execute
-    //   (cache-busting de style.css + traza en consola). No es la versión.
     version: '0.23.1',
-    moduleBuild: '2026-09-23-1842',
+    moduleBuild: '2026-10-05-1106',
 
-    // Config runtime — fallback si dist/config.json no carga. loadConfig()
-    // pisa estos valores con lo que traiga el JSON (mismo shape). A futuro
-    // un backend puede servir el mismo shape y sobrescribir en caliente
-    // (ver stub en loadConfig). Cambiar acá = requiere re-publicar; cambiar
-    // en config.json = igual requiere re-publicar hoy, pero deja el punto
-    // de extensión listo para el override remoto.
     DEFAULT_CONFIG: {
-        // tripsMaxVehicles bajado de 100 a 30 (16 sep) — con flota real
-        // grande (1398 vehículos, fleet.maxVehicles subido a 1500), 100
-        // requests individuales a api/v3/vehicles/trips en lotes de 4 sin
-        // pausa volvió a tumbar la sesión de PILOT pese al circuit breaker
-        // de BR-PILOT-0015 (corta tras 8 fallos consecutivos, pero ya
-        // disparó varios lotes antes de frenar). 30 se acerca al patrón que
-        // otro desarrollo del equipo probó sin problemas (60 vehículos cada
-        // 60s) — mitigación temporal hasta que exista backfill de
-        // analytics/data (FR-0013) como fuente batch real de 1 solo
-        // request.
         top5km: { windowDays: 7, activeVehicleCap: 300, tripsMaxVehicles: 30, tripsBatchSize: 4, source: 'trips-v3', count: 5, kmField: 'gps' },
-        // fleet.scope: 'pilot-selection' = los widgets siguen la selección
-        // con checkbox del panel "Principal" de PILOT (online_tree.getChecked()).
-        // 'all' = árbol Online completo. El slider del pie del dashboard
-        // sobrescribe este valor por sesión (localStorage). maxVehicles =
-        // tope de seguridad para no disparar jobs async en flotas enormes.
-        // Subido de 500 a 1500 (16 sep) para probar con la flota real
-        // completa de DEMO_CLIENT (1398 vehículos) — antes el corte era
-        // ciego (primeros N del orden del árbol, no por relevancia/km) y
-        // dejaba varios widgets (Accidentes, Hotspots, Safety Score, etc.)
-        // trabajando sobre una muestra parcial sin que fuera evidente.
         fleet: { scope: 'pilot-selection', maxVehicles: 1500 },
         // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
         clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' },
-        // Safety Score (ECO) — ventana del Fleet ECO report (report_type=223).
-        // idleThresholdMin: minutos de ralentí acumulado en la ventana sobre
-        // los cuales un vehículo cuenta como "ralentí excesivo" (Alertas
-        // Generales). El reporte da c1 = Excess Idle en segundos.
         ecoScore: { windowDays: 8, idleThresholdMin: 120 },
-        // Tendencia de infracciones por categoría (report_type=114) — ventana
-        // del reporte nativo de Pilot. El endpoint devuelve "msg":"Coming
-        // soon" pero success:true y data sí vienen completos (confirmado 15
-        // sep vía captura de pestaña Red) — msg es un texto heredado sin
-        // relación con la disponibilidad real del dato.
         violations: { windowDays: 8 },
-        // Match sucursal/base en el tooltip de "Ubicación Global de la
-        // Flota" (ADR-018, 15 sep) — mapeo EXPLÍCITO por cliente, sin
-        // inferencia de nombre: cada entrada dice qué carpeta de flota
-        // (folderMatch, substring case-insensitive contra el nombre de la
-        // carpeta del árbol "Principal", buscado en toda la cadena de
-        // ancestros — no requiere que sea el padre directo) corresponde a
-        // qué group_name EXACTOS de geocercas (groupNames) cuentan como
-        // sucursal/base — así "Taller [Econorent]" nunca cuenta aunque sea
-        // el mismo cliente que "Econorent Sucursales [Econorent]".
-        // folderMatch usa el nombre de carpeta que YA EXISTE en el árbol
-        // del cliente (ej. "FLOTA", carpeta padre real de toda la flota
-        // Econorent en DEMO_CLIENT) — no requiere que el cliente renombre
-        // ni agregue ningún identificador nuevo a sus carpetas; es solo
-        // conocimiento de negocio capturado en config, no una convención
-        // impuesta. Confirmado por el usuario que no hay señal de texto
-        // confiable para inferir el par automáticamente — se mantiene a
-        // mano hasta que exista backend. Valores VERIFICADOS contra
-        // DEMO_CLIENT (15 sep, GET /api/v3/geofences en vivo): los
-        // group_name reales NO llevan corchete de cliente (ni "Econorent
-        // Sucursales [Econorent]" ni "Bases [SAMU]" como se había
-        // aproximado al diseñar esto) — son simplemente "SUCURSALES"
-        // (grupo 700, ~81 geocercas, rent-a-car Econorent) y "Bases"
-        // (grupo 680, ~80 geocercas, SAMU — confirmado por el usuario
-        // pese a que el contenido son nombres de lugar como "UV 1"/
-        // "CESFAM..."/gasolineras, no "Base N°X" literal).
         branches: {
-            clientMap: [
-                { folderMatch: 'FLOTA', groupNames: ['SUCURSALES'] },
-                { folderMatch: 'SAMU', groupNames: ['Bases'] }
-            ]
+            clientMap: []
         },
-        // Privacidad: maskPlates=true reemplaza la patente (que en PILOT suele
-        // ser el "Nombre de Vehículo") por un alias en toda la UI del dashboard.
-        // Desactivado 14 sep (decisión del usuario) — el alias secuencial
-        // compartido entre widgets confundía el análisis de flota (ver
-        // brain/trackers/bugs.md), y el cliente ya tiene contrato de
-        // confidencialidad/seguridad firmado. Reactivar solo si se pide
-        // explícitamente, o al resolver la numeración de forma más robusta.
         privacy: { maskPlates: false },
-        // Hotspots de Pérdida de Conexión (FR-0024, 16 sep; renombrado 21 sep
-        // — "Desconexión" sonaba a manipulación intencional, pedido del
-        // cliente en reunión) — heatmap histórico
-        // vía reports.php report_type=73 ("Connection lost", confirmado en
-        // vivo con request real de DEMO_CLIENT). windowDays = rango que se
-        // pide al reporte; minGapSeconds = "Min time (sec)" del reporte
-        // nativo (parámetro contr_time en buildReportBody), filtra cortes
-        // cortos que no reflejan un problema real de cobertura.
         hotspots: { windowDays: 30, minGapSeconds: 120, shortGapMinSeconds: 10, shortGapMaxSeconds: 90 }
     },
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
-        // Circuit breaker por sesión (16 sep) — endpoints propios que ya
-        // dieron 401 quedan marcados acá y se saltan (sin fetch) en el resto
-        // de la sesión del navegador, hasta el próximo F5. Reduce tráfico
-        // inútil contra rutas que sabemos bloqueadas para esta cuenta ahora
-        // mismo (ver NOC-008) — no aplica a llamadas NATIVAS de PILOT, solo
-        // a las que dispara nuestro propio código.
         this._blockedEndpoints = {};
         this.config = this.DEFAULT_CONFIG;
         this.loadConfig();
@@ -141,30 +53,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // -----------------------------------------------------------------------
-    // Layout principal — shell de filas flex (HTML plano vía Ext.DomHelper,
-    // sin Ext.container.Container anidado). El sistema de grid CSS de ADR-007
-    // (buildLegacyWidgetGrid + wrapWidget + los widgets Ext.panel.Panel) se
-    // retiró el 28 ago — ver DEP-003 y BR-PILOT-0006.
-    // -----------------------------------------------------------------------
-
     buildMainPanel: function () {
         this.summaryBar = Ext.create('Ext.Component', {
             cls: 'promatic_dashboard_enhancer-summary',
             html: l('Cargando estado de flota...')
         });
 
-        // RAC primero (27 ago, pedido del usuario) — buildLopShell() queda
-        // intacto sin invocar como rollback rápido. LOC será una
-        // reorganización de estos mismos widgets vía configuración externa
-        // (JSON o consulta a BD) — diseño todavía pendiente, no implementado.
         var me = this;
 
-        // El panel de una extensión se monta lazy: Ext no crea su DOM hasta
-        // que el usuario abre el tab. Si lanzamos los widgets acá (al
-        // construir), todos los updateCardBody fallan porque las cards
-        // todavía no existen. Se arranca todo en 'afterrender' (una vez),
-        // que es exactamente "el DOM del panel ya está".
         var panel = Ext.create('Ext.panel.Panel', {
             id: 'promatic_dashboard_enhancer-panel-root',
             cls: 'promatic_dashboard_enhancer-panel',
@@ -185,35 +81,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me.loadAlertasGenerales();
                         me.loadEcoScore();
                         me.loadViolationsTrend();
-                        // Mapa de hotspots: instancia propia dentro de un
-                        // Ext.panel.Panel (patrón examples/airports/Map.js,
-                        // BR-PILOT-0007). buildHotspotsMapPanel monta el panel
-                        // y su listener 'render' crea el MapContainer y llama
-                        // loadHotspots. NUNCA toca window.mapContainer.
                         me.buildHotspotsMapPanel();
-                        // buildBranchMapPanel() (ADR-016, 'vehicles_by_branch')
-                        // retirado del arranque 15 sep — la card ya no está
-                        // en el shell, ver buildRacShell. Reemplazada por
-                        // 'fleet_map' (Ubicación Global de la Flota, clustering).
                         me.buildFleetMapPanel();
                         me.startClock();
                         me.startAutoRefresh();
                         me.renderLogo();
-                        // scrollable:'y' de Ext mide el alto scrolleable
-                        // contra el navTab contenedor, no contra el contenido
-                        // real — en ventanas angostas el shell de 4 columnas
-                        // (flex-wrap) crece de alto (las columnas se apilan)
-                        // sin que Ext se entere, recortando el footer de
-                        // controles sin mostrar scrollbar. Un listener
-                        // 'resize' del panel + un Ext.defer de timing fijo
-                        // no bastan: no disparan cuando el contenido interno
-                        // cambia de alto sin que la ventana del browser
-                        // cambie — solo "estirar la ventana" lo arreglaba
-                        // (descubierto 14 sep). ResizeObserver sobre el
-                        // propio elemento del panel dispara exactamente
-                        // cuando su tamaño de contenido cambia, sin adivinar
-                        // timing. Mismo patrón ya usado en el mapa de
-                        // hotspots (BR-PILOT-0007).
                         me._bindPanelResizeObserver(panel);
                     }
                 }
@@ -223,15 +95,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return panel;
     },
 
-    // Observar el CONTENIDO interno (.rac-shell), no el panel externo con
-    // scroll — bug encontrado 14 sep, 2ª vuelta: panel.getEl() devuelve el
-    // elemento EXTERNO del Ext.panel.Panel (el que tiene scrollable:'y' y
-    // overflow), cuyo tamaño visible no cambia aunque el contenido de
-    // adentro crezca (ej. Safety Score movido arriba del mapa, columna sin
-    // alto fijo). Un ResizeObserver en el contenedor externo nunca detecta
-    // que el contenido se desbordó — hay que observar lo que realmente
-    // crece. updateLayout() del panel sigue siendo necesario para que Ext
-    // remida el alto scrolleable contra ese contenido ya crecido.
     _bindPanelResizeObserver: function (panel) {
         var el = panel.getEl && panel.getEl();
         if (!el || !el.dom || typeof ResizeObserver === 'undefined') { return; }
@@ -248,41 +111,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this._panelResizeObserver.observe(shellDom);
     },
 
-    // -----------------------------------------------------------------------
-    // Shell vista LOP (26 ago) — solo estructura y placeholders todavía, sin
-    // datos ni Highcharts. Filas flex (ver style.css), NO Ext.panel.Panel
-    // con layout propio: cada card es un Ext.Component simple con HTML vía
-    // Ext.DomHelper, para que Ext no tenga layout de hijos que competir con
-    // el CSS. Building block del reemplazo de BR-PILOT-0006 — ver
-    // spec/features.md. Reconectar datos widget por widget es el paso
-    // siguiente, no parte de este commit.
-    // -----------------------------------------------------------------------
-
-    // BR-PILOT-0006 (segunda vuelta, 26 ago): Ext.container.Container con
-    // layout 'auto' envuelve cada nivel de hijos en divs propios
-    // (outerCt/innerCt, con table-layout:fixed) — confirmado inspeccionando
-    // el DOM real en DEMO_CLIENT (brain/files/salida-pilot-v0.5.html). Eso
-    // rompe flexbox: el hijo directo de nuestra fila deja de ser la card,
-    // pasa a ser el outerCt de Ext. Por eso todo el shell se arma acá como
-    // HTML plano (Ext.DomHelper) dentro de UN solo Ext.Component — nada de
-    // Ext.container.Container anidado, así el DOM real es exactamente el
-    // que escribimos. Actualizar contenido de una card: updateCardBody(id,
-    // html), que ubica el nodo por id con Ext.get() — no hay Ext.Component
-    // por card, así que no aplica el patrón this.mileageEl.update() del
-    // resto del módulo.
-    // Skeleton de carga — barras grises con la forma aproximada del
-    // contenido real, mientras el widget hace su primer fetch. Reemplazado
-    // por updateCardBody() cuando llega el dato (o por el mensaje de error
-    // del propio widget si falla). El shimmer se apaga con
-    // prefers-reduced-motion (ver style.css). kind:
-    //   'donut'   — Estado de Flota (2x2 de cuadrantes con % grande)
-    //   'ranking' — Top KM (barra apilada + filas de ranking)
-    //   'chips'   — Sin Señal GPS (3 chips en fila)
-    //   'stats'   — Alertas Generales (columna de tarjetas)
-    //   'map'     — Hotspots (bloque grande)
-    // Devuelve un SPEC de Ext.DomHelper (objeto), no un string — se anida
-    // como `cn` dentro del spec del card, que buildRacShell renderiza de una
-    // sola pasada. Un string HTML acá se re-escaparía en esa pasada.
     skeletonSpec: function (kind) {
         var bar = function (w, h) {
             return { cls: 'promatic_dashboard_enhancer-sk-bar',
@@ -321,12 +149,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (opts.meta) {
             headCn.push({ tag: 'span', cls: 'promatic_dashboard_enhancer-card__meta', html: opts.meta });
         }
-        // (?) con tooltip nativo de Ext (data-qtip) — explica cómo/desde
-        // cuándo se lee el dato de la card. QuickTips está activo en el
-        // runtime de PILOT — NO agregar también `title`: con QuickTips
-        // activo, el atributo `title` nativo del navegador se dispara EN
-        // PARALELO al qtip de Ext, mostrando 2 tooltips superpuestos al
-        // hacer hover (bug reportado por el usuario, 15 sep).
         if (opts.hint) {
             headCn.push({
                 tag: 'span',
@@ -356,8 +178,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             { cls: 'promatic_dashboard_enhancer-card__head', cn: headCn },
             bodySpec
         ];
-        // Cards puramente informativas (reloj, buscador, logo) no llevan pie
-        // "Ver en PILOT" — no hay nada nativo a lo que enlazar.
         if (!opts.noFooter) {
             cn.push({ cls: 'promatic_dashboard_enhancer-card__footer', cn: [
                 { tag: 'a', href: '#', html: (opts.footerLabel || l('Ver en PILOT')) + ' ›' }
@@ -371,14 +191,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         };
     },
 
-    // Reintento acotado (300ms x 60 = 18s): el shell puede no estar
-    // renderizado en el DOM todavía cuando un widget intenta actualizar su
-    // card — pasa sobre todo con los que se pintan de una desde
-    // buildMainPanel (reloj, logo), antes de que Ext termine de montar el
-    // panel y agregarlo a skeleton.navigation. Tope fijo, nunca infinito.
-    // optional=true: la card puede legítimamente no estar montada en el shell
-    // actual (p.ej. 'flota', retirada de RAC en FR-0009 pero cuyo refresh sigue
-    // corriendo para cuando LOP se monte) — no reintenta ni avisa si falta.
     updateCardBody: function (id, html, attempt, optional) {
         attempt = attempt || 0;
         var el = Ext.get('promatic_dashboard_enhancer-card-body-' + id);
@@ -398,37 +210,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return { cls: 'promatic_dashboard_enhancer-row', cn: cardSpecs };
     },
 
-    // Apila 2+ cards en una sola celda de la fila (ver .promatic_dashboard_enhancer-col
-    // en style.css) — usado en el shell RAC para que Señal GPS + Alertas
-    // Generales compartan el ancho de una columna en vez de tener cada una
-    // la suya. Sigue siendo HTML plano vía DomHelper, nada de
-    // Ext.container.Container anidado (BR-PILOT-0006).
     colMarkup: function (cardSpecs) {
         return { cls: 'promatic_dashboard_enhancer-col', cn: cardSpecs };
     },
 
-    // -----------------------------------------------------------------------
-    // Shell vista RAC (27 ago) — vista activa por defecto ahora ("RAC
-    // primero", pedido del usuario). Mismo mecanismo que buildLopShell: HTML
-    // plano vía Ext.DomHelper dentro de un único Ext.Component. Reutiliza
-    // los ids 'flota'/'top5km'/'hotspots' del shell LOP a propósito — mismo
-    // dato exacto, y solo un shell está montado a la vez, así que no hay
-    // colisión de ids en el DOM real. Señal GPS se separó de Alertas
-    // Generales en 2 widgets (antes 1 solo "Últimas Alertas de Vehículos")
-    // porque GPS/desconexión es la única alerta que aparece igual en todo
-    // panel sin importar el tipo de negocio del cliente. Fila de 4 columnas
-    // planas (no colMarkup — el diseño final de dev/proto-dash.html las puso
-    // como 4 pares, no 2+2) — diseño visual portado desde dev/proto-styles.css
-    // (27 ago, versión final del usuario) a este CSS con selectores
-    // prefijados. gps_signal/alertas_generales quedan en "Cargando..." — su
-    // conteo (buckets GPS, events.php por categoría) no está conectado
-    // todavía, no se fabrica dato de ejemplo en el plugin real.
-    // -----------------------------------------------------------------------
-    // Bloque "Exportar Reporte / Generar Golden Report" bajo el logo.
-    // FUNCIONAL desde v0.9.0: genera un documento HTML imprimible en una
-    // ventana nueva (window.open + document.write — no toca doc/index.html,
-    // que sigue sin scripts) a partir de los datos ya calculados en los
-    // widgets. Ver bindExportBlock, buildWidgetReport, buildGoldenReport.
     exportBlockMarkup: function () {
         return {
             cls: 'promatic_dashboard_enhancer-export-block',
@@ -500,8 +285,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Ejecuta fn y devuelve su resultado, o null si tira — para no romper el
-    // modal si la construcción del docDefinition de pdfMake falla.
     _safe: function (fn) {
         try { return fn(); } catch (e) {
             console.warn('[promatic_dashboard_enhancer] build pdfDoc falló:', e);
@@ -517,28 +300,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         })[which] || l('Reporte');
     },
 
-    // Muestra el HTML del reporte en un MODAL (overlay dentro de la página, no
-    // una pestaña nueva). El HTML va en un <iframe> srcdoc — aislado del CSS de
-    // PILOT. "Imprimir / Guardar PDF" llama print() del iframe; "Cerrar" quita
-    // el overlay. Esc también cierra.
     openReportModal: function (html, title, pdfDoc, mapPoints) {
         var me = this;
         this.closeReportModal();
 
-        // "Descargar PDF" se ofrece siempre que haya un docDefinition. pdfMake
-        // suele estar en el runtime de PILOT (window.pdfMake); si no, se carga
-        // bajo demanda al hacer clic (ver ensurePdfMake).
         var pdfBtn = pdfDoc
             ? '<button type="button" data-act="pdf" class="promatic_dashboard_enhancer-report-modal__btn promatic_dashboard_enhancer-report-modal__btn--primary">⬇ ' + l('Descargar PDF') + '</button>'
             : '';
 
-        // mapPoints (opcional, 21 sep) — cuando viene con datos se agrega un
-        // panel de mapa REAL (MapContainer, no el iframe) entre la barra y el
-        // iframe. El iframe de la tabla no tiene acceso a MapContainer/Ext JS
-        // (documento aislado) — por eso el mapa vive acá, en el overlay
-        // padre, y la fila del iframe le pide centrar un punto vía
-        // postMessage (ver buildAccidentesReport/buildGpsSignalReport).
-        // Golden Report/reportes de widget no lo usan y no cambian.
         var hasMap = Array.isArray(mapPoints) && mapPoints.length > 0;
         var mapHtml = hasMap
             ? '<div id="promatic_dashboard_enhancer-report-modal-map" class="promatic_dashboard_enhancer-report-modal__map"></div>'
@@ -566,8 +335,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         ov.querySelector('.promatic_dashboard_enhancer-report-modal__title').textContent = title || l('Reporte');
 
         var frame = ov.querySelector('iframe');
-        // document.write en el iframe (no srcdoc, que rompería con comillas
-        // dobles en el HTML). No hay navegación — es un iframe about:blank.
         var fd = frame.contentWindow.document;
         fd.open();
         fd.write(html);
@@ -575,9 +342,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         if (hasMap) {
             me._buildReportModalMap(mapPoints);
-            // Mensajes del iframe (click en "ver en mapa interno" de una
-            // fila) — centra/zoom al punto pedido. Un solo listener por
-            // apertura de modal; se limpia en closeReportModal.
             me._reportModalMsgHandler = function (ev) {
                 if (ev.source !== frame.contentWindow) { return; }
                 var data = ev.data || {};
@@ -632,10 +396,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         document.addEventListener('keydown', this._reportModalEsc);
     },
 
-    // Crea el panel MapContainer del modal (mapPoints ya validado no-vacío
-    // por el llamador). Mismo patrón que buildFleetMapPanel (Ext.panel.Panel
-    // + layout:'fit' + init() + checkResize diferido) — adaptado a vivir
-    // dentro del overlay del modal en vez de una card del RAC.
     _buildReportModalMap: function (mapPoints) {
         var me = this;
         var body = Ext.get('promatic_dashboard_enhancer-report-modal-map');
@@ -683,8 +443,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Centra/zoom a un punto específico (click en una fila del iframe, ver
-    // buildAccidentesReport). No hace nada si el mapa no llegó a montarse.
     _focusReportModalMapPoint: function (lat, lon) {
         var map = this._reportModalMap;
         if (!map || !map.setMapCenter || lat == null || lon == null) { return; }
@@ -692,10 +450,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         catch (err) { console.warn('[promatic_dashboard_enhancer] focus de punto en mapa del modal falló:', err); }
     },
 
-    // Resuelve con window.pdfMake. Si no está, intenta cargarlo desde el propio
-    // host de PILOT (mismo origen — no viola la regla de CDN). Cachea la promesa.
-    // pdfMake necesita pdfmake.min.js + vfs_fonts.js; PILOT sirve ambos bajo
-    // /resources/js/pdfMake/. Si no carga en 8s, resuelve con null.
     ensurePdfMake: function () {
         if (window.pdfMake && window.pdfMake.vfs) { return Promise.resolve(window.pdfMake); }
         if (this._pdfMakePromise) { return this._pdfMakePromise; }
@@ -777,7 +531,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '</style>';
     },
 
-    // Texto que explica qué mide cada widget — va bajo el título del reporte.
     _widgetDescriptions: {
         flota: 'Distribución de la flota seleccionada por estado operativo en el momento de la consulta: vehículos activos (con señal en las últimas horas), en movimiento, estacionados con motor detenido, y sin conexión al servidor. Se calcula a partir del árbol Online de PILOT, sin generar reportes.',
         gps: 'Vehículos sin comunicación con el servidor, agrupados por el tiempo transcurrido desde su última señal recibida. Sirve para detectar equipos caídos, con problemas de antena, o vehículos guardados hace días. Un vehículo puede estar "sin señal" por batería baja, zona sin cobertura, o manipulación del equipo.',
@@ -805,9 +558,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return 'bad';
     },
 
-    // Formatea un timestamp Unix (segundos) a "dd/mm/aaaa HH:MM" en la zona
-    // horaria configurada (mismo locale/timeZone que el reloj del header,
-    // clockConfig() — no confundir con chileTime(), que solo da la hora).
     _fmtEventDateTime: function (ts) {
         if (ts == null || !isFinite(ts)) { return '—'; }
         var cfg = this.clockConfig();
@@ -825,9 +575,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // "yyyy-mm-dd" de un timestamp Unix en la zona horaria configurada — para
-    // comparar días de calendario (hoy/ayer vs. histórico) sin arrastrar
-    // desfases de huso horario del cliente.
     _eventDayKey: function (ts) {
         if (ts == null || !isFinite(ts)) { return null; }
         var cfg = this.clockConfig();
@@ -841,9 +588,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         } catch (e) { return null; }
     },
 
-    // Link a Google Maps para una coordenada — sin geocoding inverso (no hay
-    // nombre de calle/ciudad en la respuesta de events.php type=4911, solo
-    // lat/lon). Formato estándar de Maps: ?q=lat,lon.
     _mapsLink: function (lat, lon) {
         if (lat == null || lon == null || !isFinite(lat) || !isFinite(lon)) { return null; }
         return 'https://www.google.com/maps?q=' + encodeURIComponent(lat) + ',' + encodeURIComponent(lon);
@@ -936,13 +680,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '</div></body></html>';
     },
 
-    // Detalle de accidentes reales (events.php type=4911, FR-0026) — 1 fila
-    // por evento "Real crash detected, calibrated" en la ventana de
-    // loadAlertasGenerales (30 días). Sin geocoding inverso: la columna
-    // Ubicación muestra lat/lon crudos + link a Google Maps. Sin link a un
-    // informe nativo de PILOT por fila — no existe un report_type ni un
-    // objeto de navegación (skeleton.navigation.events) equivalente a este
-    // árbol de eventos (confirmado 21 sep, ver spec/api.md).
     buildAccidentesReport: function () {
         var me = this;
         var esc = Ext.String.htmlEncode;
@@ -950,9 +687,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var days = 30;
         var title = l('Detalle Alarma de Posibles Accidentes');
 
-        // Recientes (hoy/ayer, zona horaria configurada) vs. histórico del
-        // resto de la ventana de 30 días — pedido del usuario 21 sep, para
-        // no tener que "buscar" los accidentes más urgentes entre 18+ filas.
         var todayKey = this._eventDayKey(Math.floor(Date.now() / 1000));
         var yesterdayKey = this._eventDayKey(Math.floor(Date.now() / 1000) - 86400);
         var isRecent = function (r) {
@@ -997,19 +731,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
-        // Descripción del widget separada de la fuente técnica (22 sep,
-        // pedido del usuario) — el primer <p> es de cara al usuario final,
-        // el segundo es la trazabilidad técnica (endpoint/type), útil hoy
-        // para verificar y fácil de quitar después si ya no hace falta
-        // mostrarla en el modal.
         var desc = '<p class="desc">' + l('Alarmas de eventos de posible colisión detectadas por el acelerómetro. Cada fila es una alerta generada de un potencial accidente real, sin agregar ni incluir el ruido de detección repetida. La columna Calibrado indica si el sensor completó su calibración al momento de la detección. Total: ' + rows.length + '.') + '</p>' +
             '<p class="desc">' + l('Fuente: events.php type=4911') + '</p>';
 
-        // Botón "ver en mapa interno" — el iframe es un documento aislado sin
-        // acceso al MapContainer del padre, así que se comunica el punto
-        // elegido vía postMessage; openReportModal (padre) escucha y centra
-        // el panel de mapa que vive fuera del iframe (ver _buildReportModalMap
-        // / _focusReportModalMapPoint).
         var focusScript =
             '<script>' +
             'document.addEventListener("click", function (e) {' +
@@ -1030,7 +754,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '</div>' + focusScript + '</body></html>';
     },
 
-    // Golden Report — resumen de todo el panel + guía para el Excel de PILOT.
     buildGoldenReport: function () {
         var esc = Ext.String.htmlEncode;
         var f = this._lastFleetCounts || {};
@@ -1113,8 +836,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return s;
     },
 
-    // ---- pdfMake (window.pdfMake, cargado por PILOT) — docDefinition ----
-    // Estilos compartidos + helpers para armar los documentos.
     _pdfBase: function (title, subtitle) {
         return {
             pageSize: 'A4',
@@ -1156,10 +877,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             margin: [0, 4, 0, 4]
         };
     },
-    // pdfMake solo pinta fondo con `fillColor` en celdas de TABLA (no en
-    // columns/stack sueltos). Las cajas de score van como una tabla de 1 fila,
-    // una celda por caja, con el color como fillColor de la celda.
-    _pdfBoxes: function (items) { // [{v, l, color}]
+    _pdfBoxes: function (items) {
         var row = items.map(function (it) {
             return {
                 fillColor: it.color,
@@ -1271,9 +989,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return doc;
     },
 
-    // Metadata de los 3 buckets de "Sin Señal GPS" — clave compartida por
-    // buildGpsSignalReport, buildGpsSignalPdfDoc y el click handler (ver
-    // bindAlertReportLinks), 21 sep.
     _GPS_BUCKET_META: {
         '24': { rowsKey: 'rows24', title: l('Sin señal — menos de 24h') },
         '48': { rowsKey: 'rows48', title: l('Sin señal — entre 24 y 48h') },
@@ -1281,11 +996,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         'nodata': { rowsKey: 'rowsNoData', title: l('Sin señal — sin dato de última conexión') }
     },
 
-    // Modal de detalle al hacer click en un chip de la card "Sin Señal GPS"
-    // (id 'gps_signal'). Mismo patrón que buildAccidentesReport: tabla +
-    // mini-mapa interno vía openReportModal(html, title, pdfDoc, mapPoints).
-    // Sin columna Calibrado (no aplica) ni secciones Recientes/Histórico
-    // (todas las filas son "ahora mismo sin señal", no hace falta separar).
     buildGpsSignalReport: function (bucket) {
         var me = this;
         var esc = Ext.String.htmlEncode;
@@ -1421,19 +1131,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return doc;
     },
 
-    // Layout de 4 columnas (rediseño 3 sep, idea-rediseño-layout.jpg):
-    //  - Col izq FIJA: reloj (grande) + Alertas Generales (vertical).
-    //  - Col centro (2-3) FLEX: Sin Señal GPS (buckets horizontales) arriba,
-    //    luego Estado de Flota + Top KM lado a lado, luego mapa hotspots ancho.
-    //  - Col der FIJA: logo (sin header) + bloque export (placeholder).
-    //  - Buscador: OCULTO — cardMarkup('buscador') se conserva pero no se
-    //    monta (vuelve con FR-0006, asistente IA).
-    // Para LOC/LOP: col izq y la posición de Sin Señal GPS quedan fijas;
-    // solo cambian las columnas del centro (buildLopShell se adapta aparte).
     buildRacShell: function () {
-        // Col 1 (4 sep, mismo lote de cambios de la pauta): solo Alertas
-        // Generales — gana el alto completo de la columna. El reloj se
-        // movió a col 4, debajo del logo.
         var colLeft = {
             cls: 'promatic_dashboard_enhancer-area-alertas',
             cn: [
@@ -1446,13 +1144,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ]
         };
 
-        // Col 2 (4 sep, pedido de Ana vía Orlando): Sin Señal GPS + Top KM
-        // apiladas verticalmente, angosta — libera el ancho que ocupaba
-        // "Estado de Flota" (retirado de RAC, FR-0009: es dato de LOP, que
-        // hoy no está montada — updateFlotaLopCard/refreshFleetStore siguen
-        // corriendo igual, solo no se monta esta card acá) sin dejar un
-        // hueco. Reserva de espacio al final para un futuro widget (no
-        // implementado todavía).
         var colMid = {
             cls: 'promatic_dashboard_enhancer-area-mid',
             cn: [
@@ -1483,32 +1174,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ]
         };
 
-        // Col 3: el mapa solo, con el doble de ancho de una columna regular
-        // — gana altura/formato más cuadrado en vez del rectángulo apaisado
-        // de antes. NOTA: en RAC este mapa es temporal. Los gerentes
-        // (reunión 3 sep) pidieron para RAC un mapa de "vehículos
-        // disponibles por sucursal" (FR-0008) — las geocercas de sucursal ya
-        // están en PILOT (Ana). El heatmap de desconexión GPS (type=15) es
-        // de la vista LOC/LOP. Se deja aquí como demo del mapa propio
-        // funcionando (BR-PILOT-0007) hasta armar FR-0008.
         var colMap = {
             cls: 'promatic_dashboard_enhancer-area-map',
             cn: [
-                // Safety Score arriba del mapa (pedido del usuario, 14 sep)
-                // — antes vivía en colMid junto a Sin Señal GPS/Top KM.
                 this.cardMarkup('eco_score', {
                     title: l('Safety Score (ECO)'),
                     hint: l('Puntaje de conducción segura por evento de manejo brusco (frenadas/aceleraciones/curvas bruscas, idling), normalizado por km. 100 = sin eventos. Fuente: events.php type=24, ventana configurable.'),
                     noFooter: true,
                     skeleton: 'donut'
                 }),
-                // Reemplaza 'vehicles_by_branch' (ADR-016, retirado 15 sep)
-                // — marcadores individuales + clustering NATIVO de
-                // MapContainer (addCluster, confirmado en vivo por el
-                // usuario: usa window.L.markerClusterGroup internamente).
-                // Orden 21 sep (pedido en reunión): fleet_map arriba,
-                // hotspots abajo — el mapa de ubicación actual es de
-                // consulta más frecuente que el histórico de cortes.
                 this.cardMarkup('fleet_map', {
                     title: l('Ubicación Global de la Flota'),
                     hint: l('Última posición conocida de cada vehículo, agrupada en clusters cuando hay varios cerca. Click en un vehículo o en un cluster para ver el detalle. El menú de arriba filtra por carpeta del panel "Principal".'),
@@ -1550,12 +1224,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ]
         };
 
-        // Col 4 / topbar — Logo + Hora + bloque de exportar. Columna vertical
-        // fija a la derecha en ancho amplio; barra horizontal arriba de las
-        // otras 3 en ancho angosto (grid-template-areas cambia solo la
-        // DISPOSICIÓN, mismo DOM — ver .shell-grid en style.css). Pedido del
-        // usuario 14 sep: "Logo a la izquierda, hora al centro, exportar a
-        // la derecha" cuando es barra horizontal.
         var colRight = {
             cls: 'promatic_dashboard_enhancer-area-topbar',
             cn: [
@@ -1573,8 +1241,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     { cls: 'promatic_dashboard_enhancer-shell-row', cn: [colLeft, colMid, colMap] }
                 ]
             },
-            // Contenedor reservado sobre el footer de controles — para widgets
-            // horizontales sueltos futuros (el usuario planea agregar varios).
             { id: 'promatic_dashboard_enhancer-eco-folder-bar', cls: 'promatic_dashboard_enhancer-eco-folder-bar', cn: [] },
             this.controlsBarMarkup()
         ];
@@ -1585,15 +1251,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Barra de controles del pie del dashboard:
-    //  - Slider de alcance: 2 posiciones explícitas — "Selección Principal"
-    //    (izquierda) sigue los checkboxes del panel "Principal" de PILOT;
-    //    "Toda la flota" (derecha) ignora la selección. Es un slider y no un
-    //    botón toggle a propósito: el estado se lee de la posición del thumb,
-    //    no hay ambigüedad de "¿avanza o retrocede al hacer click?". Override
-    //    en localStorage, sin re-publicar.
-    //  - Actualizar widgets: re-dispara todos los widgets sin recargar y
-    //    sella la hora en la barra de resumen ("actualizado HH:MM:SS").
     controlsBarMarkup: function () {
         var isSelection = this.effectiveFleetScope() === 'pilot-selection';
         return {
@@ -1631,13 +1288,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         };
     },
 
-    // Control de escala +/- (14 sep, v2 — reemplaza el intento con `zoom`
-    // que se revirtió por romper el área clickeable de Ext JS). Cambia
-    // --scale-factor en el panel raíz, que mueve el font-size REAL del
-    // contenedor — todo lo escrito en `em` en style.css escala de verdad,
-    // Ext mide el DOM real sin trucos. Paso 5%, rango 80%-130%. Persistido
-    // en localStorage por equipo/navegador (el problema es el monitor, no
-    // la cuenta PILOT).
     scaleControlMarkup: function () {
         var pct = this.getScalePct();
         return {
@@ -1676,9 +1326,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Fija el alcance a un modo explícito ('pilot-selection' | 'all') según
-    // el lado del slider elegido. 'pilot-selection' limpia el override (es el
-    // default de config); 'all' lo escribe.
     setScopeMode: function (mode) {
         if (mode === this.effectiveFleetScope()) { return; }
         this.setScopeOverride(mode === 'all' ? 'all' : null);
@@ -1686,14 +1333,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.refreshAllWidgets();
     },
 
-    // Re-corre todos los widgets con datos en vivo — no toca reloj/logo.
-    // Sella la hora del último refresco manual (la muestra la barra de
-    // resumen); antes ese texto se re-pintaba en cada datachanged del árbol
-    // y parecía un reloj.
     refreshAllWidgets: function () {
         this._lastManualRefresh = new Date();
-        // Feedback visible de "recalculando": el mismo skeleton shimmer que
-        // usan al montar, pintado en cada card afectada antes de la recarga.
         this.showCardSkeleton('gps_signal', 'chips');
         this.showCardSkeleton('top5km', 'ranking');
         this.showCardSkeleton('flota', 'donut');
@@ -1712,17 +1353,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.loadFleetMapClusters();
     },
 
-    // Refresco automático corto (FR-0027, 21 sep): SOLO Alertas Generales
-    // (Accidentes/Mantención/Ralentí) y Señal GPS/Estado de Flota, cada 60s
-    // — los rankings/reportes (Top KM, Safety Score, Tendencia de
-    // Infracciones) y los 2 mapas siguen siendo manual/por cambio de
-    // selección, no entran acá (más caros, no necesitan la misma frecuencia).
-    // Señal GPS/Estado de Flota se recalculan desde online_tree ya en
-    // memoria (refreshFleetStore, sin request HTTP propio); Alertas sí
-    // dispara requests reales (events.php type=4911, mod/to/*) — el guard
-    // `_autoRefreshBusy` evita apilar otra pasada si la anterior (flota
-    // grande) todavía no terminó cuando cae el siguiente tick, mismo
-    // problema que causó BR-PILOT-0015/BR-PILOT-0018 con ráfagas sin freno.
     startAutoRefresh: function () {
         var me = this;
         if (me._autoRefreshTimer) { return; }
@@ -1730,10 +1360,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (me._autoRefreshBusy) { return; }
             me._autoRefreshBusy = true;
             me.refreshFleetStore();
-            // withFleetVehicleIds reintenta hasta 40 veces cada 500ms (~20s)
-            // si el árbol Online todavía no está listo — el guard de
-            // respaldo evita que _autoRefreshBusy quede pegado en `true`
-            // para siempre si por algún motivo onDone nunca llega.
             var settled = false;
             var guard = setTimeout(function () {
                 if (settled) { return; }
@@ -1854,11 +1480,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Diccionario de errores (catálogo completo en spec/datos.md): cada
-    // punto de falla conocido de un widget emite un código corto y estable
-    // (ej. "KM-TIMEOUT") — permite que el usuario reporte "vi el código X"
-    // sin necesitar abrir la consola del navegador. Sin backend de logging
-    // por ahora, solo trazabilidad local.
     widgetErrorCode: function (base, err, context) {
         var code = base + (err && err.name === 'AbortError' ? '-TIMEOUT' : '-FALLO');
         console.error('[promatic_dashboard_enhancer] ' + code + ':', err, context || '');
@@ -1870,12 +1491,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             skeleton.navigation.online.online_tree) || null;
     },
 
-    // Enmascara la patente para la UI cuando config.privacy.maskPlates está
-    // activo. El "Nombre de Vehículo" en PILOT suele ser la patente literal
-    // (no hay campo separado), así que mostrarla cruda deja googleable un dato
-    // sensible del cliente. Formato: 2 primeras letras + "-" + correlativo de
-    // 2 dígitos, estable dentro de una sesión (mismo nombre → mismo alias).
-    // Si maskPlates está apagado, devuelve el nombre tal cual.
     _plateAliasMap: null,
     _plateAliasSeq: 0,
     displayName: function (name) {
@@ -1892,23 +1507,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return alias;
     },
 
-    // Filtro opcional de alcance de flota — resuelve cuentas donde
-    // Alcance del dashboard, operable desde el slider del pie:
-    // 'pilot-selection' = sigue la selección con checkbox del panel "Principal";
-    // 'all' = flota completa del árbol Online.
-    // (El filtro por lista de agent_ids en localStorage — dev override de
-    // NOC-007 — se retiró el 1 sep: el slider ya da control explícito, y la
-    // lista de 45 ids del demo pisaba el modo "toda la flota".)
     SCOPE_OVERRIDE_STORAGE_KEY: 'promatic_dashboard_enhancer_scope_override',
 
-    // Escala manual del dashboard (+/-) — no hay forma de detectar el
-    // tamaño físico de un monitor externo desde el navegador
-    // (devicePixelRatio/resolución son iguales en un TV grande de feria y
-    // un monitor de oficina normal si ambos son FullHD). v2 (14 sep):
-    // cambia --scale-factor, que mueve el font-size REAL del panel raíz —
-    // NO zoom/transform (v1 se revirtió: rompía el área clickeable de Ext
-    // JS, ver commit de revert v0.13.3). Paso 5%, rango 80%-130%.
-    // Persistido por equipo/navegador (localStorage), no por cuenta PILOT.
     SCALE_STORAGE_KEY: 'promatic_dashboard_enhancer_scale_pct',
     SCALE_MIN: 80,
     SCALE_MAX: 130,
@@ -1965,7 +1565,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Alcance efectivo: el slider (localStorage) gana sobre config.fleet.scope.
     effectiveFleetScope: function () {
         var override = this.getScopeOverride();
         if (override === 'all' || override === 'pilot-selection') {
@@ -1975,10 +1574,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return fleetCfg.scope || 'all';
     },
 
-    // agent_ids marcados con checkbox en el panel "Principal" de PILOT
-    // (online_tree.getChecked()), filtrados a hojas reales — un nodo de
-    // carpeta/modelo no tiene 'agentid'. Devuelve null si getChecked no está
-    // disponible o no hay nada marcado (→ el caller cae a la flota completa).
     getPilotSelectionIds: function (onlineTree) {
         if (!onlineTree || typeof onlineTree.getChecked !== 'function') {
             return null;
@@ -2001,12 +1596,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return ids.length ? ids : null;
     },
 
-    // ¿Hay carpetas marcadas (checked) en el árbol pero colapsadas, de modo
-    // que sus vehículos hijos NO están materializados como checked en el
-    // store? El checkbox de una carpeta en el árbol de PILOT solo propaga
-    // checked=true a los registros hijos al EXPANDIR la carpeta — con la
-    // carpeta cerrada, getChecked()/cascadeBy ven la carpeta marcada pero
-    // ninguna hoja. Confirmado en DEMO_CLIENT (1 sep). Ver ADR-014 y FR-0004.
     hasCollapsedCheckedFolders: function (onlineTree) {
         var store = onlineTree && onlineTree.getStore && onlineTree.getStore();
         var root = store && store.getRoot && store.getRoot();
@@ -2024,13 +1613,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return found;
     },
 
-    // FR-0004: expandir las carpetas marcadas pero colapsadas del árbol
-    // "Principal". El checkbox de una carpeta solo propaga checked=true a los
-    // vehículos hijos al EXPANDIR la carpeta, así que forzamos la expansión de
-    // esas ramas. expand() es async y dispara 'checkchange' en cada hijo al
-    // materializarse el checked → el listener con debounce re-renderiza solo.
-    // Se dejan expandidas a propósito (el usuario ve qué entró al dashboard);
-    // los checkboxes no se tocan. Devuelve true si expandió al menos una.
     expandCheckedFolders: function (onlineTree) {
         var store = onlineTree && onlineTree.getStore && onlineTree.getStore();
         var root = store && store.getRoot && store.getRoot();
@@ -2050,10 +1632,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 this.widgetErrorCode('FLEET-EXPAND', err);
             }
         }
-        // Red de seguridad: si expand() no acaba disparando 'checkchange'
-        // (hijos ya checked en el modelo, solo la carpeta estaba colapsada),
-        // el listener con debounce no re-renderiza. Un re-render diferido
-        // único cubre ese caso. _selectionExpandRetry evita un bucle.
         if (toExpand.length > 0 && !this._selectionExpandRetry) {
             this._selectionExpandRetry = true;
             Ext.defer(function () {
@@ -2068,22 +1646,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     getScopedFleetRecords: function (onlineTree) {
         var records = onlineTree.getStore().getData().items;
 
-        // Alcance: 'pilot-selection' filtra a los vehículos marcados en el
-        // panel "Principal"; 'all' devuelve la flota completa del árbol Online.
         this._selectionEmpty = false;
         this._selectionCollapsed = false;
         var scope = null;
         if (this.effectiveFleetScope() === 'pilot-selection' && onlineTree &&
             typeof onlineTree.getChecked === 'function') {
             scope = this.getPilotSelectionIds(onlineTree);
-            // FR-0004 (16 sep, ampliado): revisar carpetas colapsadas SIEMPRE
-            // que el scope activo sea 'pilot-selection', no solo cuando scope
-            // queda vacío. Con flotas grandes y árboles de varios niveles
-            // (confirmado en vivo: 944 de 1396 vehículos marcados detectados)
-            // es normal que ALGUNAS carpetas ya estén expandidas (de ahí que
-            // scope no esté vacío) mientras OTRAS sub-carpetas marcadas
-            // siguen colapsadas — el chequeo original solo corría con 0
-            // detectados y nunca encontraba ese caso intermedio.
             if (this.hasCollapsedCheckedFolders(onlineTree)) {
                 this._selectionCollapsed = true;
                 this._selectionExpanding = this.expandCheckedFolders(onlineTree);
@@ -2091,10 +1659,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 this._selectionCollapsed = false;
                 this._selectionExpanding = false;
             }
-            // getChecked() disponible pero ninguna hoja marcada: puede ser
-            // (a) el usuario no seleccionó nada, o (b) marcó carpetas pero
-            // las tiene colapsadas (PILOT no materializa los hijos hasta
-            // expandir) — el bloque de arriba ya disparó la expansión.
             if (!scope) {
                 this._selectionEmpty = true;
                 return [];
@@ -2132,16 +1696,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return vehIds;
     },
 
-    // Vehículos del alcance que se movieron en los últimos `days` días —
-    // filtro por `last_event.last_move` (timestamp del último movimiento),
-    // client-side, sin llamada. Un vehículo sin movimiento en la ventana
-    // tiene 0 km, así que dejarlo fuera de la consulta a reports.php no
-    // cambia el ranking pero corta el payload (crítico cuando online_tree
-    // tiene la flota LOC completa — ver NOC-007 y la exploración del 28 ago:
-    // no hay endpoint de km por vehículo pre-calculado).
-    // Devuelve los agent_ids ordenados por movimiento más reciente primero,
-    // para que el caller pueda cortar a un tope (config top5km.activeVehicleCap)
-    // quedándose con los más activos.
     getRecentlyActiveIds: function (onlineTree, days) {
         var cutoff = Math.floor(Date.now() / 1000) - (days || 7) * 86400;
         var records = this.getScopedFleetRecords(onlineTree);
@@ -2163,11 +1717,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return ids;
     },
 
-    // Poll acotado (40 x 500ms = 20s) hasta que el store de online_tree tenga
-    // filas, después bindea los listeners UNA sola vez (guard _fleetBound) y
-    // hace el primer refresh. NO usa withFleetVehicleIds: su rama de "lista
-    // vacía" se re-suscribe a 'datachanged' en cada disparo, y con el árbol
-    // Online actualizándose seguido eso se volvía un loop caliente.
     bindFleetUpdates: function (attempt) {
         attempt = attempt || 0;
         var onlineTree = this.getOnlineTree();
@@ -2189,20 +1738,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             this._fleetBound = true;
         }
 
-        // Re-renderizar cuando el usuario marca/desmarca vehículos en el
-        // panel "Principal". checkchange se dispara una vez por hoja al
-        // cascadear una carpeta — debounce para coalescer la ráfaga. El
-        // handler chequea el scope efectivo en cada disparo, así el toggle
-        // del pie del dashboard funciona sin re-bindear.
         var me = this;
         var onlineTree = this.getOnlineTree();
         if (!this._selectionBound && onlineTree && typeof onlineTree.on === 'function') {
             onlineTree.on('checkchange', function (node) {
                 if (me.effectiveFleetScope() !== 'pilot-selection') { return; }
-                // FR-0004: si marcaron una carpeta colapsada, PILOT no
-                // propaga checked a los vehículos hijos hasta expandirla.
-                // Forzar la expansión acá mismo — checkchange SÍ llega para
-                // el nodo carpeta aunque no cascadee a los hijos ocultos.
                 if (node && node.get && node.get('checked') && !node.get('agentid') &&
                     node.isExpandable && node.isExpandable() && !node.isExpanded()) {
                     try { node.expand(); } catch (err) { me.widgetErrorCode('FLEET-EXPAND', err); }
@@ -2223,13 +1763,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.refreshFleetStore();
     },
 
-    // Segundos desde el último event recibido de un vehículo — proxy de
-    // "hace cuánto está sin señal". last_event.unixtimestamp es la marca más
-    // reciente que el device mandó (posición/velocidad); para un vehículo
-    // is_server_online=false equivale a "cuándo se quedó mudo". Aproximación
-    // razonable para buckets de 24h; la fuente exacta por evento de
-    // desconexión sería events.php type=15 (llamada HTTP aparte). Devuelve
-    // null si no hay timestamp usable.
     secondsSinceLastEvent: function (record) {
         var le = record.get('last_event') || (record.data && record.data.last_event);
         var ts = le && Number(le.unixtimestamp);
@@ -2239,22 +1772,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return Math.max(0, Math.floor(Date.now() / 1000) - ts);
     },
 
-    // Único punto que recorre online_tree en cada 'datachanged'/'update' —
-    // alimenta la barra de resumen, la card "Flota" (id 'flota') y la card
-    // "Señal GPS" (id 'gps_signal') — mismo recorrido, sin llamada HTTP.
-    // 'flota'/'gps_signal' son ids compartidos por el shell RAC y el LOP;
-    // solo un shell está montado a la vez.
-    // Throttle: el árbol Online dispara 'datachanged' cientos de veces por
-    // segundo con flota grande (cada ping de cada vehículo). Coalescemos en
-    // una corrida cada 2s como mucho — leading edge (la primera pinta al
-    // toque) + trailing (una más al final de la ráfaga).
     FLEET_REFRESH_MIN_GAP_MS: 2000,
 
     refreshFleetStore: function () {
         var me = this;
 
         if (this._fleetRefreshTimer) {
-            return; // ya hay una corrida agendada dentro de la ventana
+            return;
         }
 
         var run = function () {
@@ -2278,12 +1802,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Tope de reintentos ante la falsa pinta inicial: online_tree materializa
-    // las filas del store antes de que PILOT sincronice is_server_online por
-    // cada una (llega en un 'datachanged'/'update' posterior, no en la carga
-    // inicial) — de lo contrario toda la flota se ve "offline" por unos
-    // segundos al montar. Ver SPEC.md §3 pendiente "primera pinta Estado de
-    // Flota".
     FLEET_SETTLE_MAX_RETRIES: 6,
     FLEET_SETTLE_RETRY_MS: 700,
 
@@ -2295,8 +1813,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var records = this.getScopedFleetRecords(onlineTree);
 
-        // fleet.scope 'pilot-selection' sin hojas marcadas en el panel
-        // "Principal": estado vacío explícito en vez de números en 0.
         if (this._selectionEmpty) {
             var msgSel;
             if (this._selectionExpanding) {
@@ -2323,7 +1839,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var r = records[i];
 
             if (!r.get('agentid')) {
-                continue; // nodo de grupo/carpeta, no un vehículo
+                continue;
             }
 
             var isOnline = !!r.get('is_server_online');
@@ -2341,11 +1857,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     lon: latLon ? latLon[1] : null
                 };
                 if (age === null) {
-                    // last_event ausente incluso tras agotar los reintentos
-                    // de sincronización (ver guard más abajo) — bucket propio
-                    // en vez de "Más de 48h" (21 sep, pedido del usuario):
-                    // "sin dato" no es lo mismo que "confirmado hace más de
-                    // 48h", mezclarlos exageraba el bucket más severo.
                     offlineNoTimestamp++;
                     gpsNoData++;
                     gpsNoDataRows.push(row);
@@ -2360,23 +1871,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     gpsMoreRows.push(row);
                 }
             } else if (statusText.indexOf('movimiento') !== -1) {
-                // "En movimientos X km/h" vs. "Estacionamiento..." — texto
-                // real confirmado en DEMO_CLIENT, no un campo separado.
                 moving++;
             } else {
                 parked++;
             }
         }
 
-        // Falsa pinta inicial, 2 variantes de la misma causa raíz
-        // (is_server_online/last_event aún sin sincronizar tras montar o
-        // cambiar de carpeta — no un apagón real):
-        //  1. 100% offline con flota no vacía.
-        //  2. Vehículos offline cuyo last_event todavía no llegó — sin este
-        //     guard, secondsSinceLastEvent() devuelve null y los mete a
-        //     todos en "Más de 48h" (ej. 1227 en vez de los ~142 reales)
-        //     hasta que la sincronización termina sola varios refrescos
-        //     después. Umbral: más de la mitad de los offline sin dato.
         var settleNeeded = total > 0 && (
             offlineCount === total ||
             (offlineCount > 0 && offlineNoTimestamp > offlineCount / 2)
@@ -2399,9 +1899,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 ' | señal GPS <24h=' + gps24 + ' 24-48h=' + gps48 + ' >48h=' + gpsMore + ' sin dato=' + gpsNoData);
         }
 
-        // Cache para los exportadores de reportes. rows24/rows48/rowsMore/
-        // rowsNoData alimentan buildGpsSignalReport (modal de detalle al
-        // hacer click en cada chip de la card "Sin Señal GPS", 21 sep).
         this._lastFleetCounts = { total: total, moving: moving, parked: parked, offline: offlineCount };
         this._lastGpsBuckets = {
             b24: gps24, b48: gps48, bMore: gpsMore, bNoData: gpsNoData,
@@ -2413,11 +1910,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.updateGpsSignalCard(gps24, gps48, gpsMore, gpsNoData);
     },
 
-    // Reloj "Hora exacta Chile" — puro cliente, sin API. Se pinta la card una
-    // vez y después se actualiza solo el nodo de la hora cada segundo (no
-    // updateCardBody, que re-parsea el HTML completo). El setInterval no se
-    // limpia: el módulo vive toda la sesión (es un nav tab), igual que el
-    // resto del módulo no tiene teardown.
     clockConfig: function () {
         var c = (this.config && this.config.clock) || this.DEFAULT_CONFIG.clock;
         return {
@@ -2451,9 +1943,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         };
 
-        // El título "Hora Oficial" ya lo pone la cabecera de la card
-        // (cardMarkup). El cuerpo muestra solo la hora — antes repetía el
-        // rótulo y quedaba "Hora Oficial / Hora exacta Chile / HH:MM:SS".
         this.updateCardBody('reloj', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-clock',
             cn: [
@@ -2476,34 +1965,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 {
                     tag: 'span',
                     cls: 'promatic_dashboard_enhancer-version',
-                    // moduleBuild completo (fecha+hora), no la fecha legible
-                    // (23 sep, pedido del usuario) — con solo el SemVer +
-                    // fecha, publicaciones múltiples el mismo día (cambios
-                    // sutiles que no ameritan bump de SemVer) eran
-                    // indistinguibles en PILOT; el moduleBuild crudo permite
-                    // confirmar cuál publicación exacta cargó el navegador.
                     html: 'v' + this.version + ' · build ' + (this.moduleBuild || '')
                 }
             ]
         }));
     },
 
-    // Alertas Generales (card 'alertas_generales') — 2 categorías:
-    //  - Accidentes: events.php type=4911 ("Crash Detection Alert", FR-0026,
-    //    16 sep) — ventana de 30 días. Ver fetchAccidentVehicles.
-    //  - Requiere mantención: dashboard.php cmd=ptm — recordatorios; contamos
-    //    los ligados a vehículo (link_type != 'drivers'). El shape de ptm no
-    //    está confirmado en DEMO_CLIENT (en la cuenta de pruebas solo había un
-    //    recordatorio de licencia de conductor) — el console.log del raw es
-    //    para verificar. Cualquier categoría que falle muestra "N/D", no
-    //    tumba la otra.
-    // "En taller" se retiró (chip decorativo sin fuente, pedido del Dev de
-    // Pilot 25 ago).
-    // onDone (opcional, 21 sep, ver startAutoRefresh) se llama cuando el
-    // ciclo completo terminó (accidentes + mantención resueltos) — permite
-    // a un llamador esperar el fin real sin convertir toda la función a
-    // promesa (withFleetVehicleIds es callback-based con reintentos, no
-    // retorna una promesa que se pueda encadenar directo).
     loadAlertasGenerales: function (onDone) {
         var me = this;
 
@@ -2515,11 +1982,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var fmt = function (d) { return d.toISOString().slice(0, 10); };
             me._alertRange = { start: start, stop: stop };
 
-            // Accidentes — FR-0026 (16 sep, final): fuente real confirmada
-            // es events.php type=4911 ("Crash Detection Alert") — ver
-            // fetchAccidentVehicles y spec/api.md. Reemplaza el intento
-            // anterior con reports.php report_type=254 (desfase de huso
-            // horario + latencia de ~4h, BR-PILOT-0020/0021).
             var accidentes = me.fetchAccidentVehicles(csv, start, stop)
                 .then(function (rows) {
                     me._alertAccidentesRows = rows;
@@ -2549,10 +2011,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Circuit breaker (16 sep, ver NOC-008): true si `key` ya dio 401 en esta
-    // sesión del navegador. Se resetea solo con F5 — Pilot podría desbloquear
-    // el endpoint en cualquier momento y no queremos que quede apagado para
-    // siempre por error.
     _isEndpointBlocked: function (key) {
         return !!(this._blockedEndpoints && this._blockedEndpoints[key]);
     },
@@ -2565,8 +2023,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Como fetchEventCount pero devuelve la lista de agent_ids distintos que
-    // aparecen en los eventos del tipo/rango — para el link "abrir informe".
     fetchEventVehicles: function (vehIdsCsv, type, dateStart, dateStop) {
         var me = this;
         var breakerKey = 'events.php:type=' + type;
@@ -2593,25 +2049,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
     },
 
-    // Accidentes — FR-0026 (16 sep): reports.php report_type=254 ("Crash
-    // detection"). Confirmado en vivo: {"success":true,"data":[],
-    // "report_type":254,...} cuando no hay accidentes — el shape de un
-    // `data` NO vacío sigue sin capturar (3 meses sin accidentes reales en
-    // DEMO_CLIENT). Parser conservador: intenta varias formas razonables de
-    // extraer agent_id/patente de cada item; si no reconoce nada, cuenta
-    // igual el largo de `data` (mismo criterio conservador que
-    // fetchMantencionCount). El console.log de la respuesta cruda es la
-    // herramienta para tipar el parser real el día que haya un caso.
-    // Accidentes — FR-0026 (16 sep, migración final): fuente real
-    // confirmada es events.php type=4911 ("Crash Detection Alert"), NO
-    // report_type=254 — ese último tenía un desfase de huso horario
-    // (BR-PILOT-0020) y una latencia de ~4h (BR-PILOT-0021) del lado de
-    // PILOT. type=4911 se descubrió interceptando fetch/XHR mientras el
-    // usuario navegaba el panel nativo "Events" de PILOT — trae los
-    // eventos a tiempo y con el horario correcto (verificado con 5
-    // accidentes reales del mismo día). Ver spec/api.md §"events.php
-    // type=4911" para el schema completo (árbol anidado vehículo→carpeta
-    // "Crash Detection Alert"→eventos).
     fetchAccidentVehicles: function (vehIdsCsv, startDate, stopDate) {
         var me = this;
         var isoNoMs = function (d) { return d.toISOString().slice(0, 19); };
@@ -2639,16 +2076,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         var events = (folders[f] && folders[f].children) || [];
                         for (var e = 0; e < events.length; e++) {
                             var ev = events[e] || {};
-                            // "Real crash detected, calibrated/not calibrated"
-                            // = el evento real; "Full crash trace, ..." es
-                            // ruido/repetición de la misma detección
-                            // (confirmado con datos reales — un vehículo
-                            // trae varios "Full crash trace" y como máximo
-                            // 1 "Real crash detected" por accidente). El
-                            // sufijo "not calibrated" (visto 21 sep en
-                            // FRX331) también cuenta — decisión del usuario:
-                            // no subestimar el conteo real, pero se guarda
-                            // `calibrated` para mostrarlo en la tabla/PDF.
                             if (!ev.text || ev.text.indexOf('Real crash detected') !== 0) { continue; }
                             if (ev.id != null && seenEventIds[ev.id]) { continue; }
                             if (ev.id != null) { seenEventIds[ev.id] = 1; }
@@ -2668,17 +2095,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             .finally(function () { clearTimeout(to); });
     },
 
-    // Ralentí excesivo: vehículos con Excess Idle (c1 del report_type=223, en
-    // segundos) sobre ecoScore.idleThresholdMin minutos en la ventana. Usa la
-    // respuesta ya cacheada por loadEcoScore — no dispara otra llamada.
     refreshRalentiAlert: function () {
         var resp = this._lastEcoResp;
         if (!resp || !resp.data) { this._alertRalenti = null; this._alertRalentiIds = []; this.renderAlertasGenerales(); return; }
         var cfg = (this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore;
         var thresholdSec = (cfg.idleThresholdMin || 120) * 60;
 
-        // Mapa nombre→agentid del árbol para recuperar los ids (el reporte 223
-        // agrupa por patente, no trae agent_id).
         var nameToId = {};
         var onlineTree = this.getOnlineTree();
         if (onlineTree) {
@@ -2708,17 +2130,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.renderAlertasGenerales();
     },
 
-    // Alerta de mantención — sondeo a los endpoints del módulo Técnico-Operacional
-    // (mod/to/). No tipado (FR-0015): probamos inspections y services, contamos
-    // items que parezcan "vencido/pendiente". Si ninguno responde algo usable,
-    // devuelve null (la card muestra "N/D", no rompe).
     fetchMantencionCount: function (vehIds) {
         var me = this;
         var csv = vehIds.join(',');
-        // cmd confirmados en spec/api.md §"Módulo mod/to/*": inspections→forms,
-        // services→list. En la cuenta de pruebas ambos dieron items:[] (sin
-        // datos). Se prueban con y sin filtro de vehículos por si el schema
-        // real de una cuenta con datos lo requiere.
         var endpoints = [
             { url: '/backend/ax/mod/to/inspections.php?cmd=forms&veh=' + encodeURIComponent(csv), breakerKey: 'mod/to/inspections.php' },
             { url: '/backend/ax/mod/to/inspections.php?cmd=forms', breakerKey: 'mod/to/inspections.php' },
@@ -2727,9 +2141,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         ];
         var tryOne = function (i) {
             if (i >= endpoints.length) { return Promise.resolve(null); }
-            // Un 401 previo en este mismo archivo (con o sin filtro de
-            // vehículos) es casi seguro que se repite — saltar directo al
-            // siguiente endpoint sin gastar el request.
             if (me._isEndpointBlocked(endpoints[i].breakerKey)) { return tryOne(i + 1); }
             return fetch(endpoints[i].url, { credentials: 'include' })
                 .then(function (resp) {
@@ -2749,14 +2160,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     for (var j = 0; j < items.length; j++) {
                         var it = items[j] || {};
                         var st = String(it.status || it.state || it.result || '').toLowerCase();
-                        // "vencido" / "pendiente" / "overdue" / "due" — o un
-                        // km/fecha objetivo ya pasado si el campo existe.
                         if (/venc|pend|overdue|\bdue\b|expired|required/.test(st)) { n++; }
                         else if (it.overdue === true || it.is_due === true) { n++; }
                     }
-                    // Si no encontramos un campo de estado reconocible, contamos
-                    // todos los items como "recordatorio activo" — es el
-                    // comportamiento conservador hasta tipar el schema (FR-0015).
                     return n > 0 ? n : items.length;
                 })
                 .catch(function () { return tryOne(i + 1); });
@@ -2768,10 +2174,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var accidentes = this._alertAccidentes;
         var mantencion = this._alertMantencion;
         var ralenti = this._alertRalenti;
-        // Accidentes/Mantención: dibujados a mano, outline, viewBox="0 0 24 24"
-        // (stroke=currentColor, width 1.6). Ralentí/Combustible/Territorio/
-        // GPS manual: assets de dev/icons/ (filled, currentColor, viewBox
-        // propio) — el wrapper .stat-card__icon los escala igual.
         var svgAccidente =
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
             'stroke-linecap="round" stroke-linejoin="round">' +
@@ -2783,19 +2185,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '<path d="M14.7 6.3a4 4 0 0 0-5.3 5.3L4 17l3 3 5.4-5.4a4 4 0 0 0 5.3-5.3l-2.6 2.6-2.1-2.1z" />' +
             '<path d="M7 17h.01" /></svg>';
 
-        // Íconos de las categorías beta (aún sin datos conectados).
-        // fuelv2/forbbiden-area/ralenti: assets de dev/icons/ (currentColor),
-        // copiados inline para heredar el color de fondo de cada card sin
-        // request HTTP extra — mismo patrón que los SVGs dibujados a mano.
         var svgRalenti =
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 217.13 206.37"><defs><style>.cls-1{fill:#fff;}</style></defs><g id="Capa_2" data-name="Capa 2"><g id="Capa_1-2" data-name="Capa 1"><rect class="cls-1" x="105.99" y="174.49" width="27.15" height="5.53" transform="translate(-93.29 157.06) rotate(-50.58)"/><path class="cls-1" d="M141.3,139a8.13,8.13,0,0,0-11.82,0q-2.05,2.57-2.06,7.51v4.35c0,3.17.73,5.6,2.1,7.3a8.09,8.09,0,0,0,11.84-.05q2-2.59,2-7.49V146.3Q143.35,141.54,141.3,139Zm-2.6,12.48a9,9,0,0,1-.79,4.13,2.64,2.64,0,0,1-2.49,1.35,2.67,2.67,0,0,1-2.52-1.41,9.08,9.08,0,0,1-.79-4.29v-5.75a8.12,8.12,0,0,1,.84-4,2.66,2.66,0,0,1,2.44-1.27,2.71,2.71,0,0,1,2.51,1.34,8.71,8.71,0,0,1,.8,4.28Z"/><path class="cls-1" d="M96,70.86l-9.79,3.51v3.81l5.6-1.74V94.52h4.69V70.86Z"/><rect class="cls-1" x="52.53" y="86.68" width="27.14" height="5.52" transform="translate(-16.44 14.9) rotate(-11.45)"/><rect class="cls-1" x="105.99" y="174.49" width="27.15" height="5.53" transform="translate(-93.28 156.93) rotate(-50.55)"/><rect class="cls-1" x="69.09" y="135.47" width="27.13" height="2" transform="translate(-60.78 66.58) rotate(-32.82)"/><rect class="cls-1" x="63.36" y="19.9" width="2" height="27.13" transform="translate(18.07 89.32) rotate(-77.82)"/><path class="cls-1" d="M0,0V206.37H217.13V0ZM211.13,48.17l-.17,0c-9.53,2.51-15.49,10.57-14.72,19L103.86,92.29l2.35,6.79,92.2-25a20.2,20.2,0,0,0,12.72,9.3v92.88C192.66,190.62,170.28,199,146.19,199,83,199,31.52,141,31.52,69.75a141.31,141.31,0,0,1,15.09-64H211.13Z"/></g></g></svg>';
         var svgCombustible =
             '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
             '<path fill="currentColor" d="m19.77 7.23l.01-.01l-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33a2.5 2.5 0 0 0 2.5 2.5c.36 0 .69-.08 1-.21v7.21c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5a2.5 2.5 0 0 0 5 0V9c0-.69-.28-1.32-.73-1.77M12 10H6V5h6zm6 0c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1"/></svg>';
-        // GPS desconectado manual: icon-unplugged.svg (dev/icons/) —
-        // manipulación física del dispositivo (desenchufar/jammer), no
-        // confundir con el ícono de "Sin Señal GPS" (antena tachada,
-        // watermark de la card gps_signal aparte).
         var svgGpsManual =
             '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">' +
             '<path fill="currentColor" d="M25.6,25.6,22.2,29,19,25.8l3.4-3.4a2,2,0,0,0-2.8-2.8L16.2,23l-1.3-1.3a1.9,1.9,0,0,0-2.8,0l-3,3a9.8,9.8,0,0,0-3,7,9.1,9.1,0,0,0,1.8,5.6L4.6,40.6a1.9,1.9,0,0,0,0,2.8,1.9,1.9,0,0,0,2.8,0l3.2-3.2a10.1,10.1,0,0,0,5.9,1.9,10.2,10.2,0,0,0,7.1-2.9l3-3a2,2,0,0,0,.6-1.4,1.7,1.7,0,0,0-.6-1.4L25,31.8l3.4-3.4a2,2,0,0,0-2.8-2.8Z"/>' +
@@ -2804,16 +2198,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 1024 1023">' +
             '<path fill="currentColor" d="M512 1023q-104 0-199-40.5t-163.5-109T40.5 710T0 511t40.5-198.5t109-163T313 40.5T512 0t199 40.5t163.5 109t109 163T1024 511t-40.5 199t-109 163.5t-163.5 109t-199 40.5m222-199L512 602L290 824q100 71 222 71t222-71M128 511q0 122 70 221l222-222l-221-221q-71 100-71 222m163-313l221 220l221-220q-100-71-221-71t-221 71m534 91L604 510l222 222q70-99 70-221t-71-222"/></svg>';
 
-        // count: número (conectada), null/undefined (falló → "N/D"),
-        // o beta:true (categoría futura → badge "beta", sin número).
-        // vehIds: agent_ids afectados — si hay incidencia y hay ids, la
-        // tarjeta es clicable y abre el panel Informes con esos vehículos
-        // marcados (el usuario elige el informe).
-        // `severe` marca las categorías GRAVES (accidentes, mantención
-        // vencida) — su fondo vira a naranja de alerta individualmente
-        // cuando count>0. Ralentí y el resto son informativos: muestran su
-        // número normal aunque count>0, no pintan naranjo (decisión ya
-        // tomada, ver comentario más abajo).
         var card = function (bg, title, count, iconSvg, titleAttr, isBeta, iconCls, vehIds, reportType, severe) {
             var body;
             if (isBeta) {
@@ -2860,12 +2244,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
                     l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion',
                     null, null, true),
-                // Ralentí: sin click por ahora — el informe con el detalle es el
-                // "Fleet ECO report" (report_type=223 group=6), que runNativeReport
-                // no soporta (necesita group=6). Se conecta en FR-0016. La tarjeta
-                // muestra el número pero no es clicable (no pasamos vehIds).
-                // Informativa, no "severe" — no pinta naranjo (ver comentario en
-                // la función card() más arriba).
                 card('var(--g6)', l('Ralentí excesivo'), ralenti, svgRalenti,
                     l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti'),
                 card('var(--g7)', l('Inconsistencias en Carga'), null, svgCombustible,
@@ -2880,24 +2258,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }));
     },
 
-    // -----------------------------------------------------------------------
-    // Safety Score (ECO) — card 'eco_score'.
-    //
-    // Fuente REAL: reports.php report_type=223 (group=6) = "Fleet ECO report"
-    // nativo de PILOT (el que ve Ana en el panel Informes). Request/schema
-    // capturados en vivo 7 sep — ver spec/api.md §"Fleet ECO report".
-    //
-    // Respuesta: { data: { "<grupo>": { "<patente>": [c0..c8] } } }
-    //   c0 = patente                 c5 = distancia (km)
-    //   c1 = Excess Idle (segundos)  c6 = Duration (segundos)
-    //   c2 = Over Speed (segundos)   c7 = Current Rating (% 0-100, puede ser <0)
-    //   c3 = Harsh Brake (conteo)    c8 = Previous Rating (%)
-    //   c4 = Harsh Accel (conteo)
-    //
-    // El widget muestra un grid de 4 cajas: Global (promedio de Current Rating),
-    // Flota/Carpeta (promedio de la carpeta del dropdown del mapa, o toda la
-    // selección), Top 3 mejor y Top 3 peor por Current Rating.
-    // -----------------------------------------------------------------------
     loadEcoScore: function () {
         var me = this;
         var cfg = (me.config && me.config.ecoScore) || (me.DEFAULT_CONFIG.ecoScore || {});
@@ -2908,16 +2268,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var start = new Date();
             start.setDate(start.getDate() - days);
 
-            // Reusa el cuerpo estándar de reports.php (buildReportBody) y solo
-            // sobrescribe group=6 y report_type=223 (Fleet ECO report).
             var body = me.buildReportBody(223, vehIds.join(','), start, stop)
                 .replace(/(^|&)group=1(&|$)/, '$1group=6$2');
 
             var ctrl = new AbortController();
-            // 25s → 45s (16 sep): con fleet.maxVehicles=1500, el POST manda
-            // hasta 1500 agent_id en un solo request a reports.php — con
-            // flota chica sobraba margen, con la flota real completa
-            // empezó a dar timeout (ECO-SCORE-TIMEOUT). Ver BR-PILOT-0018.
             var to = setTimeout(function () { ctrl.abort(); }, 45000);
 
             fetch('/backend/ax/reports.php', {
@@ -2932,9 +2286,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     return resp.json();
                 })
                 .then(function (data) {
-                    // Cachea la respuesta cruda — la reusa loadAlertasGenerales
-                    // para la alerta de ralentí excesivo (columna c1 = Excess
-                    // Idle en segundos) sin una segunda llamada al reporte.
                     me._lastEcoResp = data;
                     me.renderEcoScore(data, days);
                     me.refreshRalentiAlert();
@@ -2947,11 +2298,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // resp: respuesta de reports.php report_type=223.
     renderEcoScore: function (resp, days) {
         var me = this;
         var groups = (resp && resp.data) || {};
-        // Aplana: [{ name, group, idle, over, brake, accel, dist, dur, cur, prev }]
         var rows = [];
         for (var gName in groups) {
             if (!groups.hasOwnProperty(gName)) { continue; }
@@ -2970,7 +2319,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
-        this._lastEcoRows = rows; // cache para los exportadores
+        this._lastEcoRows = rows;
 
         if (rows.length === 0) {
             this.updateCardBody('eco_score',
@@ -2985,7 +2334,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return Math.round(s / arr.length);
         };
 
-        // Score clamp a 0-100 para las ruedas (report_type=223 puede dar <0).
         var clamp = function (n) { return Math.max(0, Math.min(100, n)); };
 
         var globalScore = avg(rows, 'cur');
@@ -2994,12 +2342,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var onlineTree = this.getOnlineTree();
         var store = onlineTree && onlineTree.getStore && onlineTree.getStore();
 
-        // --- Agrupar filas del reporte por carpeta del árbol Main ---------
-        // El reporte agrupa por su propio `group` (nombre de grupo de PILOT),
-        // que puede no coincidir con las carpetas del árbol. Cruzamos por
-        // nombre de vehículo: para cada carpeta con hojas seleccionadas,
-        // qué filas del reporte le corresponden.
-        var folderStats = [];   // [{ id, label, rows[], score }]
+        var folderStats = [];
         var folderOpts = onlineTree ? this.getMapFolderOptions(onlineTree) : [];
         for (var fo = 0; fo < folderOpts.length; fo++) {
             var fNode = store && store.getNodeById ? store.getNodeById(folderOpts[fo].value) : null;
@@ -3030,12 +2373,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return ' =';
         };
 
-        // Tarjeta plana de score (rediseño 14 sep, referencia snap05714 —
-        // patrón "VERA score"): fondo de color con gradiente leve por
-        // umbral (good/mid/bad, mismos 3 colores que ya usaba la rueda),
-        // número gigante + "/100", etiqueta arriba. Reemplaza el donut SVG
-        // — el usuario reportó que la posición/tamaño anterior le restaba
-        // relevancia al dato más importante de la card.
         var scoreCard = function (label, score, sub) {
             var pct = clamp(score);
             var mod = scoreMod(pct);
@@ -3052,14 +2389,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             };
         };
 
-        // Caja del ranking horizontal: valor semanal grande arriba + nombre,
-        // y debajo un rectángulo con el valor de la semana anterior.
-        // Color completo por umbral, texto blanco.
-        // pos: índice 0-4 dentro del ranking de 5 cajas (2 mejores + mediana
-        // + 2 peores). En compact (<28em, CSS) se ocultan pos 1 y 3 —
-        // quedan mejor/mediana/peor (3 cajas) para no desbordar al lado de
-        // la tarjeta de score de ancho fijo (150px). Ver
-        // .eco-cell--pos-1/--pos-3 en style.css.
         var rankCell = function (item, pos) {
             var mod = scoreMod(item.cur);
             return {
@@ -3079,8 +2408,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             };
         };
 
-        // --- Carpeta específica: solo si hay filtro elegido en el dropdown
-        // del mapa (el mismo _mapFolderFilter que ya dispara este reload). ---
         var specificFolder = null;
         if (this._mapFolderFilter) {
             for (var fs = 0; fs < folderStats.length; fs++) {
@@ -3096,17 +2423,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '%), ' + folderStats.length + ' carpetas' +
             (specificFolder ? ', específica=' + specificFolder.label : ''));
 
-        // Ranking de 5 cajas — sobre los vehículos de la carpeta filtrada
-        // cuando hay selección en el dropdown del mapa, no sobre toda la
-        // flota. Bug encontrado 14 sep: el score grande de la izquierda ya
-        // cambiaba a la carpeta correcta (specificFolder.score), pero el
-        // ranking seguía calculado sobre `rows` completo — el usuario veía
-        // vehículos que no eran de la carpeta filtrada (SAMU) en las cajas.
         var rankSource = specificFolder ? specificFolder.rows : rows;
         var sorted = rankSource.slice().sort(function (a, b) { return b.cur - a.cur; });
 
-        // Ranking de 5 cajas (impar): 2 mejores + mediana + 2 peores.
-        // Si hay < 5 vehículos, se muestran los que haya sin repetir.
         var rankFive = [];
         if (sorted.length <= 5) {
             rankFive = sorted.slice();
@@ -3115,12 +2434,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             rankFive = [sorted[0], sorted[1], mid, sorted[sorted.length - 2], sorted[sorted.length - 1]];
         }
 
-        // Rediseño 14 sep (3ª vuelta, pedido del usuario — la v2 con 2
-        // tarjetas apiladas en 2 filas quedaba "muy grande"): 1 SOLA fila
-        // horizontal. Tarjeta de score angosta a la izq (Global por
-        // defecto; se REEMPLAZA por la carpeta filtrada cuando hay
-        // selección — nunca las 2 juntas) + el ranking de 5 cajas
-        // apretado a la derecha, ganando la mayoría del ancho.
         var activeCard = specificFolder ?
             scoreCard(specificFolder.label, specificFolder.score,
                 specificFolder.rows.length + ' ' + l('vehículos')) :
@@ -3138,31 +2451,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ]
         }), 0, true);
 
-        // La barra "molido por carpeta" se retiró (7 sep) — el contenedor
-        // #promatic_dashboard_enhancer-eco-folder-bar queda vacío/oculto,
-        // reservado para widgets sueltos futuros.
     },
 
-    // -----------------------------------------------------------------------
-    // Tendencia de Infracciones — card 'violations'.
-    //
-    // Fuente REAL: reports.php report_type=114 (group=1) = reporte nativo de
-    // infracciones de manejo de PILOT. Confirmado disponible 15 sep vía
-    // captura de pestaña Red — el campo `msg` de la respuesta trae el texto
-    // heredado "Coming soon", pero `success:true` y `data` sí vienen
-    // completos; `msg` no refleja el estado real del reporte.
-    //
-    // Respuesta: { data: { "<rango de fecha>": [ [veh, group, dateTs,
-    //   driver, distance, duration, speed, accel, braking, idling, turn,
-    //   seatbelt, finePer100, totalFine], ... ] } }
-    //   Cada fila es 1 vehículo en 1 día del rango. Sumamos las 6 columnas
-    //   de infracción (índices 6-11) sobre toda la ventana/flota.
-    //
-    // El widget muestra barras horizontales de conteo total por categoría —
-    // mismo espíritu que el resto de las cards de resumen, sin gráfico de
-    // librería externa (ninguna disponible en el runtime salvo Highcharts,
-    // reservado para los exportadores).
-    // -----------------------------------------------------------------------
     loadViolationsTrend: function () {
         var me = this;
         var cfg = (me.config && me.config.violations) || (me.DEFAULT_CONFIG.violations || {});
@@ -3173,8 +2463,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var start = new Date();
             start.setDate(start.getDate() - days);
 
-            // 25s → 45s (16 sep, BR-PILOT-0018): mismo motivo que ECO-SCORE
-            // — con fleet.maxVehicles=1500 el POST tarda más de 25s.
             me.fetchReportType(114, vehIds.join(','), start, stop, 45000)
                 .then(function (data) {
                     me.renderViolationsTrend(data, days);
@@ -3186,7 +2474,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // resp: respuesta de reports.php report_type=114.
     renderViolationsTrend: function (resp, days) {
         if (!resp || resp.success === false) {
             this.updateCardBody('violations',
@@ -3195,9 +2482,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         var byDate = (resp && resp.data) || {};
-        // c0 nombre, c1 grupo, c2 fecha, c3 conductor, c4 distancia,
-        // c5 duración, c6 velocidad, c7 aceleración, c8 frenado, c9 ralentí,
-        // c10 giro, c11 cinturón, c12 multa/100km, c13 multa total.
         var totals = { speed: 0, accel: 0, braking: 0, idling: 0, turn: 0, seatbelt: 0 };
         var rowCount = 0;
         for (var range in byDate) {
@@ -3216,7 +2500,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
-        this._lastViolationsTotals = totals; // cache para exportadores
+        this._lastViolationsTotals = totals;
 
         if (rowCount === 0) {
             this.updateCardBody('violations',
@@ -3237,8 +2521,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             maxVal = Math.max(maxVal, totals[cats[ci].key]);
         }
 
-        // Sin ninguna infracción en la ventana: mismo patrón "todo OK" que
-        // Sin Señal GPS — evita una fila de barras vacías sin sentido visual.
         if (maxVal === 0) {
             this.updateCardBody('violations', Ext.DomHelper.markup({
                 cls: 'promatic_dashboard_enhancer-violations-ok',
@@ -3271,28 +2553,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }), 0, true);
     },
 
-    // Hotspots de desconexión (card 'hotspots') — heatmap sobre un
-    // MapContainer PROPIO (instancia nueva, NUNCA window.mapContainer, que es
-    // la global del mapa Online — Sergei, respuesta 3 sep punto 4).
-    // Datos: events.php type=15 ("No connection"), ventana 30 días, cada item
-    // trae lat/lon. Se agrega por celda de ~0.01° y se pasa a setHeatmap.
     getMapContainerClass: function () {
         return window.MapContainer ||
             (window.Pilot && Pilot.utils && Pilot.utils.MapContainer) || null;
     },
 
-    // Monta un Ext.panel.Panel dentro del div de mount de la card 'hotspots'
-    // y crea ahí una instancia propia de MapContainer, siguiendo el patrón
-    // oficial de examples/airports/Map.js (BR-PILOT-0007):
-    //   - init(lat, lon, zoom, this.id + '-body', false)
-    //     → el 4º arg DEBE ser el id del -body de un panel Ext YA RENDERIZADO,
-    //       no un <div> arbitrario (ese era el bug: el <div> no montaba la
-    //       instancia y MapContainer caía al mapa global).
-    //   - checkResize() en el evento 'resize' del panel.
-    // Centroide + bounding box de los vehículos en alcance con coordenadas
-    // válidas — usado para el centrado/zoom inicial del mapa (en vez de
-    // coordenadas fijas de Santiago). Devuelve null si no hay ningún
-    // vehículo con coords todavía (fallback al caller).
     _fleetCentroid: function () {
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) { return null; }
@@ -3308,8 +2573,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return { center: [sumLat / pts.length, sumLon / pts.length], points: pts };
     },
 
-    // Se llama en el afterrender del panel principal, cuando el shell ya
-    // está en el DOM con dimensiones.
     buildHotspotsMapPanel: function () {
         var me = this;
         var body = Ext.get('promatic_dashboard_enhancer-card-body-hotspots');
@@ -3321,7 +2584,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
             return;
         }
-        if (me._hotspotsPanel) { return; } // ya montado
+        if (me._hotspotsPanel) { return; }
         if (!me.getMapContainerClass()) {
             body.setHtml(l('El mapa no está disponible en este runtime.'));
             return;
@@ -3329,9 +2592,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         // Limpia el skeleton 'map' y monta el panel Ext ahí.
         body.setHtml('');
-        // Overlay de carga (23 sep) — el mapa base se ve vacío mientras
-        // loadFleetHeatmap trae la data por fetch; se muestra/oculta con
-        // _showHotspotsMapLoading, ver ahí.
         Ext.DomHelper.append(body, {
             cls: 'promatic_dashboard_enhancer-hotspots-map-loading',
             id: 'promatic_dashboard_enhancer-hotspots-map-loading',
@@ -3342,11 +2602,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: 'promatic_dashboard_enhancer-hotspots-map',
             bodyCls: 'promatic_dashboard_enhancer-hotspots-map-body',
             layout: 'fit',
-            // Alto fijo, igual al de #card-body-hotspots en CSS (450px,
-            // 14 sep — antes 650/500, bajado para que la columna con Safety
-            // Score arriba no necesite scroll). No se ajusta dinámicamente
-            // por altura — solo por ancho (ResizeObserver de más abajo
-            // dispara checkResize de Leaflet).
             height: 450,
             border: false,
             listeners: {
@@ -3354,38 +2609,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     try {
                         var MC = me.getMapContainerClass();
                         me._hotspotsMap = new MC('promatic_dashboard_enhancer_hotspots');
-                        // Centrado FIJO en la Región Metropolitana (Santiago),
-                        // zoom 11 (23 sep, bajado 1x desde 12 — pedido del
-                        // usuario: se aprecian mejor los hotspots sin
-                        // necesidad de ver el detalle de calles) — a
-                        // diferencia de fleet_map, este mapa ya no sigue el
-                        // centroide de la flota ni se reencuadra por
-                        // fitBounds al recibir el heatmap (setHeatmap corre
-                        // con isBounds=false más abajo, ver
-                        // loadFleetHeatmap): el foco es "zonas de pérdida de
-                        // conexión en la región", no la flota.
                         me._hotspotsMap.init(-33.45, -70.66, 11, this.id + '-body', false);
                         me.populateMapFolderDropdown();
                         me.bindHotspotsGapModeToggle();
                         me.loadFleetHeatmap();
-                        // Leaflet midió el contenedor antes de que el layout
-                        // flex terminara — recalcular a los 300/700ms para
-                        // que ocupe todo el ancho (rectangular, no cuadrado).
                         Ext.defer(function () {
                             if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
                         }, 300);
                         Ext.defer(function () {
                             if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
                         }, 700);
-                        // #card-body-hotspots tiene alto fijo por CSS (650px,
-                        // cuadrado) — se retiró resize:both (4 sep) porque
-                        // competía con el layout responsive: al achicar la
-                        // ventana el mapa quedaba "flotando" con el alto del
-                        // último drag manual en vez de ajustarse al ancho
-                        // real de la columna. El ResizeObserver ya NO toca
-                        // la altura del panel Ext (setHeight) — solo dispara
-                        // checkResize() para que Leaflet se re-mida cuando
-                        // cambia el ancho de la columna (breakpoints).
                         if (window.ResizeObserver && body.dom) {
                             me._hotspotsResizeObserver = new ResizeObserver(function () {
                                 if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
@@ -3406,17 +2639,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // -----------------------------------------------------------------------
-    // Mapa "Ubicación de la Flota" (card 'hotspots') — heatmap de la ÚLTIMA
-    // posición GPS conocida de cada vehículo, tomada del store del online_tree
-    // (sin llamada HTTP). Un dropdown en el head filtra por carpeta del árbol
-    // "Principal" (o "Ver todos los seleccionados"). Pensado como fallback de
-    // feria: funciona con cualquier flota que se cargue en la cuenta.
-    // -----------------------------------------------------------------------
-
-    // Extrae [lat, lon] de un record del online_tree probando los campos que
-    // PILOT suele usar. Si tu build expone otro nombre, agrégalo acá — el
-    // console.warn de abajo (0 con coords) es la señal de que falta un campo.
     _recordLatLon: function (rec) {
         var g = function (k) {
             var v = rec.get ? rec.get(k) : (rec.data ? rec.data[k] : undefined);
@@ -3439,10 +2661,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return null;
     },
 
-    // Lista de { value, label } de las carpetas del árbol "Principal" que
-    // tienen al menos una hoja SELECCIONADA (checked) en el panel Main.
-    // value = id del nodo carpeta. Si el alcance es "toda la flota" (no
-    // pilot-selection), cae a "carpetas con ≥1 hoja con agentid".
     getMapFolderOptions: function (onlineTree) {
         var store = onlineTree && onlineTree.getStore && onlineTree.getStore();
         var root = store && store.getRoot && store.getRoot();
@@ -3460,13 +2678,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var out = [];
         root.cascadeBy(function (node) {
             if (node === root) { return; }
-            if (node.get('agentid')) { return; } // hoja, no carpeta
-            // Solo vehículos HIJOS DIRECTOS de esta carpeta — no basta con
-            // tener un descendiente relevante en alguna subcarpeta anidada.
-            // Sin esto, una carpeta contenedora sin vehículos propios (ej.
-            // "FLOTA" con toda su flota dentro de una subcarpeta) aparecía
-            // en el dropdown junto a la subcarpeta real, duplicando la
-            // opción sin aportar nada (pedido del usuario, 14 sep).
+            if (node.get('agentid')) { return; }
             var hasDirectLeaf = false;
             if (node.eachChild) {
                 node.eachChild(function (c) {
@@ -3516,11 +2728,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Toggle "Cortes largos" / "Intermitencias breves" del head de
-    // 'hotspots' (22 sep). A diferencia del dropdown de carpeta, no
-    // dispara un fetch nuevo — ambos buckets ya están calculados en
-    // _hotspotsPointsByMode (loadFleetHeatmap), solo redibuja el heatmap
-    // con _paintHotspotsHeatmap.
     bindHotspotsGapModeToggle: function () {
         var me = this;
         var sel = document.getElementById('promatic_dashboard_enhancer-hotspots-gap-mode');
@@ -3533,16 +2740,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Records de vehículos para el mapa: si hay filtro de carpeta activo, solo
-    // las hojas descendientes de ese nodo; si no, el alcance normal
-    // (getScopedFleetRecords = selección de "Principal" o toda la flota).
     getMapScopedRecords: function (onlineTree) {
         return this._folderScopedRecords(onlineTree, this._mapFolderFilter);
     },
 
-    // Versión genérica — usada también por 'fleet_map' (Ubicación Global
-    // de la Flota) con su propio filtro (_fleetMapFolderFilter), sin
-    // compartir estado con el dropdown del mapa de hotspots.
     _folderScopedRecords: function (onlineTree, folderId) {
         if (!folderId) {
             return this.getScopedFleetRecords(onlineTree);
@@ -3557,37 +2758,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return recs;
     },
 
-    // Hotspots de desconexión GPS — heatmap puro sobre _hotspotsMap
-    // (FR-0024, 16 sep; heatmap-only 22 sep; 2 capas 22 sep):
-    //  - HISTÓRICO real de cortes vía reports.php report_type=73
-    //    ("Connection lost" — confirmado en vivo con request real de
-    //    DEMO_CLIENT, ver spec/api.md). Reemplaza el intento anterior con
-    //    events.php type=15 (daba total:0 en esta cuenta).
-    //  - 2 CAPAS (22 sep, pedido del usuario): el usuario esperaba ver
-    //    túneles/pasos subterráneos (Túnel San Cristóbal, tramos de
-    //    Américo Vespucio Oriente, Zapata-Lo Prado) y solo aparecían
-    //    sucursales/estacionamientos — porque esos cortes breves (10-90s)
-    //    quedaban por debajo del piso minGapSeconds=120 que se usaba para
-    //    TODO el request. Ahora se pide con el piso más bajo posible
-    //    (shortGapMinSeconds) para traer todo en 1 sola llamada, y se
-    //    separa client-side en 2 buckets por duración real: "Cortes largos"
-    //    (>minGapSeconds, vehículo apagado/fuera de cobertura) vs.
-    //    "Intermitencias breves" (shortGapMinSeconds–shortGapMaxSeconds,
-    //    candidatos a túnel/subterráneo). Toggle en el head de la card
-    //    (_hotspotsGapMode, default 'long') decide cuál se pinta — nunca
-    //    se mezclan en el mismo heatmap (las sucursales dominarían
-    //    visualmente sobre los túneles).
-    // La capa de marcadores de vehículos offline ahora mismo se retiró
-    // (22 sep, pedido del usuario) — ese detalle ahora vive en el modal de
-    // "Sin Señal GPS" (buildGpsSignalReport). Esta card queda enfocada
-    // 100% en dónde se pierde conexión con más frecuencia, no en quién
-    // está desconectado ahora.
-    // Decisión del usuario (16 sep): esta card es independiente de
-    // fleet_map — nunca se fusionan ni comparten estado.
-    // Muestra/oculta el overlay de carga sobre el mapa de hotspots (23 sep).
-    // El div se crea una sola vez en buildHotspotsMapPanel; acá solo se
-    // togglea su visibilidad — se llama antes de cada fetch (show) y al
-    // recibir data o error (hide).
     _showHotspotsMapLoading: function (show) {
         var el = Ext.get('promatic_dashboard_enhancer-hotspots-map-loading');
         if (!el) { return; }
@@ -3616,8 +2786,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var start = new Date();
             start.setDate(start.getDate() - windowDays);
 
-            // Piso bajo (shortMin) trae TODO — largos y breves — en 1 sola
-            // llamada; la clasificación real ocurre abajo por duración.
             me.fetchConnectionLostPoints(csv, start, stop, shortMin)
                 .then(function (rawPoints) {
                     var bucketsLong = {}, bucketsShort = {};
@@ -3627,7 +2795,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         var duration = p[2] || 0;
                         var isShort = duration >= shortMin && duration <= shortMax;
                         var isLong = duration >= minGapSeconds;
-                        if (!isShort && !isLong) { continue; } // zona muerta entre bandas, no clasificable
+                        if (!isShort && !isLong) { continue; }
                         var key = p[0].toFixed(3) + ',' + p[1].toFixed(3);
                         var target = isShort ? bucketsShort : bucketsLong;
                         if (!target[key]) { target[key] = { lat: p[0], lng: p[1], count: 0 }; }
@@ -3659,10 +2827,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Pinta el bucket activo (_hotspotsGapMode, 'long'|'short') sobre
-    // _hotspotsMap. Separado de loadFleetHeatmap (22 sep) para que el
-    // toggle del head pueda redibujar sin volver a pedir datos a la API —
-    // ambos buckets ya están calculados en _hotspotsPointsByMode.
     _paintHotspotsHeatmap: function () {
         var me = this;
         var map = this._hotspotsMap;
@@ -3684,9 +2848,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         try {
             if (typeof map.setHeatmap === 'function') {
-                // isBounds=false (22 sep) — el mapa mantiene el centro/zoom
-                // fijo de la Región Metropolitana fijado en el render del
-                // panel, no se reencuadra según la dispersión de los puntos.
                 map.setHeatmap(points, false, label);
             }
             if (map.checkResize) { map.checkResize(); }
@@ -3697,10 +2858,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Trae los [lat, lon] de cada evento type=`type` en el rango dado —
-    // usado por el heatmap de desconexión. Mismo endpoint que
-    // fetchEventVehicles (Alertas Generales), pero devuelve coordenadas en
-    // vez de agent_ids. Descarta items sin lat/lon válidos.
     fetchEventPoints: function (vehIdsCsv, type, dateStart, dateStop) {
         var qs = 'cmd=search&veh=' + encodeURIComponent(vehIdsCsv) +
             '&type=' + encodeURIComponent(type) +
@@ -3725,31 +2882,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
     },
 
-    // Trae [lat, lon] de cada corte de señal en el rango dado — fuente REAL
-    // del heatmap histórico de hotspots (FR-0024, 16 sep): reports.php
-    // report_type=73 ("Connection lost"), group=1. Confirmado en vivo con
-    // request real de DEMO_CLIENT (ver spec/api.md §"report_type=73"):
-    //
-    //   data: { "<rango legible>": { "<índice disperso>": { lat, lon,
-    //     msg:"Connection Lost", veh:"<patente>", data:[patente, modelo,
-    //     ts_start, ts_stop, duration_seconds, {lat, lon}] }, ... } }
-    //
-    // OJO: cada rango es un OBJETO con claves numéricas dispersas (ej.
-    // "0","8","41"...), NO un array — confirmado 22 sep con flota completa
-    // (~400 vehículos, cientos de cortes reales en la respuesta). Iterar
-    // con for...in, nunca asumir .length/índices consecutivos (bug real
-    // encontrado: el heatmap daba "0 celdas" siempre pese a datos reales).
-    //
-    // contrTimeFloor viaja en el parámetro contr_time del body (mismo campo
-    // que "Min time (sec)" del reporte nativo) — es el PISO que la API de
-    // PILOT aplica en el request; cualquier corte más corto que eso ni
-    // siquiera viaja en la respuesta. loadFleetHeatmap (22 sep) siempre
-    // pide con el piso más bajo configurado (shortGapMinSeconds) para traer
-    // TODO (breves + largos) en una sola llamada, y separa client-side por
-    // duración real (ver duration abajo) — evita 2 requests HTTP.
-    //
-    // Devuelve [lat, lon, durationSeconds] por corte (antes solo [lat,lon]
-    // — duration se agrega 22 sep para poder clasificar breve/largo).
     fetchConnectionLostPoints: function (vehIdsCsv, startDate, stopDate, contrTimeFloor) {
         var body = this.buildReportBody(73, vehIdsCsv, startDate, stopDate)
             .replace(/contr_time=\d+/, 'contr_time=' + encodeURIComponent(contrTimeFloor))
@@ -3769,22 +2901,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 var out = [];
                 for (var rangeKey in data) {
                     if (!data.hasOwnProperty(rangeKey)) { continue; }
-                    // items llega como OBJETO con claves numéricas dispersas
-                    // (ej. "0","8","41"...), no como array — confirmado 22
-                    // sep con payload real de DEMO_CLIENT (flota completa,
-                    // ~400 vehículos). El `for` sobre items.length quedaba
-                    // siempre en 0 (undefined en un objeto plano), por eso
-                    // el heatmap nunca pintaba pese a que la API sí traía
-                    // cientos de cortes reales — bug de parseo, no de datos.
                     var items = data[rangeKey] || {};
                     for (var itemKey in items) {
                         if (!items.hasOwnProperty(itemKey)) { continue; }
                         var item = items[itemKey];
                         var lat = Number(item.lat), lon = Number(item.lon);
                         if (isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0) {
-                            // item.data = [patente, modelo, ts_start, ts_stop,
-                            // duration_seconds, {lat, lon}] — confirmado 22
-                            // sep con payload real.
                             var duration = (item.data && Number(item.data[4])) || 0;
                             out.push([lat, lon, duration]);
                         }
@@ -3794,39 +2916,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
     },
 
-    // -----------------------------------------------------------------------
-    // Ubicación Global de la Flota (card 'fleet_map') — 15 sep.
-    //
-    // Reemplaza el widget "Vehículos por Sucursal" (ADR-016, retirado del
-    // shell): en vez de match vehículo↔geocerca, muestra CADA vehículo en
-    // su última posición conocida, agrupado con el clustering NATIVO de
-    // MapContainer (addCluster/window.L.markerClusterGroup — confirmado
-    // en vivo por el usuario en el mapa "Main" de PILOT, mismo mecanismo,
-    // instancia propia). Sin heatmap: marcadores reales, visibles en
-    // cualquier nivel de zoom (el heatmap de última posición se ELIMINÓ —
-    // era el problema original reportado: "al hacer zoom el heatmap
-    // desaparece y no se ve el ícono del vehículo").
-    //
-    // addCluster(markersArray, options) — firma real volcada en consola
-    // por el usuario (no documentada en MapContainer.md):
-    //   markersArray: [{ lat, lon, id, size, tooltip, ... }] (mismo shape
-    //     que addMarker — internamente llama addMarker() por cada uno con
-    //     notBindToMap:true).
-    //   options: { id, isClusterHoverContent, ...opciones de Leaflet.
-    //     markercluster (chunkedLoading, disableClusteringAtZoom, etc.) }.
-    //   isClusterHoverContent:true arma un popup rico tirando de
-    //     Ext.getCmp('online_objects_tree') — específico del mapa nativo,
-    //     NO reutilizable acá. Usamos tooltip individual por marcador en
-    //     su lugar (mismo patrón que ya usa el resto del dashboard).
-    //
-    // Ícono del marcador: mismo endpoint nativo que usa el mapa "Main"
-    // (/backend/markers/get.php?a=1, con &i=1 = ignición encendida) — el
-    // usuario confirmó visualmente (15 sep) que `firing` del online_tree
-    // coincide 1:1 con el ícono de llave (naranja=encendido/gris=apagado),
-    // cruzando el payload de current_data.php contra decenas de vehículos
-    // sin excepciones. URL relativa a window.location.origin, nunca host
-    // fijo (NOC-006, la extensión corre en cualquier subdominio de Pilot).
-    // -----------------------------------------------------------------------
     buildFleetMapPanel: function () {
         var me = this;
         var body = Ext.get('promatic_dashboard_enhancer-card-body-fleet_map');
@@ -3918,12 +3007,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Arma 1 marcador por vehículo en alcance (posición actual del
-    // online_tree, sin request HTTP) y los agrupa con addCluster(). Un
-    // solo cluster fijo (id 'fleet_map_cluster') — se limpia y se
-    // reconstruye completo en cada carga (más simple y suficientemente
-    // barato para el tamaño de flota de esta cuenta; updateMarkers()
-    // existe para actualizar in-place si hiciera falta optimizar después).
     loadFleetMapClusters: function () {
         var me = this;
         var map = this._fleetMap;
@@ -3932,11 +3015,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) { return; }
 
-        // Geocercas de sucursal/base — se cargan una vez (cacheadas en
-        // _lastGeofences por loadBranchGeofences, código de ADR-016) y se
-        // reusan en cada refresh sin request extra. Solo importan si hay
-        // algún mapeo configurado (config.branches.clientMap) — si no,
-        // saltamos el fetch entero.
         var cfg = (me.config && me.config.branches) || (me.DEFAULT_CONFIG.branches || {});
         var hasClientMap = (cfg.clientMap || []).length > 0;
 
@@ -3951,9 +3029,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Construye y dibuja los marcadores — separado de loadFleetMapClusters
-    // para poder esperar la carga de geocercas (async) sin anidar todo el
-    // cuerpo de la función en el callback del fetch.
     _renderFleetMapMarkers: function (onlineTree) {
         var me = this;
         var map = this._fleetMap;
@@ -3963,12 +3038,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var markers = [];
         var withCoords = 0;
         var branchMatches = 0;
-        // Geocercas (Bases/Sucursales) que coinciden con al menos 1
-        // vehículo del scope actual — se dibuja el polígono solo de esas,
-        // no de las ~80 del grupo completo (saturaría el mapa). Keyed por
-        // id de geocerca; { geofence, count } — el count arma el label del
-        // polígono ("BASE 40 - 46 (2 vehículos)"), pedido del usuario 23
-        // sep tras verificar en vivo el match del vehículo 138.
         var matchedBranches = {};
 
         for (var i = 0; i < records.length; i++) {
@@ -3976,27 +3045,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (!ll) { continue; }
             withCoords++;
             var online = records[i].get ? !!records[i].get('is_server_online') : false;
-            // Ícono nativo de PILOT (mismo que el mapa "Main"): ?a=1 = auto
-            // sin llave (apagado), ?a=1&i=1 = auto con llave naranja
-            // (ignición encendida). `firing` del online_tree confirma 1:1
-            // contra el sensor de ignición real (verificado por el usuario
-            // 15 sep, cruzando current_data.php contra el ícono visible en
-            // varias decenas de vehículos, sin excepciones).
             var firing = records[i].get ? !!records[i].get('firing') : false;
-            // URL relativa al host actual — nunca 'global.pilot-gps.com'
-            // fijo (esta extensión corre en cualquier subdominio/cuenta de
-            // Pilot, mismo criterio que el resto del dashboard, NOC-006).
             var iconUrl = window.location.origin + '/backend/markers/get.php?a=1' + (firing ? '&i=1' : '');
 
-            // Match sucursal/base (ADR-018) — SOLO para vehículos apagados
-            // (firing=0): un vehículo encendido está en tránsito, no
-            // "estacionado en una ubicación". Requiere _lastGeofences ya
-            // cargado (loadFleetMapClusters lo garantiza antes de llamar
-            // acá si hay clientMap configurado). try/catch propio: un error
-            // acá (geocerca malformada, etc.) es un dato OPCIONAL del
-            // tooltip — nunca debe tumbar el render del mapa completo (bug
-            // real encontrado 15 sep: un error sin catch en esta lógica
-            // dejaba "Ubicación Global de la Flota" completamente vacío).
             var branch = null;
             if (!firing && this._lastGeofences) {
                 try {
@@ -4025,11 +3076,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 lat: ll[0],
                 lon: ll[1],
                 icon: iconUrl,
-                // 'mini' se veía diminuto a cualquier nivel de zoom
-                // (reportado por el usuario, 15 sep, comparando con el
-                // tamaño real del ícono en el mapa nativo) — 'medium' es
-                // el tamaño de referencia de la documentación de
-                // MapContainer.md para íconos de vehículo con detalle.
                 size: 'medium',
                 tooltip: { msg: tooltipMsg }
             });
@@ -4046,9 +3092,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         } catch (e) { /* no-op */ }
 
-        // Limpia los polígonos de geocerca de la pasada anterior antes de
-        // dibujar los nuevos — ids guardados en _fleetMapBranchPolygonIds
-        // (23 sep, ver más abajo).
         try {
             var prevIds = me._fleetMapBranchPolygonIds || [];
             for (var pi = 0; pi < prevIds.length; pi++) {
@@ -4066,12 +3109,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (typeof map.addCluster === 'function') {
                 map.addCluster(markers, { id: 'fleet_map_cluster' });
             }
-            // Polígonos de geocerca (Bases/Sucursales) para las que hubo al
-            // menos 1 match de vehículo apagado (23 sep, pedido del usuario
-            // tras verificar en vivo BASE 40-46/vehículo 138) — solo las
-            // que coinciden, no el grupo completo (~80 geocercas SAMU
-            // saturaría el mapa). Reusa setPolygon (mismo patrón que el
-            // widget retirado 'vehicles_by_branch', ADR-016).
             if (typeof map.setPolygon === 'function') {
                 for (var bId in matchedBranches) {
                     if (!matchedBranches.hasOwnProperty(bId)) { continue; }
@@ -4095,25 +3132,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     }
                 }
             }
-            // Bug encontrado 23 sep: se reencuadraba con _fleetCentroid(),
-            // que lee getMapScopedRecords() (scope general del mapa) — un
-            // set de puntos DISTINTO al que realmente se dibujó acá
-            // (_folderScopedRecords con _fleetMapFolderFilter). Con la
-            // flota completa eso daba un bounds enorme (fitBounds sobre
-            // TODA la dispersión geográfica) → zoom-out extremo, 1 solo
-            // cluster gigante con el 100% de los vehículos en vez de los
-            // 3-4 clusters regionales esperados. Fix: fitBounds contra los
-            // puntos de los marcadores realmente dibujados (`markers`).
             if (map.setMapCenter) {
                 var pts = [];
                 for (var m = 0; m < markers.length; m++) { pts.push([markers[m].lat, markers[m].lon]); }
                 if (pts.length > 0) {
                     map.setMapCenter(pts);
-                    // +1x de zoom sobre el resultado del fitBounds (23 sep,
-                    // pedido del usuario) — relativo al zoom que Leaflet
-                    // calculó según la dispersión real de los puntos, no un
-                    // valor fijo (un fijo se vería mal tanto con flota muy
-                    // concentrada como muy dispersa).
                     if (map.setMapZoom && map.getMap) {
                         var leafletMap = map.getMap();
                         if (leafletMap && leafletMap.getZoom) {
@@ -4128,23 +3151,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // -----------------------------------------------------------------------
-    // Vehículos por Sucursal (ADR-016) — card 'vehicles_by_branch'.
-    //
-    // Fuente: GET /api/v3/geofences (URL relativa — same-origin, NOC-006).
-    // Trae TODAS las geocercas de la cuenta; el filtro de cuáles son
-    // "sucursal" pasa por _matchGeofenceGroup (patrón de nombre), no por
-    // un campo del schema — ver ADR-016.
-    //
-    // Corrección 15 sep: 2 dropdowns INDEPENDIENTES, sin match automático
-    // entre ellos — dropdown 1 = carpeta de flota del árbol "Principal"
-    // (populateBranchFleetDropdown, _branchFolderFilter), dropdown 2 =
-    // geocerca de sucursal/base (populateBranchSelectDropdown,
-    // _branchGeofenceFilter). No existe forma confiable de inferir el par
-    // carpeta↔grupo de geocercas desde el nombre (ej. "FORD 4x4" no
-    // comparte texto con "Sucursales [Econorent]") — el usuario elige
-    // ambos a mano. Ver ADR-016, actualización 15 sep.
-    // -----------------------------------------------------------------------
     loadBranchGeofences: function (callback) {
         var me = this;
         var ctrl = new AbortController();
@@ -4170,8 +3176,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             .finally(function () { clearTimeout(to); });
     },
 
-    // true si `name` (group_name de una geocerca) matchea algún patrón de
-    // config.branches.namePatterns — case-insensitive, substring simple.
     _matchGeofenceGroup: function (name) {
         if (!name) { return false; }
         var cfg = (this.config && this.config.branches) || (this.DEFAULT_CONFIG.branches || {});
@@ -4183,10 +3187,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return false;
     },
 
-    // Test punto-en-polígono estándar (ray casting / even-odd rule).
-    // points: array de [lat, lon] (mismo formato que devuelve
-    // MapContainer.getPointsZoneData). Algoritmo O(n) sobre los vértices
-    // del polígono, sin dependencia externa.
     _pointInPolygon: function (lat, lon, points) {
         var inside = false;
         for (var i = 0, j = points.length - 1; i < points.length; j = i++) {
@@ -4199,10 +3199,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return inside;
     },
 
-    // Filtra `records` (records del online_tree) a los que caen dentro del
-    // polígono `points` según su última posición conocida (_recordLatLon).
-    // Devuelve [{ record, lat, lon }] — no solo records, para no recalcular
-    // la posición en el caller (render de marcadores/lista).
     _vehiclesInGeofence: function (points, records) {
         var out = [];
         for (var i = 0; i < records.length; i++) {
@@ -4215,21 +3211,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return out;
     },
 
-    // -----------------------------------------------------------------------
-    // Match sucursal/base en tooltip de "Ubicación Global de la Flota"
-    // (ADR-018, 15 sep). Distinto de ADR-016 (retirado): no hay dropdowns,
-    // es un dato extra en el tooltip de vehículos APAGADOS — "¿está esta
-    // ubicación configurada como sucursal/base del cliente dueño de esta
-    // flota?". Usa el mapeo explícito config.branches.clientMap (carpeta→
-    // group_names exactos), no inferencia por patrón.
-    // -----------------------------------------------------------------------
-
-    // Sube por la cadena de ancestros de `record` en el árbol y devuelve la
-    // entrada de config.branches.clientMap cuyo folderMatch aparece
-    // (case-insensitive, substring) en el nombre de algún ancestro — o
-    // null si ninguno matchea. No asume profundidad fija (cubre carpeta
-    // padre directa o varios niveles arriba, ej. "FLOTA" > "FORD NEW
-    // RANGER 4x4" > vehículo).
     _clientMapEntryForRecord: function (record) {
         var cfg = (this.config && this.config.branches) || (this.DEFAULT_CONFIG.branches || {});
         var clientMap = cfg.clientMap || [];
@@ -4241,8 +3222,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (name) {
                 for (var i = 0; i < clientMap.length; i++) {
                     var entry = clientMap[i];
-                    if (entry.folderMatch && name.indexOf(String(entry.folderMatch).toLowerCase()) !== -1) {
-                        return entry;
+                    var nombres = [].concat(entry.nombreFlota || []);
+                    for (var j = 0; j < nombres.length; j++) {
+                        if (nombres[j] && name.indexOf(String(nombres[j]).toLowerCase()) !== -1) {
+                            return entry;
+                        }
                     }
                 }
             }
@@ -4251,17 +3235,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return null;
     },
 
-    // Dado un record de vehículo APAGADO y las geocercas ya cargadas
-    // (_lastGeofences — reusa loadBranchGeofences, código de ADR-016),
-    // devuelve la geocerca de sucursal/base COMPLETA que contiene su
-    // posición actual, o null si no hay match de cliente o no cae dentro
-    // de ninguna. Solo compara contra los group_names EXACTOS listados
-    // para ese cliente — nunca "Taller [Cliente]" aunque sea el mismo
-    // corchete, porque no está en la lista explícita.
-    // Devuelve el objeto geocerca completo (antes solo `name`, 23 sep) —
-    // _renderFleetMapMarkers necesita también `id`/`points` para dibujar
-    // el polígono de la geocerca donde coincide un vehículo (FR pedido
-    // por el usuario tras verificar en vivo el match BASE 40-46/veh 138).
     _findVehicleBranch: function (record, geofences) {
         var entry = this._clientMapEntryForRecord(record);
         if (!entry || !entry.groupNames || entry.groupNames.length === 0) { return null; }
@@ -4272,8 +3245,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         for (var i = 0; i < geofences.length; i++) {
             var g = geofences[i];
             if (!g.group_name || entry.groupNames.indexOf(g.group_name) === -1) { continue; }
-            // 'circle' no es un polígono (points = [lat, lon, radioM]) —
-            // sin soporte de ray-casting para círculos todavía, se salta.
             if (g.type === 'circle') { continue; }
             var points = this._geofencePolygonPoints(g);
             if (!points || points.length < 3) { continue; }
@@ -4284,13 +3255,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return null;
     },
 
-    // Normaliza `geofence.points` al formato [[lat, lon], ...] que espera
-    // _pointInPolygon. GET /api/v3/geofences devuelve `points` ya como
-    // array de pares [lat, lon] (confirmado en vivo 15 sep) — NO como el
-    // string "lat,lon|lat,lon|..." que parsea MapContainer.getPointsZoneData
-    // (ese formato es el de otro endpoint/uso interno de PILOT; usarlo acá
-    // rompía con "e.split is not a function" porque points ya es array,
-    // bug encontrado en vivo por el usuario tras esta misma implementación).
     _geofencePolygonPoints: function (geofence) {
         var raw = geofence && geofence.points;
         if (!Array.isArray(raw)) { return null; }
@@ -4304,15 +3268,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return out;
     },
 
-    // Escribe un mensaje de estado (placeholder, error) en el mount de la
-    // lista de 'vehicles_by_branch' — NUNCA usar updateCardBody('vehicles_
-    // by_branch', ...) para esto: updateCardBody hace setHtml() sobre TODO
-    // el body de la card, lo que destruye #branch-map-mount y con él el
-    // panel Ext/MapContainer ya montado (bug encontrado 15 sep — tras
-    // elegir ambos dropdowns "no pasaba nada" porque el primer mensaje de
-    // estado ya había borrado el mapa). Antes de que exista el mount (map
-    // panel aún no construido), no hace nada — buildBranchMapPanel llama
-    // esto recién después de crear la estructura.
     _updateBranchStatus: function (html) {
         var mount = Ext.get('promatic_dashboard_enhancer-branch-veh-list-mount');
         if (mount) {
@@ -4320,12 +3275,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Monta el Ext.panel.Panel + MapContainer propio de 'vehicles_by_branch'
-    // — mismo patrón que buildHotspotsMapPanel (BR-PILOT-0007): instancia
-    // propia, nunca window.mapContainer, requiere el -body de un panel Ext
-    // ya renderizado. Estructura: [div del mapa (id propio)] + [div de la
-    // lista, hermano] — el panel Ext se renderiza SOLO en el primero, así
-    // el layout:'fit' del panel no se come el espacio de la lista.
     buildBranchMapPanel: function () {
         var me = this;
         var body = Ext.get('promatic_dashboard_enhancer-card-body-vehicles_by_branch');
@@ -4393,16 +3342,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Dropdown 1: puebla con las CARPETAS de flota del árbol "Principal"
-    // (mismo listado que usa el mapa de hotspots — getMapFolderOptions).
-    // Corrección 15 sep: el diseño original tenía los 2 dropdowns
-    // totalmente independientes (no había forma confiable de inferir el
-    // par por nombre completo). El usuario confirmó después una señal SÍ
-    // confiable: el texto entre corchetes del group_name de la geocerca
-    // (ej. "Bases [SAMU]" → "SAMU") es el cliente/organización dueño de
-    // esa flota — si ese texto aparece en el nombre de la carpeta elegida
-    // acá, el grupo de geocercas correspondiente se filtra en el dropdown
-    // 2 (ver populateBranchSelectDropdown / _extractBracketTag).
     populateBranchFleetDropdown: function () {
         var me = this;
         var sel = document.getElementById('promatic_dashboard_enhancer-branch-group');
@@ -4437,30 +3376,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 me._branchFolderFilter = sel.value || null;
                 var selectedOpt = sel.options[sel.selectedIndex];
                 me._branchFolderLabel = (me._branchFolderFilter && selectedOpt) ? selectedOpt.textContent : null;
-                me._branchGeofenceFilter = null; // la sucursal elegida puede ya no aplicar al nuevo filtro
+                me._branchGeofenceFilter = null;
                 me.populateBranchSelectDropdown();
             });
         }
     },
 
-    // Extrae el texto entre el primer par de corchetes de un string — el
-    // group_name de una geocerca de sucursal/base trae el cliente/
-    // organización ahí (ej. "Bases [SAMU]" → "SAMU"). null si no hay
-    // corchetes.
     _extractBracketTag: function (str) {
         var m = /\[([^\]]+)\]/.exec(String(str || ''));
         return m ? m[1] : null;
     },
 
-    // Dropdown 2: puebla con las geocercas cuyo group_name matchea
-    // _matchGeofenceGroup (patrón "sucursal"/"base") Y, si hay una flota
-    // elegida en dropdown 1 (_branchFolderLabel), cuyo tag entre corchetes
-    // del group_name (_extractBracketTag) aparece en el nombre de esa
-    // carpeta — ej. carpeta "SAMU" solo ve "Bases [SAMU]", no "Sucursales
-    // [Econorent]" (corrección 15 sep, confirmado con el usuario que el
-    // corchete SÍ es una señal confiable). Sin flota elegida, muestra
-    // todas las que matchean el patrón (sin acotar). Dispara el fetch de
-    // geocercas si todavía no se cargó.
     populateBranchSelectDropdown: function () {
         var me = this;
         var sel = document.getElementById('promatic_dashboard_enhancer-branch-select');
@@ -4481,7 +3407,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
             var matches = geofences.filter(function (g) {
                 if (!g.group_name || !me._matchGeofenceGroup(g.group_name)) { return false; }
-                if (!folderLabelLower) { return true; } // sin flota elegida — no acota
+                if (!folderLabelLower) { return true; }
                 var tag = me._extractBracketTag(g.group_name);
                 return tag ? folderLabelLower.indexOf(tag.toLowerCase()) !== -1 : false;
             });
@@ -4524,17 +3450,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Con una sucursal elegida (_branchGeofenceFilter = id de la
-    // geocerca): parsea sus points, corre _vehiclesInGeofence contra la
-    // flota en alcance, dibuja el polígono + 1 marcador por match, y
-    // muestra la lista nombre + online/offline debajo del mapa (mismo
-    // campo is_server_online que usa Estado de Flota).
     renderBranchVehicles: function () {
         var me = this;
         var map = this._branchMap;
 
-        // Limpia dibujado anterior — un solo polígono/set de marcadores
-        // propios a la vez, nunca los del mapa nativo (BR-PILOT-0007).
         try {
             if (me._branchPolygonId && map && map.removePolygon) { map.removePolygon(me._branchPolygonId); }
         } catch (e) { /* no-op */ }
@@ -4570,9 +3489,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return;
         }
 
-        // Flota restringida a la carpeta elegida en el dropdown 1 — mismo
-        // patrón que getMapScopedRecords (hotspots), pero con su propio
-        // filtro (_branchFolderFilter), independiente del mapa de hotspots.
         var onlineTree = this.getOnlineTree();
         var records = [];
         if (onlineTree) {
@@ -4643,12 +3559,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     updateGpsSignalCard: function (b24, b48, bMore, bNoData) {
-        // 3 buckets en fila horizontal (rediseño 3 sep). Sin footer — las
-        // fichas son el único elemento de la card. El chip "Más de 48h"
-        // (--red) es el único que pulsa (@keyframes ...-alert-pulse).
-        // Click en cada chip abre el modal de detalle (buildGpsSignalReport,
-        // ver bindAlertReportLinks) — data-gps-bucket es la clave que usa
-        // ese handler.
         var chip = function (mod, label, count, title, bucket, hideBadge) {
             var cn = [{ tag: 'span', cls: 'promatic_dashboard_enhancer-signal-chip__label', html: label }];
             if (!hideBadge) {
@@ -4663,9 +3573,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             };
         };
 
-        // Watermark de fondo — icon-no-gps-signal.svg (dev/icons/), sutil,
-        // detrás de los 3 chips. currentColor hereda del color de texto de
-        // la card (gris), no compite con los chips de color.
         var svgNoGps =
             '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
             '<g fill="none" stroke="currentColor" stroke-width="2.5">' +
@@ -4674,10 +3581,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '<path stroke-linejoin="round" d="M4.853 19.147c3.196 3.196 8.06 3.707 11.789 1.533c.886-.517 1.33-.776 1.357-1.302s-.471-.89-1.468-1.618c-1.848-1.35-3.667-3-5.48-4.812C9.24 11.136 7.59 9.317 6.24 7.47c-.728-.997-1.092-1.495-1.618-1.468s-.785.47-1.302 1.357c-2.174 3.73-1.663 8.593 1.533 11.79Z"/>' +
             '</g></svg>';
 
-        // Sin ningún vehículo desconectado en los 3 buckets: reemplaza el
-        // set de 3 chips (con el rojo pulsando) por un único chip verde
-        // "Todo OK" — evita la falsa alarma visual con flotas chicas donde
-        // el bucket ">48h" nunca tiene datos reales que mostrar.
         var track = (b24 === 0 && b48 === 0 && bMore === 0 && bNoData === 0)
             ? { cn: [chip('ok', l('Todo OK — sin desconexiones'), 0, l('Ningún vehículo desconectado actualmente'), null, true)] }
             : {
@@ -4757,13 +3660,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }));
     },
 
-    // -----------------------------------------------------------------------
-    // Fetch compartido — reports.php (get_report / report_type) y analytics/*
-    // Todo vía fetch() nativo, nunca Ext.Ajax.request: dentro del proxy
-    // /store/<extension>/ de una extensión, Ext.Ajax reescribe rutas
-    // relativas y devuelve 404 (confirmado en runtime real, ver spec/api.md).
-    // -----------------------------------------------------------------------
-
     buildReportBody: function (reportType, vehIdsCsv, startDate, stopDate) {
         var pad = function (n) {
             return n < 10 ? '0' + n : '' + n;
@@ -4829,14 +3725,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // -----------------------------------------------------------------------
-    // API v3 — /api/v3/vehicles/trips (x-legacy cmd:distance). 1 request por
-    // vehículo. URL RELATIVA al host (same-origin) — un host absoluto se
-    // bloquea por CORS (verificado 2026-09-03, ver spec/api.md). Devuelve
-    // { code, msg, data:[tramos] }; cada tramo trae gps (km por GPS) y can
-    // (km por odómetro CAN, a veces 0). data:[] si el vehículo no se movió.
-    // -----------------------------------------------------------------------
-
     fetchVehicleTripsV3: function (agentId, tsUnixSec, teUnixSec, timeoutMs) {
         var url = '/api/v3/vehicles/trips?agent_id=' + encodeURIComponent(agentId) +
             '&ts=' + encodeURIComponent(tsUnixSec) + '&te=' + encodeURIComponent(teUnixSec);
@@ -4859,8 +3747,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Suma el km de todos los tramos de una respuesta de fetchVehicleTripsV3.
-    // kmField: 'gps' (default, primario) | 'can'. data ausente / [] → 0.
     sumTripsKm: function (tripsResponse, kmField) {
         var field = kmField || 'gps';
         var tramos = (tripsResponse && tripsResponse.data) || [];
@@ -4871,9 +3757,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return Math.round(km * 10) / 10;
     },
 
-    // startIso/stopIso opcionales (formato "YYYY-MM-DDTHH:MM:SS"). Sin ellos:
-    // día actual con today=true (comportamiento original). Con ellos: ventana
-    // real, today='' — necesario para el Top 5 KM (ventana de N días).
     fetchAnalyticsMainData: function (vehIdsCsv, timeoutMs, startIso, stopIso) {
         var isoDay = new Date().toISOString().slice(0, 10) + 'T00:00:00';
         var hasRange = !!(startIso && stopIso);
@@ -4958,11 +3841,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             });
     },
 
-    // Espera (poll acotado, 40 x 500ms = 20s) a que online_tree tenga
-    // vehículos y devuelve la lista de agent_ids — patrón compartido por
-    // todos los widgets que dependen de la flota. Poll, NO re-suscripción a
-    // 'datachanged': el árbol Online se actualiza seguido y re-suscribir en
-    // cada disparo se volvía un loop caliente (28 ago).
     withFleetVehicleIds: function (callback, attempt) {
         var me = this;
         attempt = attempt || 0;
@@ -4983,10 +3861,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         if (attempt < 40) {
-            // FR-0004: si estamos siguiendo la selección de PILOT y hay
-            // carpetas marcadas pero colapsadas, intentar expandirlas en
-            // cada reintento (barato, con guard interno) — así si el usuario
-            // marca la carpeta mientras el waiter gira, se abre sola.
             if (onlineTree && this.effectiveFleetScope() === 'pilot-selection') {
                 this._selectionExpandRetry = false;
                 this.expandCheckedFolders(onlineTree);
@@ -5006,17 +3880,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         console.warn('[promatic_dashboard_enhancer] withFleetVehicleIds: 0 vehículos tras 20s. ' + msg);
     },
 
-    // Card "Top 5 · Vehículos con más KM".
-    //
-    // Fuente primaria: analytics/vehicles.php cmd=get_main_data → ratings.data
-    // (km por vehículo en UNA llamada, sin reports.php ni riesgo de timeout —
-    // NOC-007). Fallback automático: reports.php report_type=4 (camino previo).
-    //
-    // En ambos casos se pre-filtra a los vehículos con movimiento reciente
-    // (config top5km.windowDays) y se corta a un tope (config
-    // top5km.activeVehicleCap) para no disparar el job async + WebSocket de
-    // analytics/vehicles.php en flotas grandes (NOC-003). Un vehículo sin
-    // movimiento tiene 0 km, así que el filtro no cambia el ranking.
     loadTop5KmData: function () {
         var me = this;
         var cfg = (me.config && me.config.top5km) || me.DEFAULT_CONFIG.top5km;
@@ -5024,9 +3887,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var cap = cfg.activeVehicleCap || 300;
         var count = cfg.count || 5;
 
-        // Nonce para invalidar respuestas en vuelo: si el usuario amplía la
-        // selección y vuelve a disparar loadTop5KmData antes de que la consulta
-        // anterior resuelva, la vieja no debe pisar el render nuevo (BR-PILOT-0012).
         var loadNonce = (me._top5LoadNonce = (me._top5LoadNonce || 0) + 1);
 
         this.withFleetVehicleIds(function () {
@@ -5036,13 +3896,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var vehIds = me.getRecentlyActiveIds(onlineTree, days);
             var usedScopeFallback = false;
 
-            // BR-PILOT-0012: al ampliar la selección con vehículos que no
-            // registran movimiento en la ventana (p.ej. recién agregados a la
-            // cuenta, o sin last_move fresco en el store del árbol), el filtro
-            // "recientemente activo" los deja fuera y el ranking parece no
-            // cambiar. Si el filtro no dejó a nadie pero SÍ hay vehículos en el
-            // alcance, consultar el alcance completo (trips-v3 dirá quién tiene
-            // km reales). El cap protege el volumen.
             if (vehIds.length === 0 && scopeTotal > 0 &&
                 !me._selectionExpanding && !me._selectionCollapsed && !me._selectionEmpty) {
                 vehIds = scopeIds.slice();
@@ -5065,9 +3918,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 var msg = l('Ningún vehículo con recorrido reciente.');
                 if (me._selectionExpanding || me._selectionCollapsed) {
                     msg = l('Cargando vehículos de las carpetas seleccionadas…');
-                    // La expansión de carpetas es async y checkchange puede no
-                    // llegar si ya estaban parcialmente materializadas — reintentar
-                    // una vez cuando el store haya terminado de poblarse.
                     if (loadNonce === me._top5LoadNonce) {
                         Ext.defer(function () {
                             if (loadNonce === me._top5LoadNonce) { me.loadTop5KmData(); }
@@ -5080,9 +3930,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 return;
             }
 
-            // Mapa nombre→agentid del árbol Online — la rama fallback
-            // (reports.php) agrupa por nombre de vehículo y no trae el id,
-            // así se recupera para el link a Informes (best-effort).
             var nameToId = {};
             var records = me.getScopedFleetRecords(onlineTree);
             for (var r = 0; r < records.length; r++) {
@@ -5097,7 +3944,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
             var csv = vehIds.join(',');
 
-            // Descarta el render si otra carga más nueva ya arrancó (BR-PILOT-0012).
             var stale = function () { return loadNonce !== me._top5LoadNonce; };
 
             var runReports = function () {
@@ -5153,20 +3999,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Rama "trips-v3" del Top KM. Consulta /api/v3/vehicles/trips por cada
-    // vehículo candidato, en lotes de cfg.tripsBatchSize (concurrentes; los
-    // lotes van en serie). Un vehículo que falla cuenta 0 km y no aborta el
-    // batch en sí — pero un CIRCUIT BREAKER corta toda la cola si se
-    // acumulan CONSECUTIVE_FAIL_LIMIT fallos seguidos (16 sep, hallazgo en
-    // vivo: al ampliar la flota visible de DEMO_CLIENT con vehículos que la
-    // API v3 rechaza con 401, el código completaba igual los ~100 intentos
-    // de tripsMaxVehicles en lotes de 4 sin pausa — esa ráfaga larga de
-    // 401 seguidos hizo que PILOT cortara la sesión del usuario por abuso.
-    // El breaker corta apenas queda claro que la API v3 está rechazando en
-    // cadena, dejando el resto de la cola sin consultar — el caller ya
-    // hace fallback a reports.php si el resultado queda sin km > 0).
-    // Devuelve ranked = [{name, km, id}] ordenado desc — id = agentid, name
-    // del árbol si se conoce, si no el agent_id como string.
     _top5FromTripsV3: function (vehIds, startDate, stopDate, nameToId, cfg) {
         var me = this;
         var batchSize = cfg.tripsBatchSize || 4;
@@ -5233,14 +4065,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             l('No se pudo cargar el ranking de kilometraje.')) + ' (' + code + ')');
     },
 
-    // ratings.data (analytics/vehicles.php): keys[i] = [agent_id,
-    // "placa - conductor - serie", modelo], veh_driving_dist[i] = km del
-    // vehículo i, alineado 1:1 con keys. Ver spec/api.md. Lanza si el shape
-    // no está, está desalineado, o no hay ningún km > 0 — eso dispara el
-    // fallback a reports.php (p. ej. cuentas donde ratings viene deshabilitado).
-    // Devuelve el ranking COMPLETO ordenado desc (todos los vehículos con
-    // km > 0). renderTop5Km corta a `count` para mostrar; el link "ver todos"
-    // del pie usa la lista entera.
     parseRatingsTop5: function (mainData) {
         var rd = mainData && mainData.ratings && mainData.ratings.data;
         var keys = rd && rd.keys;
@@ -5262,10 +4086,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return ranked;
     },
 
-    // reports.php report_type=4: report.data[fecha][vehículo] = array de
-    // tramos, cada tramo con .length = km del tramo. Suma por vehículo.
-    // nameToId: mapa opcional nombre→agentid para el link a Informes.
-    // Devuelve el ranking completo ordenado desc (ver parseRatingsTop5).
     parseReportType4: function (report, nameToId) {
         nameToId = nameToId || {};
         var totalsByVehicle = {};
@@ -5299,9 +4119,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return ranked;
     },
 
-    // ranked = [{ name, km, id? }] COMPLETO ordenado desc. days = ventana en
-    // días; startDate/stopDate = rango real de la consulta; count = cuántas
-    // filas muestra la card. El link "ver todos" del pie usa todo `ranked`.
     renderTop5Km: function (ranked, days, startDate, stopDate, count) {
         ranked = ranked || [];
         days = days || 7;
@@ -5312,7 +4129,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             startDate.setDate(startDate.getDate() - days);
         }
 
-        this._lastTop5Ranked = ranked; // cache completo para los exportadores
+        this._lastTop5Ranked = ranked;
 
         if (ranked.length === 0) {
             this.updateCardBody('top5km', l('Sin datos de kilometraje para el período.'));
@@ -5324,10 +4141,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var startMs = startDate.getTime();
         var stopMs = stopDate.getTime();
 
-        // Barra apilada — segmento por vehículo, alto = % del total mostrado.
-        // Colores fijos g2/g1/g3/g4/g5 en orden ascendente de km (diseño de
-        // dev/proto-dash.html, 27 ago). Con más de 5 vehículos el ramp no da
-        // — se cae a un tono único (var --g4) para no repetir colores.
         var segColors = ['var(--g2)', 'var(--g1)', 'var(--g3)', 'var(--g4)', 'var(--g5)'];
         var flatColor = top5.length > segColors.length;
         var total = 0;
@@ -5401,10 +4214,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ]
         }));
 
-        // Link del pie de la card → informe de kilómetros de TODOS los
-        // vehículos del ranking (no solo los `count` que muestra la card),
-        // con el mismo rango. El pie se crea con la card (cardMarkup), antes
-        // de tener datos — se completa acá.
         var allIds = [];
         for (var k = 0; k < ranked.length; k++) {
             var rid = ranked[k].id;
@@ -5425,8 +4234,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Delegado de clicks para los links a Informes (filas del ranking + pie
-    // de la card Top KM). Se bindea una vez sobre el elemento del panel.
     bindKmReportLinks: function (panel) {
         var me = this;
         var el = panel && panel.getEl && panel.getEl();
@@ -5445,8 +4252,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Abre el panel nativo de Informes con el reporte de kilómetros
-    // (report_type=4) para los vehículos y el rango dados.
     openKmReport: function (vehicleIds, startDate, stopDate) {
         if (!vehicleIds || !vehicleIds.length) { return; }
         var me = this;
@@ -5467,9 +4272,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Activa el tab de Informes en la navegación de PILOT. El índice varía
-    // por cuenta — se busca por identidad/título/xtype y se cae al 2 (el
-    // valor del ejemplo oficial de Pilot) si no se encuentra.
     activateReportsTab: function () {
         var nav = window.skeleton && skeleton.navigation;
         if (!nav || typeof nav.setActiveTab !== 'function') { return false; }
@@ -5491,9 +4293,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return true;
     },
 
-    // Función entregada por Pilot (2026-07-17, confirmada 22 jul) para
-    // disparar un reporte nativo desde código — adaptada a método. Requiere
-    // que el panel de Informes ya esté activo (ver activateReportsTab).
     runNativeReport: function (reportType, vehicleIds, startDate, stopDate) {
         var reports = window.skeleton && skeleton.navigation && skeleton.navigation.reports;
         if (!reports || !reports.down) {
@@ -5521,21 +4320,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             reports.selectReport(reportCombo, rec);
             reports.down('#report_date1').setValue(startDate);
             reports.down('#report_date2').setValue(stopDate);
-            // "Dividir" (explode_combo): buscar la opción "No dividir" en el
-            // store por su etiqueta y setear su valueField real — NO un literal.
-            // El valueField es "abbr" y "No dividir" = 3 en la cuenta de
-            // pruebas, pero varía por cuenta/idioma; un setValue(0) fijo deja el
-            // combo en estado inválido → explode="" en el submit → el job del
-            // reporte nunca termina ("El informe está siendo creado" colgado).
-            // Va después de selectReport (que reconfigura el form). Defensivo:
-            // el combo puede no existir en otra cuenta.
             var explodeCombo = reports.down('#explode_combo');
             if (explodeCombo && explodeCombo.getStore) {
                 var explodeStore = explodeCombo.getStore();
                 var noSplit = explodeStore && explodeStore.findRecord(
                     'name', /no dividir|don't split|do not split|не разбивать/i, 0, false, false, false);
-                // Fallback: "No dividir" es la última opción del store (abbr más
-                // alto) en todas las cuentas vistas.
                 if (!noSplit && explodeStore && explodeStore.getCount()) {
                     noSplit = explodeStore.getAt(explodeStore.getCount() - 1);
                 }
@@ -5552,12 +4341,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             reports.reportFormSubmit();
         }
 
-        // objectsStore.isLoaded() puede ser true con getCount()===0: los
-        // hijos del root se cargan lazy vía XHR tree.php?node=root (~1.4s).
-        // Marcar+submitear antes de eso da 0 seleccionados → "Seleccione 1 o
-        // más objetos" (BR-PILOT-0010). Se espera a que el árbol tenga nodos
-        // reales: listener 'load' con guard de count, y un poll de respaldo
-        // por si el store ya está poblado y no vuelve a emitir 'load'.
         var objectsReady = function () {
             return objectsStore.getCount() > 0;
         };
@@ -5599,25 +4382,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
-    // Alertas Generales: click de una tarjeta con incidencias.
-    //  - Accidentes → report_type=254 (confirmado por el usuario 7 sep) — se
-    //    dispara el informe directo con esos vehículos y el rango de 30 días.
-    //  - Ralentí y otras → no hay report_type que sirva sin group=6, así que
-    //    solo se activa el panel Informes con esos vehículos marcados y el
-    //    usuario elige el informe. Feature futura: ventana de detalle propia
-    //    (FR-0016).
-    // El data-alert-report opcional lleva el report_type cuando se conoce.
     bindAlertReportLinks: function (panel) {
         var me = this;
         var el = panel && panel.getEl && panel.getEl();
         if (!el || el._alertReportBound) { return; }
         el._alertReportBound = true;
         el.on('click', function (e) {
-            // Chips de "Sin Señal GPS" (data-gps-bucket) viven fuera de
-            // [data-alert-ids] — se revisan primero e independientemente,
-            // si no el early-return de abajo (falta de data-alert-ids en el
-            // target) nunca dejaba llegar a este bloque (bug 22 sep: el
-            // modal de Sin Señal GPS no abría).
             var gpsChip = e.getTarget('[data-gps-bucket]', 8, true);
             if (gpsChip) {
                 e.preventDefault();
@@ -5638,11 +4408,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (!a) { return; }
             e.preventDefault();
 
-            // Accidentes (events.php type=4911, FR-0026) no tiene report_type
-            // nativo equivalente — abre la tabla propia en vez de
-            // runNativeReport (ver bug del click a "Speed violations", 21
-            // sep). Detectado por la clase de ícono de la card, no por
-            // data-alert-report (que ya no se emite para esta card).
             if (a.hasCls && a.hasCls('promatic_dashboard_enhancer-stat-card--clickable') &&
                 a.dom && a.dom.querySelector('.pde_alert-accidentes')) {
                 var accidentesRows = me._alertAccidentesRows || [];
@@ -5675,9 +4440,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    // Activa el tab Informes y marca solo `ids` en el árbol de objetos, sin
-    // elegir report_type ni submitear. Reusa el whenObjectsReady de
-    // runNativeReport vía una versión mínima inline.
     selectVehiclesInReports: function (ids) {
         var me = this;
         if (!this.activateReportsTab()) {
@@ -5711,10 +4473,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         Ext.defer(tryMark, 200);
     },
 
-    // -----------------------------------------------------------------------
-    // Assets
-    // -----------------------------------------------------------------------
-
     getModuleBaseUrl: function () {
         var scripts = document.getElementsByTagName('script');
         for (var i = scripts.length - 1; i >= 0; i--) {
@@ -5726,12 +4484,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return '/store/promatic_dashboard_enhancer/';
     },
 
-    // Carga dist/config.json y lo mergea (por sección, un nivel) sobre
-    // DEFAULT_CONFIG. No bloquea el arranque: los widgets corren en el
-    // 'afterrender' del panel (bastante después de initModule), para
-    // entonces esto normalmente ya resolvió; si no, usan el default.
-    // FUTURO (backend): agregar acá un segundo fetch a la URL del backend
-    // y mergear su respuesta encima de la de config.json.
     loadConfig: function () {
         var me = this;
         var url = this.getModuleBaseUrl() + 'config.json?v=' + this.moduleBuild;
