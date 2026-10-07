@@ -23,10 +23,7 @@
     "idleThresholdMin": 120
   },
   "branches": {
-    "clientMap": [
-      { "nombreFlota": ["FLOTA"], "groupNames": ["SUCURSALES"] },
-      { "nombreFlota": ["SAMU"], "groupNames": ["Bases"] }
-    ]
+    "clientMap": []
   },
   "privacy": {
     "maskPlates": false
