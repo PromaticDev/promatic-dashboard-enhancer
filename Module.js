@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.24.0',
-    moduleBuild: '2026-10-07-1106',
+    version: '0.25.0',
+    moduleBuild: '2026-10-07-1224',
 
     // Fallback de la config runtime si config.json no carga. loadConfig() lo
     // pisa con lo que traiga el JSON (mismo shape) y la config remota puede
@@ -35,6 +35,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // acumulado en la ventana sobre los cuales un vehículo cuenta como
         // "ralentí excesivo" en Alertas Generales.
         ecoScore: { windowDays: 8, idleThresholdMin: 120 },
+        // Alerta "Salida de territorio nacional" (Alertas Generales): eventos
+        // de una notificación creada por la cuenta en PILOT que se dispara
+        // cuando un vehículo se detiene en una geocerca de paso fronterizo.
+        // eventType es el id de esa notificación (distinto en cada cuenta);
+        // sin él la tarjeta queda en "EN DESARROLLO". since (fecha-hora ISO
+        // sin zona, hora local del navegador) descarta eventos anteriores,
+        // por si la regla se reconfiguró y quedaron eventos de otra versión.
+        borderAlert: { eventType: null, windowDays: 30, since: '' },
         // El reporte de infracciones responde msg "Coming soon" pero con
         // success:true y data completa: msg es un texto heredado sin relación
         // con la disponibilidad real del dato.
@@ -810,7 +818,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 mk(l('Accidentes'), this._alertAccidentes) +
                 mk(l('Requiere mantención'), this._alertMantencion) +
                 mk(l('Ralentí excesivo'), this._alertRalenti) +
-                '</table><p class="sub">' + l('Categorías beta (combustible, GPS manipulado, territorio nacional) aún sin fuente conectada.') + '</p>';
+                (this._alertBorderEnabled ? mk(l('Salida de territorio nacional'), this._alertBorder) : '') +
+                '</table><p class="sub">' + (this._alertBorderEnabled
+                    ? l('Categorías beta (combustible, GPS manipulado) aún sin fuente conectada.')
+                    : l('Categorías beta (combustible, GPS manipulado, territorio nacional) aún sin fuente conectada.')) + '</p>';
         } else if (which === 'top5km') {
             title = l('Vehículos con Exceso de Kilometraje');
             var kr = this._lastTop5Ranked || [];
@@ -2435,11 +2446,42 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var mantencion = me.fetchMantencionCount(vehIds)
                 .catch(function (err) { me.widgetErrorCode('ALERT-MANT', err); return null; });
 
-            Promise.all([accidentes, mantencion]).then(function (r) {
+            // Sin borderAlert.eventType la categoría no está conectada para
+            // esta cuenta: la tarjeta queda en "EN DESARROLLO" (undefined).
+            var border = Promise.resolve(undefined);
+            var bcfg = (me.config && me.config.borderAlert) || me.DEFAULT_CONFIG.borderAlert || {};
+            me._alertBorderEnabled = !!bcfg.eventType;
+            me._alertBorderIds = [];
+            if (me._alertBorderEnabled) {
+                var bStart = new Date();
+                bStart.setDate(bStart.getDate() - (bcfg.windowDays || 30));
+                var sinceMs = bcfg.since ? Date.parse(bcfg.since) : NaN;
+                border = me.fetchBorderStopRows(csv, bStart, stop, bcfg.eventType, isNaN(sinceMs) ? 0 : sinceMs)
+                    .then(function (rows) {
+                        // El conteo es de vehículos distintos, no de
+                        // eventos: un vehículo detenido repite el aviso.
+                        var seen = {}, ids = [];
+                        for (var i = 0; i < rows.length; i++) {
+                            var key = rows[i].agentId != null ? rows[i].agentId : rows[i].veh;
+                            if (key === '' || seen[key]) { continue; }
+                            seen[key] = 1;
+                            if (rows[i].agentId != null) { ids.push(rows[i].agentId); }
+                        }
+                        me._alertBorderIds = ids;
+                        return Object.keys(seen).length;
+                    })
+                    .catch(function (err) {
+                        me.widgetErrorCode('ALERT-BORDER', err);
+                        return null;
+                    });
+            }
+
+            Promise.all([accidentes, mantencion, border]).then(function (r) {
                 me._alertAccidentes = r[0];
                 me._alertMantencion = r[1];
+                me._alertBorder = r[2];
                 console.log('[promatic_dashboard_enhancer] alertas generales: accidentes=' +
-                    r[0] + ' requiere_mantencion=' + r[1]);
+                    r[0] + ' requiere_mantencion=' + r[1] + ' paso_fronterizo=' + r[2]);
                 me.renderAlertasGenerales();
                 if (typeof onDone === 'function') { onDone(); }
             });
@@ -2548,6 +2590,58 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                                 lat: ev.lat != null ? Number(ev.lat) : null,
                                 lon: ev.lon != null ? Number(ev.lon) : null,
                                 calibrated: ev.text.indexOf('not calibrated') === -1
+                            });
+                        }
+                    }
+                }
+                return rows;
+            })
+            .finally(function () { clearTimeout(to); });
+    },
+
+    /**
+     * Detenciones en pasos fronterizos vía events.php con el `type` de la
+     * notificación configurada en borderAlert.eventType. Misma forma de
+     * respuesta que Accidentes (árbol vehículo → carpeta con el nombre de la
+     * notificación → eventos). Devuelve los eventos ya filtrados por
+     * borderAlert.since; un mismo vehículo puede traer varios.
+     */
+    fetchBorderStopRows: function (vehIdsCsv, startDate, stopDate, eventType, sinceMs) {
+        var isoNoMs = function (d) { return d.toISOString().slice(0, 19); };
+        var qs = 'cmd=search&operating_mode=tree' +
+            '&veh=' + encodeURIComponent(vehIdsCsv) +
+            '&type=' + encodeURIComponent(eventType) +
+            '&date_start=' + encodeURIComponent(isoNoMs(startDate)) +
+            '&date_stop=' + encodeURIComponent(isoNoMs(stopDate)) +
+            '&limit=5000&page=1&start=0&node=root';
+        var ctrl = new AbortController();
+        var to = setTimeout(function () { ctrl.abort(); }, 45000);
+
+        return fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include', signal: ctrl.signal })
+            .then(function (resp) {
+                if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                return resp.json();
+            })
+            .then(function (tree) {
+                console.log('[promatic_dashboard_enhancer] paso fronterizo (events.php type=' + eventType + '):', tree);
+                var vehicles = Array.isArray(tree) ? tree : [];
+                var seenEventIds = {}, rows = [];
+                for (var v = 0; v < vehicles.length; v++) {
+                    var folders = (vehicles[v] && vehicles[v].children) || [];
+                    for (var f = 0; f < folders.length; f++) {
+                        var events = (folders[f] && folders[f].children) || [];
+                        for (var e = 0; e < events.length; e++) {
+                            var ev = events[e] || {};
+                            if (ev.id != null && seenEventIds[ev.id]) { continue; }
+                            if (ev.id != null) { seenEventIds[ev.id] = 1; }
+                            var ts = ev.ts != null ? Number(ev.ts) : null;
+                            if (sinceMs && (ts == null || ts * 1000 < sinceMs)) { continue; }
+                            rows.push({
+                                agentId: ev.agent_id != null ? Number(ev.agent_id) : null,
+                                veh: ev.veh != null ? String(ev.veh) : '',
+                                ts: ts,
+                                lat: ev.lat != null ? Number(ev.lat) : null,
+                                lon: ev.lon != null ? Number(ev.lon) : null
                             });
                         }
                     }
@@ -2757,8 +2851,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     l('Baja brusca de combustible que no corresponde a una recarga — pendiente de conexión'), true, 'pde_alert-drenaje'),
                 card('var(--g7)', l('GPS Manipulado'), null, svgGpsManual,
                     l('Desconexión intencional del equipo — pendiente de conexión'), true, 'pde_alert-manipulacion'),
-                card('var(--g6)', l('Salida de territorio nacional'), null, svgTerritorio,
-                    l('Vehículo cruza la frontera — pendiente de conexión'), true, 'pde_alert-fuerazona')
+                // Conectada solo en cuentas con borderAlert.eventType; es
+                // grave: un vehículo detenido en un paso fronterizo sin
+                // permiso es un posible vehículo perdido.
+                this._alertBorderEnabled
+                    ? card('var(--g6)', l('Salida de territorio nacional'), this._alertBorder, svgTerritorio,
+                        l('Vehículos detenidos en una geocerca de paso fronterizo (notificación de PILOT)'), false, 'pde_alert-fuerazona',
+                        this._alertBorderIds || [], null, true)
+                    : card('var(--g6)', l('Salida de territorio nacional'), null, svgTerritorio,
+                        l('Vehículo cruza la frontera — pendiente de conexión'), true, 'pde_alert-fuerazona')
             ]
         }));
     },
