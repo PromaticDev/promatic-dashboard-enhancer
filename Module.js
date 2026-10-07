@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.25.0',
-    moduleBuild: '2026-10-07-1224',
+    version: '0.25.1',
+    moduleBuild: '2026-10-07-1226',
 
     // Fallback de la config runtime si config.json no carga. loadConfig() lo
     // pisa con lo que traiga el JSON (mismo shape) y la config remota puede
@@ -961,6 +961,120 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             this._reportHeader(title, days) + desc + body +
             '<div class="foot">' +
             l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. PILOT no expone hoy un informe nativo equivalente a este listado — este reporte sirve como base para reportar el requerimiento a Pilot Telematics.') +
+            '</div>' + focusScript + '</body></html>';
+    },
+
+    /**
+     * Detalle de la alerta "Salida de territorio nacional": 1 fila por
+     * vehículo con eventos de la notificación de paso fronterizo (los que
+     * cuenta la tarjeta). Ficha y posición actual salen del online_tree en
+     * memoria (sin llamadas extra); si el vehículo ya no está en el árbol o
+     * no tiene posición, solo queda la ubicación del último evento. No hay
+     * una función de PILOT conocida para abrir la ficha nativa del vehículo,
+     * así que la identificación se hace con los datos de ficha en la tabla.
+     */
+    buildBorderAlertReport: function () {
+        var me = this;
+        var esc = Ext.String.htmlEncode;
+        var rows = this._alertBorderRows || [];
+        var cfg = (this.config && this.config.borderAlert) || this.DEFAULT_CONFIG.borderAlert || {};
+        var days = cfg.windowDays || 30;
+        var title = l('Detalle Salida de Territorio Nacional');
+
+        var byId = {};
+        var tree = this.getOnlineTree();
+        if (tree) {
+            var recs = tree.getStore().getData().items;
+            for (var r = 0; r < recs.length; r++) {
+                var aid = recs[r].get('agentid');
+                if (aid) { byId[aid] = recs[r]; }
+            }
+        }
+
+        // Un vehículo detenido repite el aviso: se agrupa y se muestra el
+        // último evento con el total.
+        var groups = {}, list = [];
+        for (var i = 0; i < rows.length; i++) {
+            var key = rows[i].agentId != null ? rows[i].agentId : rows[i].veh;
+            if (!groups[key]) { groups[key] = { key: key, last: rows[i], count: 0 }; list.push(groups[key]); }
+            groups[key].count++;
+            if ((rows[i].ts || 0) > (groups[key].last.ts || 0)) { groups[key].last = rows[i]; }
+        }
+        list.sort(function (a, b) { return (b.last.ts || 0) - (a.last.ts || 0); });
+
+        var focusBtn = function (lat, lon, text) {
+            return '<button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + lat +
+                '" data-focus-lon="' + lon + '">' + text + '</button>';
+        };
+        var mapPoints = [];
+        var rowHtml = function (g) {
+            var ev = g.last;
+            var rec = byId[g.key];
+            var cur = rec ? me._recordLatLon(rec) : null;
+            var field = function (k) { var v = rec ? rec.get(k) : null; return v ? esc(String(v)) : ''; };
+
+            var specs = [];
+            var modelYear = [field('model'), field('year')].filter(Boolean).join(' ');
+            if (modelYear) { specs.push(modelYear); }
+            if (field('vin')) { specs.push('VIN ' + field('vin')); }
+            if (field('driver')) { specs.push(l('Conductor') + ': ' + field('driver')); }
+            if (field('group')) { specs.push(l('Carpeta') + ': ' + field('group')); }
+            var specCell = specs.length ? specs.join('<br>') : l('N/D');
+
+            var evCell = esc(me._fmtEventDateTime(ev.ts)) +
+                (ev.zone ? '<br>' + esc(ev.zone) : '') +
+                (g.count > 1 ? '<br>' + g.count + ' ' + l('avisos en el período') : '');
+
+            var posCell = '';
+            if (cur) {
+                posCell += focusBtn(cur[0], cur[1], l('ver posición actual')) + ' ' +
+                    cur[0].toFixed(5) + ', ' + cur[1].toFixed(5);
+            }
+            if (ev.lat != null && ev.lon != null) {
+                posCell += (posCell ? '<br>' : '') + focusBtn(ev.lat, ev.lon, l('ver ubicación del aviso'));
+                var link = me._mapsLink(ev.lat, ev.lon);
+                if (link) { posCell += ' <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>'; }
+            }
+            if (!posCell) { posCell = l('N/D'); }
+
+            var pt = cur || (ev.lat != null && ev.lon != null ? [ev.lat, ev.lon] : null);
+            if (pt) { mapPoints.push({ lat: pt[0], lon: pt[1], label: me.displayName(ev.veh) }); }
+
+            return '<tr><td>' + esc(me.displayName(ev.veh)) + '</td><td>' + specCell + '</td><td>' +
+                evCell + '</td><td>' + posCell + '</td></tr>';
+        };
+
+        var body;
+        if (!list.length) {
+            body = '<p>' + l('Sin vehículos detenidos en pasos fronterizos en el período.') + '</p>';
+        } else {
+            body = '<table id="promatic_dashboard_enhancer-border-table"><tr><th>' + l('Vehículo') + '</th><th>' +
+                l('Ficha') + '</th><th>' + l('Último aviso') + '</th><th>' + l('Posición') + '</th></tr>';
+            for (var j = 0; j < list.length; j++) { body += rowHtml(list[j]); }
+            body += '</table>';
+        }
+        this._borderModalPoints = mapPoints;
+
+        var desc = '<p class="desc">' + l('Vehículos que se detuvieron en una geocerca de paso fronterizo, según la notificación configurada en PILOT. Un vehículo puede repetir el aviso mientras sigue detenido; se muestra el último. "Posición actual" es la última conocida por PILOT; "ubicación del aviso" es donde ocurrió la detención. Total: ') + list.length + '.</p>' +
+            '<p class="desc">' + l('Fuente: events.php type=') + esc(String(cfg.eventType || '')) + '</p>';
+
+        var focusScript =
+            '<script>' +
+            'document.addEventListener("click", function (e) {' +
+            'var b = e.target.closest(".promatic_dashboard_enhancer-focus-btn");' +
+            'if (!b) { return; }' +
+            'var lat = parseFloat(b.getAttribute("data-focus-lat"));' +
+            'var lon = parseFloat(b.getAttribute("data-focus-lon"));' +
+            'if (isNaN(lat) || isNaN(lon)) { return; }' +
+            'window.parent.postMessage({type: "promatic_dashboard_enhancer_focus_point", lat: lat, lon: lon}, "*");' +
+            '});' +
+            '<\/script>';
+
+        return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
+            '</title>' + this._reportStyles() + '</head><body>' +
+            this._reportHeader(title, days) + desc + body +
+            '<div class="foot">' +
+            l('Reporte generado por el Dashboard sobre datos de PILOT Telematics.') +
             '</div>' + focusScript + '</body></html>';
     },
 
@@ -2452,6 +2566,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var bcfg = (me.config && me.config.borderAlert) || me.DEFAULT_CONFIG.borderAlert || {};
             me._alertBorderEnabled = !!bcfg.eventType;
             me._alertBorderIds = [];
+            me._alertBorderRows = [];
             if (me._alertBorderEnabled) {
                 var bStart = new Date();
                 bStart.setDate(bStart.getDate() - (bcfg.windowDays || 30));
@@ -2468,6 +2583,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                             if (rows[i].agentId != null) { ids.push(rows[i].agentId); }
                         }
                         me._alertBorderIds = ids;
+                        me._alertBorderRows = rows;
                         return Object.keys(seen).length;
                     })
                     .catch(function (err) {
@@ -2641,7 +2757,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                                 veh: ev.veh != null ? String(ev.veh) : '',
                                 ts: ts,
                                 lat: ev.lat != null ? Number(ev.lat) : null,
-                                lon: ev.lon != null ? Number(ev.lon) : null
+                                lon: ev.lon != null ? Number(ev.lon) : null,
+                                zone: me._borderEventZone(ev.msg)
                             });
                         }
                     }
@@ -2649,6 +2766,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 return rows;
             })
             .finally(function () { clearTimeout(to); });
+    },
+
+    /**
+     * Nombre de la geocerca de un evento de la notificación de paso
+     * fronterizo. El msg es una "Complex notification" con tramos separados
+     * por ';' o '<#>', p. ej. "<patente>:Stop In Geofence|<geocerca>" o
+     * "<patente>:Geozone|<geocerca>|<id>|0". Se prefiere la detención y se
+     * cae a la geozona; '' si el formato no se reconoce.
+     */
+    _borderEventZone: function (msg) {
+        var m = /Stop In Geofence\|([^;<|]+)/.exec(msg || '') || /Geozone\|([^;<|]+)/.exec(msg || '');
+        return m ? m[1].trim() : '';
     },
 
     /**
@@ -5560,6 +5689,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 me.openReportModal(me.buildAccidentesReport(), l('Detalle Alarma de Posibles Accidentes'),
                     me._safe(function () { return me.buildAccidentesPdfDoc(); }),
                     accidentesMapPoints);
+                return;
+            }
+
+            // Salida de territorio nacional: tabla propia (la notificación no
+            // tiene un report_type nativo equivalente).
+            if (me._alertBorderEnabled && a.hasCls && a.hasCls('promatic_dashboard_enhancer-stat-card--clickable') &&
+                a.dom && a.dom.querySelector('.pde_alert-fuerazona')) {
+                var borderHtml = me.buildBorderAlertReport();
+                me.openReportModal(borderHtml, l('Detalle Salida de Territorio Nacional'), null,
+                    me._borderModalPoints || []);
                 return;
             }
 
