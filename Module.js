@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.2',
-    moduleBuild: '2026-10-09-1755',
+    version: '0.26.3',
+    moduleBuild: '2026-10-09-1918',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -1984,7 +1984,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.loadFleetMapClusters();
 
         var heavy = [
-            { card: 'alertas_generales', skel: 'stats', run: function () { me.loadAlertasGenerales(); } },
+            { card: 'alertas_generales', skel: 'stats', run: function () { me.loadAlertasGenerales(null, true); } },
             { card: 'eco_score', skel: 'donut', run: function () { me.loadEcoScore(); } },
             { card: 'top5km', skel: 'ranking', run: function () { me.loadTop5KmData(); } },
             { card: 'violations', skel: 'stats', run: function () { me.loadViolationsTrend(); } }
@@ -2143,6 +2143,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (me._autoRefreshBusy || !me._startupDone) { return; }
             me._autoRefreshBusy = true;
             me.refreshFleetStore();
+            if (me._lastAlertsAt && Date.now() - me._lastAlertsAt < me.EVENTS_POLL_MS) {
+                me._autoRefreshBusy = false;
+                return;
+            }
             // withFleetVehicleIds reintenta hasta 40 veces cada 500 ms (~20
             // s) si el árbol Online no está listo. Este guard de respaldo
             // evita que _autoRefreshBusy quede en `true` para siempre si
@@ -3128,8 +3132,46 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * un llamador espere el fin real sin convertir la función a promesa
      * (withFleetVehicleIds es callback-based con reintentos).
      */
-    loadAlertasGenerales: function (onDone) {
+    // Cada cuánto se consultan los eventos de PILOT (accidentes) en el
+    // refresco automático. Pilot indicó que ~60 vehículos por minuto es lo
+    // cómodo para su servidor: con la flota completa (~1400) un sondeo cada
+    // minuto era ~23 veces eso. El resto del refresco (GPS, estado de flota)
+    // sale del árbol en memoria y sigue cada 60 s.
+    EVENTS_POLL_MS: 300000,
+    // Tras un barrido completo de 30 días, los sondeos siguientes piden solo
+    // las últimas horas y se fusionan; el barrido completo se repite cada
+    // ACC_FULL_SWEEP_MS o con el botón Actualizar.
+    ACC_INCREMENTAL_MS: 7200000,
+    ACC_FULL_SWEEP_MS: 21600000,
+
+    /**
+     * Une los accidentes ya conocidos con los de un sondeo incremental, sin
+     * repetidos (mismo vehículo y hora) y descartando los más viejos que la
+     * ventana de 30 días.
+     *
+     * @param {Array} old Filas del barrido anterior.
+     * @param {Array} fresh Filas del sondeo reciente.
+     * @param {Date} since Inicio de la ventana completa.
+     */
+    _mergeAccidentRows: function (old, fresh, since) {
+        var seen = {}, out = [];
+        (fresh || []).concat(old || []).forEach(function (r) {
+            var k = r.agentId + '|' + r.ts;
+            if (seen[k]) { return; }
+            seen[k] = 1;
+            if (r.ts == null || r.ts * 1000 >= since.getTime()) { out.push(r); }
+        });
+        return out;
+    },
+
+    /**
+     * @param {Function} [onDone] Se llama al terminar el ciclo completo.
+     * @param {Boolean} [full] true fuerza el barrido completo de 30 días
+     *   (botón Actualizar); si no, tras el primero se hace incremental.
+     */
+    loadAlertasGenerales: function (onDone, full) {
         var me = this;
+        me._lastAlertsAt = Date.now();
 
         this.withFleetVehicleIds(function (vehIds) {
             var csv = vehIds.join(',');
@@ -3142,8 +3184,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // Fuente de accidentes: events.php type=4911, NO reports.php
             // report_type=254. Ese último tenía un desfase de huso horario y
             // una latencia de ~4 h del lado de PILOT.
-            var accidentes = me.fetchAccidentVehicles(csv, start, stop)
+            var incr = !full && me._accFullAt && me._alertAccidentesRows &&
+                (Date.now() - me._accFullAt < me.ACC_FULL_SWEEP_MS);
+            var accFrom = incr ? new Date(Date.now() - me.ACC_INCREMENTAL_MS) : start;
+            var accidentes = me.fetchAccidentVehicles(csv, accFrom, stop)
                 .then(function (rows) {
+                    if (incr) { rows = me._mergeAccidentRows(me._alertAccidentesRows, rows, start); }
+                    else { me._accFullAt = Date.now(); }
                     me._alertAccidentesRows = rows;
                     me._alertAccidentesIds = rows
                         .map(function (r) { return r.agentId; })
@@ -3295,13 +3342,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var me = this;
         var ids = String(vehIdsCsv || '').split(',').filter(Boolean);
         var all = [];
+        // Circuit breaker: si mod/events.php ya respondió 401 en esta sesión,
+        // no se vuelve a consultar (el refresco automático la llamaría cada
+        // minuto y mantendría presión sobre un servidor que ya la rechaza).
+        // Se levanta solo al recargar la página.
+        var breakerKey = 'mod/events.php';
+        if (me._isEndpointBlocked(breakerKey)) {
+            return Promise.reject(new Error('HTTP 401 (mod/events.php bloqueado en esta sesión)'));
+        }
         var seq = Promise.resolve();
         for (var i = 0; i < ids.length; i += me.EVENTS_GET_CHUNK) {
             (function (csv, first) {
                 seq = seq.then(function () {
                     return (first ? Promise.resolve() : me._sleep(300))
                         .then(function () { return fetchOne(csv); })
-                        .then(function (rows) { all = all.concat(rows || []); });
+                        .then(function (rows) { all = all.concat(rows || []); }, function (err) {
+                            if (err && /HTTP 401/.test(err.message || '')) { me._markEndpointBlocked(breakerKey); }
+                            throw err;
+                        });
                 });
             })(ids.slice(i, i + me.EVENTS_GET_CHUNK).join(','), i === 0);
         }
@@ -3736,8 +3794,114 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var smp = Array.isArray(node) ? me._asFuelSamples(node) : me._asFuelSamplesFromMap(node);
         if (smp) { out.push({ path: path, samples: smp }); return; }
         Object.keys(node).forEach(function (k) {
+            // fillings/stales son los eventos que PILOT ya detectó (se leen
+            // aparte), run es el resumen de recorrido y stop_fuel_sens un
+            // valor de cierre: ninguno es una serie de nivel.
+            if (k === 'fillings' || k === 'stales' || k === 'run' || k === 'stop_fuel_sens') { return; }
             me._collectFuelSeries(node[k], path.concat(k), out, depth + 1);
         });
+    },
+
+    /**
+     * El reporte devuelve un bloque por día (data[rango][vehículo]): la serie
+     * de un mismo sensor llega partida en varios días. Se une por nombre de
+     * sensor (el último elemento de la ruta incluye su id), sin repetidos y
+     * ordenada por tiempo.
+     *
+     * @param {Array<{path:Array, samples:Array}>} list Series halladas.
+     * @return {Array<{path:Array, samples:Array}>} Una serie por sensor.
+     */
+    _mergeFuelSeries: function (list) {
+        var groups = {}, order = [];
+        list.forEach(function (c) {
+            var key = c.path[c.path.length - 1] || '';
+            if (!groups[key]) { groups[key] = { path: c.path, samples: [] }; order.push(key); }
+            groups[key].samples = groups[key].samples.concat(c.samples);
+        });
+        return order.map(function (k) {
+            var g = groups[k], seen = {};
+            g.samples = g.samples.filter(function (p) {
+                if (seen[p.ts]) { return false; }
+                seen[p.ts] = 1;
+                return true;
+            }).sort(function (a, b) { return a.ts - b.ts; });
+            return g;
+        });
+    },
+
+    /**
+     * Cargas (`fillings`) y drenajes (`stales`) que PILOT ya detectó y
+     * entrega dentro del reporte, en cualquier bloque de día. Cada uno trae
+     * litros, hora y coordenadas. Se convierten a la misma forma que los
+     * eventos del detector propio, marcados con source 'pilot'.
+     *
+     * @return {{loads:Array, drains:Array}}
+     */
+    _collectNativeFuelEvents: function (data) {
+        var out = { loads: [], drains: [] };
+        var one = function (raw, kind) {
+            var liters = Number(raw && raw.fuel), start = Number(raw && raw.fuel_start);
+            var ts = Number(raw && (raw.unixtimestamp != null ? raw.unixtimestamp : raw.ts));
+            if (!isFinite(ts) || !isFinite(liters)) { return null; }
+            var lat = raw.lat != null ? Number(raw.lat) : null, lon = raw.lon != null ? Number(raw.lon) : null;
+            var from = isFinite(start) ? start : null;
+            var sign = kind === 'carga' ? 1 : -1;
+            return {
+                kind: kind, ts: ts, te: ts,
+                from: from, to: from == null ? null : from + sign * liters,
+                delta: sign * liters, liters: liters, pct: null,
+                lat: isFinite(lat) ? lat : null, lon: isFinite(lon) ? lon : null,
+                viaGap: false, speedKnown: true, source: 'pilot'
+            };
+        };
+        var walk = function (node, depth) {
+            if (depth > 8 || node == null || typeof node !== 'object') { return; }
+            Object.keys(node).forEach(function (k) {
+                var v = node[k];
+                if ((k === 'fillings' || k === 'stales') && Array.isArray(v)) {
+                    v.forEach(function (raw) {
+                        var ev = one(raw, k === 'fillings' ? 'carga' : 'drenaje');
+                        if (ev) { out[k === 'fillings' ? 'loads' : 'drains'].push(ev); }
+                    });
+                } else {
+                    walk(v, depth + 1);
+                }
+            });
+        };
+        walk(data, 0);
+        return out;
+    },
+
+    /**
+     * Texto del nivel de un evento de combustible. Un evento nativo de PILOT
+     * puede no traer el nivel previo, ni el porcentaje del máximo, y el modal
+     * no debe fallar por eso.
+     *
+     * @param {Object} e Evento (from, to, delta, pct, liters).
+     * @param {Number} ref Nivel máximo observado del vehículo (para el %).
+     * @return {{head:String, tail:String}} "antes → después" y "variación · %".
+     */
+    _fuelLevelText: function (e, ref) {
+        var f1 = function (x) { return (x == null || !isFinite(x)) ? null : x.toFixed(1); };
+        var pct = e.pct != null ? e.pct : (ref > 0 ? Math.abs(e.delta) / ref * 100 : null);
+        var head = (f1(e.from) != null && f1(e.to) != null) ? f1(e.from) + ' → ' + f1(e.to) : l('nivel previo N/D');
+        var tail = (e.delta > 0 ? '+' : '') + f1(e.delta) + (pct != null ? ' · ' + pct.toFixed(0) + '% ' + l('del máximo') : '');
+        return { head: head, tail: tail };
+    },
+
+    /**
+     * Une los eventos nativos de PILOT con los del detector propio. Los
+     * nativos mandan; uno propio se descarta si hay un nativo del mismo tipo
+     * a menos de `windowSec` (es el mismo evento visto por dos caminos). Los
+     * propios que sobreviven se marcan 'estimado'.
+     */
+    _mergeFuelEvents: function (native, detected, windowSec) {
+        var nat = (native && (native.loads || []).concat(native.drains || [])) || [];
+        var kept = (detected || []).filter(function (d) {
+            return !nat.some(function (n) { return n.kind === d.kind && Math.abs(n.ts - d.ts) <= windowSec; });
+        });
+        kept.forEach(function (d) { d.source = 'estimado'; });
+        return nat.concat(kept).sort(function (a, b) { return a.ts - b.ts; });
     },
 
     /**
@@ -3764,8 +3928,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var found = [];
         this._collectFuelSeries(resp.data !== undefined ? resp.data : resp, [], found, 0);
         var isSpeed = function (c) { return c.path.some(function (k) { return /speed|veloc|spd/i.test(k); }); };
-        var levels = found.filter(function (c) { return !isSpeed(c); });
-        var speeds = found.filter(isSpeed);
+        var levels = this._mergeFuelSeries(found.filter(function (c) { return !isSpeed(c); }));
+        var speeds = this._mergeFuelSeries(found.filter(isSpeed));
+        var native = this._collectNativeFuelEvents(resp.data !== undefined ? resp.data : resp);
 
         if (!levels.length) {
             // Vacío en cualquier profundidad ({}, [], {"level1": []}): hay
@@ -3798,7 +3963,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 if (sp[q] && Math.abs(sp[q].ts - samples[i].ts) <= 300) { samples[i].spd = sp[q].v; }
             }
         }
-        return { status: 'ok', samples: samples, sensor: best.path[best.path.length - 1] || '' };
+        return { status: 'ok', samples: samples, sensor: best.path[best.path.length - 1] || '', native: native };
     },
 
     /**
@@ -3891,12 +4056,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 });
             }).catch(function (err) {
                 failed = true;
+                // Un 401 es un bloqueo del servidor, no un formato desconocido:
+                // sondear vehículos al azar con reportes pesados sería la
+                // peor respuesta (ver más abajo, modo 'blocked').
+                if (err && /HTTP 401/.test(err.message || '')) { me._fuelCatalogBlocked = true; }
                 console.warn('[promatic_dashboard_enhancer] catálogo de sensores de combustible no disponible:', err);
             });
         });
 
         return seq.then(function () {
-            if (failed) { return { ids: [], mode: 'probe' }; }
+            if (failed) { return { ids: [], mode: me._fuelCatalogBlocked ? 'blocked' : 'probe' }; }
             cat.at = cat.at || Date.now();
             try { localStorage.setItem(KEY, JSON.stringify(cat)); } catch (e) { /* storage bloqueado */ }
             return { ids: vehIds.filter(function (id) { return cat.known[id] === 1; }), mode: 'catalog' };
@@ -3937,6 +4106,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (me._isEndpointBlocked(breakerKey)) { me._fuelRunning = false; return; }
 
         me._fuelSensorVehicles(vehIds, cfg).then(function (src) {
+            // Catálogo bloqueado (401): no se consulta ningún reporte. Se
+            // reintenta al recargar la página.
+            if (src.mode === 'blocked') { finish({ state: 'error' }); return; }
             var candidates = src.mode === 'probe'
                 ? vehIds.slice(0, cfg.maxVehicles * 2)
                 : src.ids;
@@ -3961,8 +4133,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     var entry = { at: Date.now(), status: parsed.status, events: [], n: 0, sensor: parsed.sensor || '', ref: 0, speedKnown: false };
                     if (parsed.status === 'ok') {
                         var det = me._detectFuelEvents(parsed.samples, cfg);
-                        entry.events = det.events; entry.n = det.n; entry.ref = det.ref; entry.speedKnown = det.speedKnown;
-                        if (det.n < cfg.minSamples) { entry.status = 'nodata'; }
+                        // Los eventos que PILOT ya detectó mandan; los del
+                        // detector propio solo suman los que PILOT no vio.
+                        // Ventana de 2 h como mínimo: con el vehículo estacionado el sensor
+                        // reporta cada hora y el detector propio ubica el salto antes
+                        // que PILOT, que fecha el evento al final del proceso.
+                        entry.events = me._mergeFuelEvents(parsed.native, det.events, Math.max((cfg.windowMin || 30) * 60, 7200));
+                        entry.n = det.n; entry.ref = det.ref; entry.speedKnown = det.speedKnown;
+                        if (det.n < cfg.minSamples && !entry.events.length) { entry.status = 'nodata'; }
                     }
                     me._fuelPerVeh[id] = entry;
                 }).catch(function (err) {
@@ -4021,6 +4199,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (ld) { loadIds.push(id); loadEvents += ld; }
             if (dr) { drainIds.push(id); drainEvents += dr; }
         });
+        // Los vehículos que el catálogo ya descartó (sin sensor) nunca se
+        // consultan, así que no entran por el ciclo de arriba: se cuentan
+        // aparte. Los aún no revisados por el catálogo quedan como pendientes.
+        var known = (me._fuelCatalog && me._fuelCatalog.known) || null;
+        if (known) {
+            var pending = 0;
+            vehIds.forEach(function (id) {
+                if (known[id] === 0) { counts.nosensor++; }
+                else if (known[id] === undefined) { pending++; }
+            });
+            counts.unscanned = pending;
+        }
         var state = 'nodata';
         if (counts.ok) { state = 'ok'; }
         else if (counts.unrecognized) { state = 'unrecognized'; }
@@ -4093,12 +4283,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                   '">' + l('ver posición actual') + '</button><br>' + cur[0].toFixed(5) + ', ' + cur[1].toFixed(5)
                 : l('N/D');
             var e = x.e;
+            var lv = me._fuelLevelText(e, x.ref);
             var conf = (e.speedKnown ? '' : l('sin dato de velocidad (confianza baja)')) +
                 (e.viaGap ? (e.speedKnown ? '' : '<br>') + l('el equipo no reportó entre ambas lecturas') : '');
+            // Origen del evento y, si lo trae, el lugar donde ocurrió.
+            var src = e.source === 'pilot' ? l('detectado por PILOT') : l('estimado por el Dashboard');
+            var where = '';
+            if (e.lat != null && e.lon != null) {
+                var evLink = me._mapsLink(e.lat, e.lon);
+                where = '<br>' + e.lat.toFixed(5) + ', ' + e.lon.toFixed(5) +
+                    (evLink ? ' <a href="' + esc(evLink) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '');
+            }
             return '<tr><td>' + esc(me._fmtEventDateTime(e.ts)) + (e.te !== e.ts ? ' → ' + esc(me._fmtEventDateTime(e.te)) : '') +
                 '</td><td>' + esc(me.displayName(name)) + '</td><td>' + sheet + '</td><td class="n">' +
-                e.from.toFixed(1) + ' → ' + e.to.toFixed(1) + '<br>(' + (e.delta > 0 ? '+' : '') + e.delta.toFixed(1) + ' · ' + e.pct.toFixed(0) + '% ' + l('del máximo') +
-                ')</td><td>' + (conf || l('vehículo detenido')) + '</td><td>' + curCell + '</td></tr>';
+                lv.head + '<br>(' + lv.tail +
+                ')</td><td>' + (conf || l('vehículo detenido')) + '<br>' + esc(src) + where + '</td><td>' + curCell + '</td></tr>';
         };
 
         var body;
@@ -4123,6 +4322,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '<tr><td>' + l('Analizados con sensor') + '</td><td class="n">' + (c.ok || 0) + '</td></tr>' +
             '<tr><td>' + l('Con sensor, sin muestras en la ventana') + '</td><td class="n">' + (c.nodata || 0) + '</td></tr>' +
             '<tr><td>' + l('Sin sensor de combustible (N/D)') + '</td><td class="n">' + (c.nosensor || 0) + '</td></tr>' +
+            (c.unscanned ? '<tr><td>' + l('Pendientes de revisar (catálogo en curso)') + '</td><td class="n">' + c.unscanned + '</td></tr>' : '') +
             '<tr><td>' + l('Respuesta no reconocida / error') + '</td><td class="n">' + ((c.unrecognized || 0) + (c.error || 0)) + '</td></tr>' +
             '<tr><td>' + l('Vehículos en el alcance') + '</td><td class="n">' + (f.scopeTotal || 0) + '</td></tr></table>';
 
@@ -4162,8 +4362,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 var rec = byId[id];
                 rows.push([e.ts, [me._fmtEventDateTime(e.ts), me.displayName(rec ? rec.get('name') : String(id)),
                     me._vehicleSheetLines(rec).join('\n') || l('N/D'),
-                    e.from.toFixed(1) + ' → ' + e.to.toFixed(1) + ' (' + (e.delta > 0 ? '+' : '') + e.delta.toFixed(1) + ', ' + e.pct.toFixed(0) + '%)',
-                    e.speedKnown ? l('vehículo detenido') : l('sin dato de velocidad')]]);
+                    me._fuelLevelText(e, c.ref).head + ' (' + me._fuelLevelText(e, c.ref).tail + ')',
+                    (e.speedKnown ? l('vehículo detenido') : l('sin dato de velocidad')) + ' · ' +
+                        (e.source === 'pilot' ? l('detectado por PILOT') : l('estimado por el Dashboard'))]]);
             });
         });
         rows.sort(function (a, b) { return b[0] - a[0]; });
