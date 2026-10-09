@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.1',
-    moduleBuild: '2026-10-09-1656',
+    version: '0.26.2',
+    moduleBuild: '2026-10-09-1755',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -2079,14 +2079,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var heavy = [
             { card: 'alertas_generales', run: function () { me.loadAlertasGenerales(); } },
             { card: 'eco_score', run: function () { me.loadEcoScore(); } },
-            { card: 'top5km', run: function () { me.loadTop5KmData(); } },
-            { card: 'violations', run: function () { me.loadViolationsTrend(); } },
             { card: null, run: function () {
                 if (me._hotspotsNeedsLoad && me._hotspotsMap) {
                     me._hotspotsNeedsLoad = false;
                     me.loadFleetHeatmap();
                 }
-            } }
+            } },
+            { card: 'top5km', run: function () { me.loadTop5KmData(); } },
+            { card: 'violations', run: function () { me.loadViolationsTrend(); } }
         ];
         this._runHeavySteps(heavy, function () {
             me._startupDone = true;
@@ -3270,6 +3270,46 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      */
     fetchAccidentVehicles: function (vehIdsCsv, startDate, stopDate) {
         var me = this;
+        return this._fetchEventsInChunks(vehIdsCsv, function (csv) {
+            return me._fetchAccidentChunk(csv, startDate, stopDate);
+        });
+    },
+
+    // Máximo de ids de vehículo por consulta GET a events.php. Con la flota
+    // completa (~1400 ids) la dirección pasa de 10 KB: queda por encima de
+    // lo que el servidor acepta y la consulta responde 401. A 250 ids la
+    // dirección ronda 2 KB.
+    EVENTS_GET_CHUNK: 250,
+
+    /**
+     * Pide una consulta GET con lista de vehículos (`veh=`) en bloques de
+     * EVENTS_GET_CHUNK ids, de a uno y con una pausa corta, y junta las
+     * filas. Si un bloque falla, falla el conjunto: un conteo parcial se
+     * vería como un número válido y subestimaría la alerta.
+     *
+     * @param {String} vehIdsCsv Ids separados por coma.
+     * @param {Function} fetchOne function(csv) que devuelve una promesa de filas.
+     * @return {Promise<Array>}
+     */
+    _fetchEventsInChunks: function (vehIdsCsv, fetchOne) {
+        var me = this;
+        var ids = String(vehIdsCsv || '').split(',').filter(Boolean);
+        var all = [];
+        var seq = Promise.resolve();
+        for (var i = 0; i < ids.length; i += me.EVENTS_GET_CHUNK) {
+            (function (csv, first) {
+                seq = seq.then(function () {
+                    return (first ? Promise.resolve() : me._sleep(300))
+                        .then(function () { return fetchOne(csv); })
+                        .then(function (rows) { all = all.concat(rows || []); });
+                });
+            })(ids.slice(i, i + me.EVENTS_GET_CHUNK).join(','), i === 0);
+        }
+        return seq.then(function () { return all; });
+    },
+
+    _fetchAccidentChunk: function (vehIdsCsv, startDate, stopDate) {
+        var me = this;
         var isoNoMs = function (d) { return d.toISOString().slice(0, 19); };
         var qs = 'cmd=search&operating_mode=tree' +
             '&veh=' + encodeURIComponent(vehIdsCsv) +
@@ -3331,6 +3371,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * borderAlert.since; un mismo vehículo puede traer varios.
      */
     fetchBorderStopRows: function (vehIdsCsv, startDate, stopDate, eventType, sinceMs) {
+        var me = this;
+        return this._fetchEventsInChunks(vehIdsCsv, function (csv) {
+            return me._fetchBorderChunk(csv, startDate, stopDate, eventType, sinceMs);
+        });
+    },
+
+    _fetchBorderChunk: function (vehIdsCsv, startDate, stopDate, eventType, sinceMs) {
+        var me = this;
         var isoNoMs = function (d) { return d.toISOString().slice(0, 19); };
         var qs = 'cmd=search&operating_mode=tree' +
             '&veh=' + encodeURIComponent(vehIdsCsv) +
@@ -3444,17 +3492,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // services→list). En la cuenta de pruebas ambos devolvieron items:[]
         // (sin datos). Se prueban con y sin filtro de vehículos por si el
         // schema de una cuenta con datos lo requiere.
+        // Primero las variantes cortas: con la flota completa la lista de ids
+        // hace una dirección de ~10 KB que el servidor rechaza con 401, y el
+        // alcance ya es siempre toda la flota, así que el filtro no aporta.
+        // Las variantes con `veh` llevan su propia llave del circuit breaker
+        // para que su 401 no bloquee también a las cortas.
         var endpoints = [
-            { url: '/backend/ax/mod/to/inspections.php?cmd=forms&veh=' + encodeURIComponent(csv), breakerKey: 'mod/to/inspections.php' },
             { url: '/backend/ax/mod/to/inspections.php?cmd=forms', breakerKey: 'mod/to/inspections.php' },
-            { url: '/backend/ax/mod/to/services.php?cmd=list&veh=' + encodeURIComponent(csv), breakerKey: 'mod/to/services.php' },
-            { url: '/backend/ax/mod/to/services.php?cmd=list', breakerKey: 'mod/to/services.php' }
+            { url: '/backend/ax/mod/to/services.php?cmd=list', breakerKey: 'mod/to/services.php' },
+            { url: '/backend/ax/mod/to/inspections.php?cmd=forms&veh=' + encodeURIComponent(csv), breakerKey: 'mod/to/inspections.php?veh' },
+            { url: '/backend/ax/mod/to/services.php?cmd=list&veh=' + encodeURIComponent(csv), breakerKey: 'mod/to/services.php?veh' }
         ];
         var tryOne = function (i) {
             if (i >= endpoints.length) { return Promise.resolve(null); }
-            // Un 401 previo para este endpoint (con o sin filtro de
-            // vehículos) casi seguro se repite: se salta al siguiente sin
-            // gastar el request.
+            // Un 401 previo de esta variante casi seguro se repite: se salta
+            // a la siguiente sin gastar el request.
             if (me._isEndpointBlocked(endpoints[i].breakerKey)) { return tryOne(i + 1); }
             return fetch(endpoints[i].url, { credentials: 'include' })
                 .then(function (resp) {
