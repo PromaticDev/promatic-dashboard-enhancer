@@ -10,8 +10,11 @@
     "kmField": "gps"
   },
   "fleet": {
-    "scope": "pilot-selection",
+    "scope": "all",
     "maxVehicles": 1500
+  },
+  "ui": {
+    "preset": "rac"
   },
   "clock": {
     "timeZone": "America/Santiago",
@@ -38,5 +41,24 @@
     "minGapSeconds": 120,
     "shortGapMinSeconds": 10,
     "shortGapMaxSeconds": 90
+  },
+  "fuel": {
+    "enabled": true,
+    "windowDays": 3,
+    "loadMinPct": 10,
+    "drainMinPct": 6,
+    "windowMin": 30,
+    "maxGapMin": 360,
+    "stopSpeedKmh": 3,
+    "minSamples": 5,
+    "capacityHint": 0,
+    "agentIds": [],
+    "batchSize": 3,
+    "pauseMs": 1000,
+    "maxVehicles": 60,
+    "cacheMinutes": 30,
+    "catalogBatch": 20,
+    "catalogCacheHours": 24,
+    "debugRawMax": 3
   }
 }

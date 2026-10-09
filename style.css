@@ -409,6 +409,16 @@
     height: 100%;
 }
 
+/* Aviso corto sobre el mini-mapa del modal (qué puntos se dibujan). */
+.promatic_dashboard_enhancer-report-modal__map-notice {
+    flex: 0 0 auto;
+    padding: 4px 14px;
+    font-size: 11px;
+    color: #475569;
+    background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+}
+
 .promatic_dashboard_enhancer-report-modal__title {
     font-size: 13px;
     font-weight: 700;
@@ -1101,6 +1111,15 @@
     margin-bottom: 0.25em;
     opacity: .96;
     text-transform: uppercase;
+}
+
+.promatic_dashboard_enhancer-stat-card__cov {
+    display: block;
+    margin-top: 0.15em;
+    font-size: 0.85em;
+    font-weight: 400;
+    text-transform: none;
+    opacity: .85;
 }
 
 .promatic_dashboard_enhancer-stat-card__count {
@@ -1822,4 +1841,287 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     font-size: 0.8rem;
     color: var(--g5);
     text-align: center;
+}
+/* ===== Vistas RAC / LOP =====
+   Un solo DOM sirve a las dos vistas; la clase de vista del panel raíz
+   decide qué cards se ven. RAC es la vista por omisión (sin clase). */
+.promatic_dashboard_enhancer-panel:not(.promatic_dashboard_enhancer-view-lop) .promatic_dashboard_enhancer-only-lop,
+.promatic_dashboard_enhancer-view-lop .promatic_dashboard_enhancer-only-rac {
+    display: none;
+}
+
+/* Placeholder de un widget de LOP aún no construido. */
+.promatic_dashboard_enhancer-wip {
+    padding: 1.5em 0.75em;
+    text-align: center;
+    font-size: 0.75em;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--g5);
+    border: 1px dashed var(--g3);
+    border-radius: 0.5em;
+}
+
+/* ===== Modal "Controles" =====
+   Vive en el body (fuera del panel), donde no existen los tokens --g*: los
+   colores van como hex. */
+.promatic_dashboard_enhancer-ctl {
+    padding: 0.75em 1em;
+    font-size: 13px;
+    color: #064368;
+}
+
+.promatic_dashboard_enhancer-ctl h4 {
+    margin: 1em 0 0.4em;
+    font-size: 11px;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: #0a67a0;
+}
+
+.promatic_dashboard_enhancer-ctl h4:first-child {
+    margin-top: 0;
+}
+
+.promatic_dashboard_enhancer-ctl__opt {
+    display: block;
+    padding: 0.35em 0;
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-ctl__opt span {
+    margin-left: 0.5em;
+    color: #498db8;
+}
+
+.promatic_dashboard_enhancer-ctl__table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.promatic_dashboard_enhancer-ctl__table td {
+    padding: 0.3em 0.4em;
+    border-bottom: 1px solid #e6edf3;
+}
+
+.promatic_dashboard_enhancer-ctl__table td:last-child {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.promatic_dashboard_enhancer-ctl__st--dev {
+    color: #498db8;
+    font-style: italic;
+}
+
+.promatic_dashboard_enhancer-ctl__msg {
+    margin-top: 0.75em;
+    color: #0a67a0;
+    font-weight: 600;
+}
+
+/* ===== Widgets de la vista LOP (sucursales, conducción, combustible,
+   mantención, TAG). Comparten tabla, cajas de resumen, chips de modo y nota
+   de cobertura; los colores de estado reutilizan los tokens --status-*. ===== */
+.promatic_dashboard_enhancer-lop-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    min-width: 0;
+}
+
+/* El body de la card no crece con la tabla: el scroll vive en la tabla para
+   que la nota de cobertura quede siempre visible debajo. */
+.promatic_dashboard_enhancer-lop-scroll {
+    max-height: 14em;
+    overflow: auto;
+}
+
+.promatic_dashboard_enhancer-lop-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    color: var(--g7);
+}
+
+.promatic_dashboard_enhancer-lop-table th {
+    position: sticky;
+    top: 0;
+    background: var(--g1);
+    font-weight: 700;
+    text-align: left;
+    padding: 0.25em 0.5em;
+    white-space: nowrap;
+}
+
+.promatic_dashboard_enhancer-lop-table td {
+    padding: 0.25em 0.5em;
+    border-top: 1px solid var(--g1);
+    max-width: 11em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.promatic_dashboard_enhancer-lop-table .promatic_dashboard_enhancer-lop-n {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.promatic_dashboard_enhancer-lop-hl {
+    font-weight: 700;
+    color: var(--g6);
+}
+
+.promatic_dashboard_enhancer-lop-row--bad td {
+    background: rgba(232, 147, 138, 0.25);
+}
+
+.promatic_dashboard_enhancer-lop-note {
+    font-size: 0.7rem;
+    color: var(--g5);
+    line-height: 1.35;
+}
+
+.promatic_dashboard_enhancer-lop-empty {
+    padding: 0.75em;
+    font-size: 0.8rem;
+    color: var(--g5);
+    text-align: center;
+}
+
+.promatic_dashboard_enhancer-lop-boxes {
+    display: flex;
+    gap: 0.5em;
+}
+
+.promatic_dashboard_enhancer-lop-box {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0.4em 0.5em;
+    border-radius: 0.375em;
+    color: #fff;
+    background: var(--g6);
+}
+
+.promatic_dashboard_enhancer-lop-box--ok { background: var(--status-ok-strong); }
+.promatic_dashboard_enhancer-lop-box--mid { background: var(--status-alert-strong); }
+.promatic_dashboard_enhancer-lop-box--bad { background: var(--status-danger-strong); }
+
+.promatic_dashboard_enhancer-lop-box__v {
+    font-size: 1.25rem;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.promatic_dashboard_enhancer-lop-box__l {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    opacity: 0.92;
+}
+
+.promatic_dashboard_enhancer-lop-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25em;
+}
+
+.promatic_dashboard_enhancer-lop-chip {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.125em 0.6em;
+    border-radius: 1em;
+    background: var(--g1);
+    color: var(--g7);
+    cursor: pointer;
+    user-select: none;
+}
+
+.promatic_dashboard_enhancer-lop-chip--on {
+    background: var(--g6);
+    color: #fff;
+}
+
+.promatic_dashboard_enhancer-lop-chip--off {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.promatic_dashboard_enhancer-lop-flag {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.125em 0.5em;
+    border-radius: 0.3125em;
+    color: #fff;
+    background: var(--status-ok-strong);
+}
+
+.promatic_dashboard_enhancer-lop-flag--mid { background: var(--status-alert-strong); }
+.promatic_dashboard_enhancer-lop-flag--bad { background: var(--status-danger-strong); }
+
+/* Estado "en desarrollo" de un widget sin fuente confirmada: atenuado y con
+   badge, igual que las categorías beta de Alertas Generales. */
+.promatic_dashboard_enhancer-lop-dev {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    align-items: flex-start;
+    padding: 0.5em 0.25em;
+    font-size: 0.8rem;
+    color: var(--g5);
+}
+
+.promatic_dashboard_enhancer-lop-dev__badge {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    padding: 0.125em 0.4375em;
+    border-radius: 0.25em;
+    background: var(--g1);
+    color: var(--g6);
+}
+
+/* Barra de porcentaje por sucursal (% estacionados). */
+.promatic_dashboard_enhancer-lop-bar {
+    display: grid;
+    grid-template-columns: 7em 1fr 5.5em;
+    align-items: center;
+    gap: 0.5em;
+}
+
+.promatic_dashboard_enhancer-lop-bar__label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--g7);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.promatic_dashboard_enhancer-lop-bar__track {
+    background: var(--g1);
+    border-radius: 0.25em;
+    height: 0.7em;
+    overflow: hidden;
+}
+
+.promatic_dashboard_enhancer-lop-bar__fill {
+    height: 100%;
+    background: var(--g5);
+    border-radius: 0.25em;
+}
+
+.promatic_dashboard_enhancer-lop-bar__val {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--g7);
+    text-align: right;
+}
+
+.promatic_dashboard_enhancer-lop-bar__val span {
+    font-weight: 400;
+    color: var(--g5);
+    font-size: 0.7rem;
 }

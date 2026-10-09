@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.25.2',
-    moduleBuild: '2026-10-08-1307',
+    version: '0.26.0',
+    moduleBuild: '2026-10-09-1618',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -39,16 +39,28 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // breaker. Es una mitigación hasta contar con una fuente batch de una
         // sola llamada.
         top5km: { windowDays: 7, activeVehicleCap: 300, tripsMaxVehicles: 30, tripsBatchSize: 4, source: 'trips-v3', count: 5, kmField: 'gps' },
-        // scope 'pilot-selection': los widgets siguen la selección con
-        // checkbox del panel "Principal" de PILOT. 'all': árbol Online
-        // completo. El slider del pie sobrescribe este valor por sesión
-        // (localStorage).
+        // Alcance fijo en 'all' (árbol Online completo): ya no hay selector de
+        // alcance en la UI. El código de selección con checkbox del panel
+        // "Principal" ('pilot-selection') sigue en el archivo pero inerte.
         //
         // maxVehicles es el tope de seguridad para no disparar jobs
         // asíncronos en flotas enormes. El corte es ciego (primeros N del
         // árbol, no por relevancia), así que con flotas mayores al tope
-        // varios widgets trabajan sobre una muestra parcial.
-        fleet: { scope: 'pilot-selection', maxVehicles: 1500 },
+        // varios widgets trabajan sobre una muestra parcial. 1500 cubre con
+        // holgura una flota de ~1350 vehículos; si la flota supera el tope,
+        // subirlo acá y en config.json.
+        fleet: { scope: 'all', maxVehicles: 1500 },
+        // Vista activa del panel: 'rac' (renta de autos sueltos) o 'lop'
+        // (administrador de flota). Un override en localStorage (modal
+        // "Controles") gana sobre este valor.
+        //
+        // Estructura prevista para la config por capas, de menor a mayor
+        // prioridad: Cliente > Unidad (RAC/LOP) > Rol > Usuario. Cada capa
+        // aporta las mismas secciones de este objeto y se mezcla encima de la
+        // anterior (el mismo merge por sección que ya hace loadConfig). Hoy
+        // solo existe la capa base (este objeto + config.json) y el preset
+        // `ui.preset` hace de capa "Unidad"; no hay lectura de roles.
+        ui: { preset: 'rac' },
         // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
         clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' },
         // Ventana del Fleet ECO report. idleThresholdMin: minutos de ralentí
@@ -95,7 +107,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // "Intermitencias breves" (candidatos a túnel/subterráneo). El
         // request usa siempre el piso más bajo para traer ambas capas en una
         // sola llamada.
-        hotspots: { windowDays: 30, minGapSeconds: 120, shortGapMinSeconds: 10, shortGapMaxSeconds: 90 }
+        hotspots: { windowDays: 30, minGapSeconds: 120, shortGapMinSeconds: 10, shortGapMaxSeconds: 90 },
+        // Alertas de combustible (cargas/drenajes calculados sobre el
+        // reporte de sensor, ver loadFuelAlerts). loadMinPct/drainMinPct son
+        // % del nivel máximo observado, no litros: el reporte no declara la
+        // unidad. windowMin: duración máxima de un drenaje; maxGapMin: hueco
+        // máximo entre dos lecturas para aceptar una carga con el equipo
+        // sin reportar. agentIds fija a mano qué vehículos tienen sensor y
+        // salta el catálogo. batchSize/pauseMs/maxVehicles acotan la carga
+        // sobre PILOT: consultas por lotes chicos con pausa, y como mucho
+        // maxVehicles nuevas por ciclo (cacheMinutes evita repetirlas).
+        fuel: {
+            enabled: true, windowDays: 3, loadMinPct: 10, drainMinPct: 6, windowMin: 30, maxGapMin: 360,
+            stopSpeedKmh: 3, minSamples: 5, capacityHint: 0, agentIds: [],
+            batchSize: 3, pauseMs: 1000, maxVehicles: 60, cacheMinutes: 30,
+            catalogBatch: 20, catalogCacheHours: 24, debugRawMax: 3
+        }
     },
 
     initModule: function () {
@@ -160,7 +187,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // existen. Por eso todo arranca en 'afterrender' (una sola vez).
         var panel = Ext.create('Ext.panel.Panel', {
             id: 'promatic_dashboard_enhancer-panel-root',
-            cls: 'promatic_dashboard_enhancer-panel',
+            // La clase de vista inicial evita el parpadeo de la vista equivocada
+            // antes del primer applyViewPreset.
+            cls: 'promatic_dashboard_enhancer-panel' + (this.effectiveUiPreset() === 'lop' ? ' ' + this.VIEW_LOP_CLS : ''),
             layout: { type: 'vbox', align: 'stretch' },
             scrollable: 'y',
             items: [this.summaryBar, this.buildRacShell()],
@@ -184,7 +213,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         // 'render' del panel crea el MapContainer y carga los
                         // datos. NUNCA toca window.mapContainer, que es el
                         // mapa global de PILOT.
-                        me.buildHotspotsMapPanel();
+                        //
+                        // applyViewPreset lo construye solo si la vista
+                        // activa muestra Hotspots (RAC).
+                        me.applyViewPreset();
                         me.buildFleetMapPanel();
                         me.startClock();
                         me.startAutoRefresh();
@@ -326,7 +358,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         return {
             id: 'promatic_dashboard_enhancer-card-' + id,
-            cls: 'promatic_dashboard_enhancer-card' + (opts.grow2 ? ' promatic_dashboard_enhancer-card--grow-2' : ''),
+            cls: 'promatic_dashboard_enhancer-card' + (opts.grow2 ? ' promatic_dashboard_enhancer-card--grow-2' : '') +
+                this.viewVisibilityCls(id),
             cn: cn
         };
     },
@@ -345,6 +378,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var el = Ext.get('promatic_dashboard_enhancer-card-body-' + id);
         if (el) {
             el.setHtml(html);
+            // Un pintado real (no el skeleton) marca el fin de la consulta
+            // que espera refreshAllWidgets.
+            if (!this._paintingSkeleton && this._refreshPending) { delete this._refreshPending[id]; }
         } else if (optional) {
             return;
         } else if (attempt < 60) {
@@ -414,6 +450,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                             html: l('Generar') + ' ›'
                         }
                     ]
+                },
+                {
+                    cls: 'promatic_dashboard_enhancer-export-card',
+                    cn: [{
+                        tag: 'button', type: 'button',
+                        id: 'promatic_dashboard_enhancer-controls-btn',
+                        cls: 'promatic_dashboard_enhancer-export-card__btn',
+                        html: l('Controles') + ' ›'
+                    }]
                 }
             ]
         };
@@ -432,6 +477,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 var which = sel ? sel.value : 'flota';
                 me.openReportModal(me.buildWidgetReport(which), me._widgetReportName(which),
                     me._safe(function () { return me.buildWidgetPdfDoc(which); }));
+                return;
+            }
+            if (e.getTarget('#promatic_dashboard_enhancer-controls-btn', 3, true)) {
+                e.preventDefault();
+                me.openControlsModal();
                 return;
             }
             var gb = e.getTarget('#promatic_dashboard_enhancer-golden-btn', 3, true);
@@ -459,7 +509,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             flota: l('Estado de Flota'), top5km: l('Exceso de Kilometraje'),
             eco: l('Safety Score (ECO)'), gps: l('Sin Señal GPS'),
             alertas: l('Alertas Generales')
-        })[which] || l('Reporte');
+        })[which] || this._lopExportTitle(which) || l('Reporte');
     },
 
     /**
@@ -473,8 +523,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * aislado sin acceso a MapContainer ni a Ext, por eso el mapa vive en el
      * overlay padre y las filas del iframe le piden centrar un punto por
      * postMessage.
+     *
+     * mapOpts (opcional): { showMap, initCenter, notice }. showMap muestra el
+     * mapa aunque mapPoints venga vacío (los puntos que no se dibujan de
+     * entrada se agregan al hacer clic en "ver en mapa interno"); initCenter
+     * {lat, lon} es el centro inicial en ese caso; notice es un aviso corto
+     * sobre el mapa (qué puntos se dibujan).
      */
-    openReportModal: function (html, title, pdfDoc, mapPoints) {
+    openReportModal: function (html, title, pdfDoc, mapPoints, mapOpts) {
         var me = this;
         this.closeReportModal();
 
@@ -485,9 +541,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             ? '<button type="button" data-act="pdf" class="promatic_dashboard_enhancer-report-modal__btn promatic_dashboard_enhancer-report-modal__btn--primary">⬇ ' + l('Descargar PDF') + '</button>'
             : '';
 
-        var hasMap = Array.isArray(mapPoints) && mapPoints.length > 0;
+        mapOpts = mapOpts || {};
+        var hasMap = (Array.isArray(mapPoints) && mapPoints.length > 0) || !!mapOpts.showMap;
+        mapPoints = Array.isArray(mapPoints) ? mapPoints : [];
         var mapHtml = hasMap
-            ? '<div id="promatic_dashboard_enhancer-report-modal-map" class="promatic_dashboard_enhancer-report-modal__map"></div>'
+            ? (mapOpts.notice
+                ? '<div class="promatic_dashboard_enhancer-report-modal__map-notice">' + Ext.String.htmlEncode(mapOpts.notice) + '</div>'
+                : '') +
+              '<div id="promatic_dashboard_enhancer-report-modal-map" class="promatic_dashboard_enhancer-report-modal__map"></div>'
             : '';
 
         var ov = document.createElement('div');
@@ -520,19 +581,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         fd.write(html);
         fd.close();
 
-        if (hasMap) {
-            me._buildReportModalMap(mapPoints);
-            // Mensajes del iframe (click en "ver en mapa interno" de una
-            // fila): centran/zoom al punto pedido. Un solo listener por
-            // apertura del modal; se limpia en closeReportModal.
-            me._reportModalMsgHandler = function (ev) {
-                if (ev.source !== frame.contentWindow) { return; }
-                var data = ev.data || {};
-                if (data.type !== 'promatic_dashboard_enhancer_focus_point') { return; }
-                me._focusReportModalMapPoint(data.lat, data.lon);
-            };
-            window.addEventListener('message', me._reportModalMsgHandler);
-        }
+        if (hasMap) { me._buildReportModalMap(mapPoints, mapOpts); }
+        // Mensajes del iframe: "ver en mapa interno" centra (y dibuja si
+        // falta) el punto pedido; "abrir informe nativo" cierra el modal y
+        // abre el informe de PILOT. Un solo listener por apertura; se limpia
+        // en closeReportModal.
+        me._reportModalMsgHandler = function (ev) {
+            if (ev.source !== frame.contentWindow) { return; }
+            var data = ev.data || {};
+            if (data.type === 'promatic_dashboard_enhancer_focus_point') {
+                me._focusReportModalMapPoint(data.lat, data.lon, data.label);
+            } else if (data.type === 'promatic_dashboard_enhancer_open_native_report') {
+                me._openNativeReportFromModal(Number(data.reportType), Number(data.agentId), Number(data.ts));
+            }
+        };
+        window.addEventListener('message', me._reportModalMsgHandler);
 
         ov.addEventListener('click', function (ev) {
             var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
@@ -585,7 +648,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * (Ext.panel.Panel + layout 'fit' + init() + checkResize diferido),
      * adaptado a vivir en el overlay.
      */
-    _buildReportModalMap: function (mapPoints) {
+    _buildReportModalMap: function (mapPoints, mapOpts) {
         var me = this;
         var body = Ext.get('promatic_dashboard_enhancer-report-modal-map');
         if (!body || !me.getMapContainerClass()) {
@@ -593,6 +656,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return;
         }
         me._reportModalMapPoints = mapPoints;
+        me._reportModalDrawn = {};
         me._reportModalMapPanel = Ext.create('Ext.panel.Panel', {
             renderTo: body,
             layout: 'fit',
@@ -603,16 +667,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     try {
                         var MC = me.getMapContainerClass();
                         me._reportModalMap = new MC('promatic_dashboard_enhancer_report_modal_map');
-                        var first = mapPoints[0];
-                        me._reportModalMap.init(first.lat, first.lon, 12, this.id + '-body', false);
+                        // Sin puntos de entrada, el mapa abre en initCenter
+                        // (o en Chile) con zoom de país.
+                        var first = mapPoints[0] || (mapOpts && mapOpts.initCenter) || { lat: -33.45, lon: -70.65 };
+                        me._reportModalMap.init(first.lat, first.lon, mapPoints.length ? 12 : 5, this.id + '-body', false);
                         for (var i = 0; i < mapPoints.length; i++) {
-                            var p = mapPoints[i];
-                            me._reportModalMap.addMarker({
-                                id: 'promatic_dashboard_enhancer_report_modal_marker_' + i,
-                                lat: p.lat, lon: p.lon,
-                                size: 'mini',
-                                tooltip: p.label ? { msg: p.label, options: { direction: 'top' } } : undefined
-                            });
+                            me._drawReportModalMarker(mapPoints[i]);
                         }
                         if (mapPoints.length > 1 && me._reportModalMap.setMapCenter) {
                             me._reportModalMap.setMapCenter(mapPoints.map(function (p) { return [p.lat, p.lon]; }));
@@ -632,10 +692,33 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
-    _focusReportModalMapPoint: function (lat, lon) {
+    /**
+     * Dibuja un marcador del mini-mapa del modal. Registra la coordenada
+     * (5 decimales) para no duplicar un punto que ya está dibujado cuando se
+     * pide de nuevo desde la tabla.
+     */
+    _drawReportModalMarker: function (p) {
+        var map = this._reportModalMap;
+        if (!map || !p || !isFinite(p.lat) || !isFinite(p.lon)) { return; }
+        var key = Number(p.lat).toFixed(5) + ',' + Number(p.lon).toFixed(5);
+        this._reportModalDrawn = this._reportModalDrawn || {};
+        if (this._reportModalDrawn[key]) { return; }
+        this._reportModalDrawn[key] = true;
+        map.addMarker({
+            id: 'promatic_dashboard_enhancer_report_modal_marker_' + key,
+            lat: p.lat, lon: p.lon,
+            size: 'mini',
+            tooltip: p.label ? { msg: p.label, options: { direction: 'top' } } : undefined
+        });
+    },
+
+    _focusReportModalMapPoint: function (lat, lon, label) {
         var map = this._reportModalMap;
         if (!map || !map.setMapCenter || lat == null || lon == null) { return; }
-        try { map.setMapCenter(lat, lon, { zoom: 16 }); }
+        try {
+            this._drawReportModalMarker({ lat: lat, lon: lon, label: label });
+            map.setMapCenter(lat, lon, { zoom: 16 });
+        }
         catch (err) { console.warn('[promatic_dashboard_enhancer] focus de punto en mapa del modal falló:', err); }
     },
 
@@ -696,6 +779,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
         this._reportModalMap = null;
         this._reportModalMapPoints = null;
+        this._reportModalDrawn = null;
     },
 
     // CSS común de los reportes (impresión A4, tabla, cajas de score).
@@ -723,7 +807,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '.guide ol{margin:6px 0 0;padding-left:20px}.guide li{margin:4px 0}' +
             '.foot{margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:10.5px}' +
             '.promatic_dashboard_enhancer-focus-btn{font:inherit;color:#0a67a0;background:none;border:0;padding:0;text-decoration:underline;cursor:pointer}' +
-            '@media print{body{padding:14mm}h2{page-break-after:avoid}table,.grid,.guide{page-break-inside:avoid}}' +
+            '.promatic_dashboard_enhancer-native-btn{font:inherit;font-size:11px;color:#fff;background:#0a67a0;border:0;border-radius:4px;padding:3px 8px;cursor:pointer}' +
+            '@media print{.promatic_dashboard_enhancer-native-btn{display:none}body{padding:14mm}h2{page-break-after:avoid}table,.grid,.guide{page-break-inside:avoid}}' +
             '</style>';
     },
 
@@ -804,6 +889,30 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return 'https://www.google.com/maps?q=' + encodeURIComponent(lat) + ',' + encodeURIComponent(lon);
     },
 
+    /**
+     * Filas de combustible para las tablas de Alertas Generales del
+     * exportador (informe del widget y Golden Report): número solo con datos
+     * reales, "N/D" si no (sin sensor, sin muestras o formato no
+     * reconocido), y la cobertura en la etiqueta.
+     */
+    _fuelRowsHtml: function () {
+        var me = this;
+        return [['carga', l('Posibles inconsistencias en carga')], ['drenaje', l('Posible drenaje de combustible')]].map(function (k) {
+            var sm = me._fuelSummary(k[0]);
+            return '<tr><td>' + k[1] + (sm.cov ? ' <span class="sub">(' + Ext.String.htmlEncode(sm.cov) + ')</span>' : '') +
+                '</td><td class="n">' + (typeof sm.count === 'number' ? sm.count : l('N/D')) + '</td></tr>';
+        }).join('');
+    },
+
+    _fuelRowsPdf: function () {
+        var me = this;
+        return [['carga', l('Posibles inconsistencias en carga')], ['drenaje', l('Posible drenaje de combustible')]].map(function (k) {
+            var sm = me._fuelSummary(k[0]);
+            return [k[1] + (sm.cov ? ' (' + sm.cov + ')' : ''),
+                { text: typeof sm.count === 'number' ? String(sm.count) : l('N/D'), alignment: 'right' }];
+        });
+    },
+
     // Reporte de un widget puntual.
     buildWidgetReport: function (which) {
         var esc = Ext.String.htmlEncode;
@@ -838,10 +947,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 mk(l('Accidentes'), this._alertAccidentes) +
                 mk(l('Requiere mantención'), this._alertMantencion) +
                 mk(l('Ralentí excesivo'), this._alertRalenti) +
+                this._fuelRowsHtml() +
                 (this._alertBorderEnabled ? mk(l('Salida de territorio nacional'), this._alertBorder) : '') +
                 '</table><p class="sub">' + (this._alertBorderEnabled
-                    ? l('Categorías beta (combustible, GPS manipulado) aún sin fuente conectada.')
-                    : l('Categorías beta (combustible, GPS manipulado, territorio nacional) aún sin fuente conectada.')) + '</p>';
+                    ? l('GPS manipulado: en desarrollo, aún sin fuente conectada.')
+                    : l('GPS manipulado y territorio nacional: en desarrollo, aún sin fuente conectada.')) + ' ' +
+                l('Combustible: posibles cargas y drenajes calculados sobre el sensor; "N/D" indica vehículos sin sensor.') + '</p>';
         } else if (which === 'top5km') {
             title = l('Vehículos con Exceso de Kilometraje');
             var kr = this._lastTop5Ranked || [];
@@ -884,6 +995,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         var desc = this._widgetDescriptions[which];
+        if (this._lopIsExport(which)) {
+            var lopModel = this._lopExportModel(which);
+            title = lopModel.title;
+            days = lopModel.days;
+            desc = lopModel.desc;
+            body = this._lopModelHtml(lopModel);
+        }
         var descHtml = desc ? '<p class="desc">' + l(desc) + '</p>' : '';
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
@@ -895,11 +1013,108 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
+     * Mapa agentid -> record del online_tree en memoria (sin llamadas extra).
+     * {} si el árbol aún no cargó.
+     */
+    _onlineRecordsByAgent: function () {
+        var byId = {};
+        var tree = this.getOnlineTree();
+        if (tree) {
+            var recs = tree.getStore().getData().items;
+            for (var r = 0; r < recs.length; r++) {
+                var aid = recs[r].get('agentid');
+                if (aid) { byId[aid] = recs[r]; }
+            }
+        }
+        return byId;
+    },
+
+    /**
+     * Líneas de texto plano de la ficha de un vehículo del online_tree
+     * (modelo y año, VIN, conductor, carpeta). Sin escapar: el llamador
+     * escapa para HTML o las usa tal cual en el PDF. [] si no hay record o
+     * ningún campo trae valor.
+     */
+    _vehicleSheetLines: function (rec) {
+        if (!rec) { return []; }
+        var field = function (k) { var v = rec.get(k); return v ? String(v) : ''; };
+        var lines = [];
+        var modelYear = [field('model'), field('year')].filter(Boolean).join(' ');
+        if (modelYear) { lines.push(modelYear); }
+        if (field('vin')) { lines.push('VIN ' + field('vin')); }
+        if (field('driver')) { lines.push(l('Conductor') + ': ' + field('driver')); }
+        if (field('group')) { lines.push(l('Carpeta') + ': ' + field('group')); }
+        return lines;
+    },
+
+    /** true si el timestamp Unix cae hoy o ayer (zona horaria configurada). */
+    _isTodayOrYesterday: function (ts) {
+        var k = this._eventDayKey(ts);
+        return k != null && (k === this._eventDayKey(Math.floor(Date.now() / 1000)) ||
+            k === this._eventDayKey(Math.floor(Date.now() / 1000) - 86400));
+    },
+
+    /**
+     * Script del iframe de los modales con filas interactivas: los botones
+     * "ver en mapa interno" (data-focus-*) y "abrir informe en PILOT"
+     * (data-native-*) avisan al overlay padre por postMessage, porque el
+     * iframe no tiene acceso a MapContainer ni a Ext.
+     */
+    _modalActionsScript: function () {
+        return '<script>' +
+            'document.addEventListener("click", function (e) {' +
+            'var b = e.target.closest(".promatic_dashboard_enhancer-focus-btn");' +
+            'if (b) {' +
+            'var lat = parseFloat(b.getAttribute("data-focus-lat"));' +
+            'var lon = parseFloat(b.getAttribute("data-focus-lon"));' +
+            'if (isNaN(lat) || isNaN(lon)) { return; }' +
+            'window.parent.postMessage({type: "promatic_dashboard_enhancer_focus_point", lat: lat, lon: lon, label: b.getAttribute("data-focus-label") || ""}, "*");' +
+            'return; }' +
+            'var n = e.target.closest(".promatic_dashboard_enhancer-native-btn");' +
+            'if (!n) { return; }' +
+            'window.parent.postMessage({type: "promatic_dashboard_enhancer_open_native_report", reportType: n.getAttribute("data-native-report"), agentId: n.getAttribute("data-native-agent"), ts: n.getAttribute("data-native-ts")}, "*");' +
+            '});' +
+            '<\/script>';
+    },
+
+    /**
+     * Cierra el modal y abre el informe nativo de PILOT para un vehículo y el
+     * día de un evento. Se ofrece una ventana de dos días (día del evento y el
+     * siguiente) porque el informe de accidentes ha mostrado desfases de huso
+     * horario del lado de PILOT. Si el tipo de informe no existe en la cuenta,
+     * runNativeReport deja solo el vehículo seleccionado en el panel Informes.
+     */
+    _openNativeReportFromModal: function (reportType, agentId, ts) {
+        var me = this;
+        if (!reportType || !agentId) { return; }
+        var start = isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date();
+        start.setHours(0, 0, 0, 0);
+        var stop = new Date(start.getTime());
+        stop.setDate(stop.getDate() + 1);
+        me.closeReportModal();
+        if (!me.activateReportsTab()) { return; }
+        Ext.defer(function () {
+            try { me.runNativeReport(reportType, [agentId], start, stop); }
+            catch (err) {
+                console.warn('[promatic_dashboard_enhancer] informe nativo falló, se marca el vehículo:', err);
+                me.selectVehiclesInReports([agentId]);
+            }
+        }, 200);
+    },
+
+    /**
      * Detalle de accidentes reales (events.php type=4911): 1 fila por evento
      * "Real crash detected" en la ventana de loadAlertasGenerales. Sin
-     * geocoding inverso (Ubicación muestra lat/lon + link a Google Maps) y
-     * sin link a un informe nativo por fila: no existe un report_type ni un
-     * objeto de navegación equivalente a este árbol de eventos.
+     * geocoding inverso (Ubicación muestra lat/lon + link a Google Maps).
+     * La ficha del vehículo y su posición actual salen del online_tree en
+     * memoria. El informe nativo equivalente es "Crash detection"
+     * (report_type=254): cada fila lo abre para ese vehículo y día vía
+     * runNativeReport. Ese informe no alimenta el conteo de la tarjeta por su
+     * latencia y desfase horario del lado de PILOT.
+     *
+     * El mini-mapa dibuja solo los accidentes recientes (hoy y ayer, ver
+     * _isTodayOrYesterday); los históricos quedan en la tabla y se dibujan al
+     * pulsar "ver en mapa interno".
      */
     buildAccidentesReport: function () {
         var me = this;
@@ -907,34 +1122,46 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var rows = this._alertAccidentesRows || [];
         var days = 30;
         var title = l('Detalle Alarma de Posibles Accidentes');
+        var byId = this._onlineRecordsByAgent();
 
-        // Recientes (hoy/ayer, en la zona horaria configurada) vs. histórico
-        // del resto de la ventana: evita tener que buscar los accidentes más
-        // urgentes entre decenas de filas.
-        var todayKey = this._eventDayKey(Math.floor(Date.now() / 1000));
-        var yesterdayKey = this._eventDayKey(Math.floor(Date.now() / 1000) - 86400);
-        var isRecent = function (r) {
-            var k = me._eventDayKey(r.ts);
-            return k === todayKey || k === yesterdayKey;
+        var focusBtn = function (lat, lon, text, label) {
+            return '<button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + lat +
+                '" data-focus-lon="' + lon + '" data-focus-label="' + esc(label || '') + '">' + text + '</button>';
         };
 
         var rowHtml = function (r) {
+            var rec = r.agentId != null ? byId[r.agentId] : null;
+            var cur = rec ? me._recordLatLon(rec) : null;
             var link = me._mapsLink(r.lat, r.lon);
+            var label = me.displayName(r.veh) + ' — ' + me._fmtEventDateTime(r.ts);
             var locCell;
             if (r.lat != null && r.lon != null) {
                 locCell = r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) +
-                    ' — <button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + r.lat + '" data-focus-lon="' + r.lon + '">' + l('ver en mapa interno') + '</button>' +
+                    ' — ' + focusBtn(r.lat, r.lon, l('ver en mapa interno'), label) +
                     (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '');
             } else {
                 locCell = l('N/D');
             }
+            // La posición actual va aparte del punto del choque: un vehículo
+            // puede haber seguido operando (o haber sido trasladado) después.
+            var curCell = cur
+                ? focusBtn(cur[0], cur[1], l('ver posición actual'), me.displayName(r.veh) + ' — ' + l('posición actual')) +
+                  '<br>' + cur[0].toFixed(5) + ', ' + cur[1].toFixed(5)
+                : l('N/D');
+            var sheet = me._vehicleSheetLines(rec).map(esc).join('<br>') || l('N/D');
             var calCell = r.calibrated === false ? l('No') : l('Sí');
+            var nativeCell = r.agentId != null
+                ? '<button type="button" class="promatic_dashboard_enhancer-native-btn" data-native-report="254" data-native-agent="' +
+                  r.agentId + '" data-native-ts="' + (r.ts != null ? r.ts : '') + '">' + l('Abrir informe en PILOT') + '</button>'
+                : l('N/D');
             return '<tr><td>' + esc(me._fmtEventDateTime(r.ts)) + '</td><td>' +
-                esc(me.displayName(r.veh)) + '</td><td>' + calCell + '</td><td>' + locCell + '</td></tr>';
+                esc(me.displayName(r.veh)) + '</td><td>' + sheet + '</td><td>' + calCell + '</td><td>' +
+                locCell + '</td><td>' + curCell + '</td><td>' + nativeCell + '</td></tr>';
         };
         var tableHtml = function (list) {
             var h = '<table id="promatic_dashboard_enhancer-accidentes-table"><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
-                '</th><th>' + l('Calibrado') + '</th><th>' + l('Ubicación') + '</th></tr>';
+                '</th><th>' + l('Ficha') + '</th><th>' + l('Calibrado') + '</th><th>' + l('Ubicación del choque') +
+                '</th><th>' + l('Posición actual') + '</th><th>' + l('Informe') + '</th></tr>';
             for (var i = 0; i < list.length; i++) { h += rowHtml(list[i]); }
             return h + '</table>';
         };
@@ -943,9 +1170,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (!rows.length) {
             body = '<p>' + l('Sin accidentes reales detectados en el período.') + '</p>';
         } else {
+            // Recientes vs. histórico del resto de la ventana: evita buscar
+            // los accidentes más urgentes entre decenas de filas.
             var sorted = rows.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
-            var recent = sorted.filter(isRecent);
-            var historic = sorted.filter(function (r) { return !isRecent(r); });
+            var recent = sorted.filter(function (r) { return me._isTodayOrYesterday(r.ts); });
+            var historic = sorted.filter(function (r) { return !me._isTodayOrYesterday(r.ts); });
             body = '';
             if (recent.length) {
                 body += '<h2>' + l('Recientes (hoy y ayer)') + '</h2>' + tableHtml(recent);
@@ -958,30 +1187,40 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // La descripción de cara al usuario va separada de la fuente técnica
         // (endpoint/type): la primera es para el usuario final, la segunda es
         // trazabilidad, útil para verificar y fácil de quitar del modal.
-        var desc = '<p class="desc">' + l('Alarmas de eventos de posible colisión detectadas por el acelerómetro. Cada fila es una alerta generada de un potencial accidente real, sin agregar ni incluir el ruido de detección repetida. La columna Calibrado indica si el sensor completó su calibración al momento de la detección. Total: ' + rows.length + '.') + '</p>' +
+        var desc = '<p class="desc">' + l('Alarmas de eventos de posible colisión detectadas por el acelerómetro. Cada fila es una alerta generada de un potencial accidente real, sin agregar ni incluir el ruido de detección repetida. La columna Calibrado indica si el sensor completó su calibración al momento de la detección. "Abrir informe en PILOT" lleva al informe nativo Crash detection de ese vehículo y día. Total: ' + rows.length + '.') + '</p>' +
             '<p class="desc">' + l('Fuente: events.php type=4911') + '</p>';
-
-        // El iframe es un documento aislado sin acceso al MapContainer del
-        // padre: el punto elegido viaja por postMessage y openReportModal
-        // (padre) centra el mapa que vive fuera del iframe.
-        var focusScript =
-            '<script>' +
-            'document.addEventListener("click", function (e) {' +
-            'var b = e.target.closest(".promatic_dashboard_enhancer-focus-btn");' +
-            'if (!b) { return; }' +
-            'var lat = parseFloat(b.getAttribute("data-focus-lat"));' +
-            'var lon = parseFloat(b.getAttribute("data-focus-lon"));' +
-            'if (isNaN(lat) || isNaN(lon)) { return; }' +
-            'window.parent.postMessage({type: "promatic_dashboard_enhancer_focus_point", lat: lat, lon: lon}, "*");' +
-            '});' +
-            '<\/script>';
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
             '</title>' + this._reportStyles() + '</head><body>' +
             this._reportHeader(title, days) + desc + body +
             '<div class="foot">' +
-            l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. PILOT no expone hoy un informe nativo equivalente a este listado — este reporte sirve como base para reportar el requerimiento a Pilot Telematics.') +
-            '</div>' + focusScript + '</body></html>';
+            l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. El informe nativo equivalente es "Crash detection" en el panel Informes de PILOT.') +
+            '</div>' + this._modalActionsScript() + '</body></html>';
+    },
+
+    /**
+     * Puntos y opciones del mini-mapa del modal de accidentes: solo hoy y
+     * ayer se dibujan de entrada. El mapa se muestra siempre que haya algún
+     * accidente con coordenadas, para poder dibujar los históricos al pulsar
+     * "ver en mapa interno".
+     * @return {{points: Array, opts: Object}}
+     */
+    accidentesMapSetup: function () {
+        var me = this;
+        var withCoords = (this._alertAccidentesRows || []).filter(function (r) { return r.lat != null && r.lon != null; });
+        var recent = withCoords.filter(function (r) { return me._isTodayOrYesterday(r.ts); });
+        return {
+            points: recent.map(function (r) {
+                return { lat: r.lat, lon: r.lon, label: me.displayName(r.veh) + ' — ' + me._fmtEventDateTime(r.ts) };
+            }),
+            opts: {
+                showMap: withCoords.length > 0,
+                initCenter: withCoords.length ? { lat: withCoords[0].lat, lon: withCoords[0].lon } : null,
+                notice: recent.length
+                    ? l('Mostrando hoy y ayer')
+                    : l('Mostrando hoy y ayer (sin accidentes recientes). Los históricos se dibujan con "ver en mapa interno".')
+            }
+        };
     },
 
     /**
@@ -1133,7 +1372,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         s += '<h2>' + l('Alertas Generales') + '</h2><table><tr><th>' + l('Categoría') + '</th><th>' + l('Incidencias') + '</th></tr>';
         var row = function (lbl, v) { return '<tr><td>' + lbl + '</td><td class="n">' + (typeof v === 'number' ? v : l('N/D')) + '</td></tr>'; };
         s += row(l('Accidentes'), this._alertAccidentes) + row(l('Requiere mantención'), this._alertMantencion) +
-            row(l('Ralentí excesivo'), this._alertRalenti) + '</table>';
+            row(l('Ralentí excesivo'), this._alertRalenti) + this._fuelRowsHtml() + '</table>';
 
         // Top KM
         if (kr.length) {
@@ -1156,6 +1395,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
             s += '</table>';
         }
+
+        s += this._lopGoldenHtml();
 
         // Guía para el Excel de PILOT
         s += '<h2>' + l('Para ver la información al detalle en PILOT') + '</h2>' +
@@ -1255,9 +1496,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     buildWidgetPdfDoc: function (which) {
+        var lopModel = this._lopIsExport(which) ? this._lopExportModel(which) : null;
         var doc = this._pdfBase(this._widgetReportName(which),
-            this._pdfRange(which === 'eco' ? (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 8) : 7));
-        var desc = this._widgetDescriptions[which];
+            this._pdfRange(lopModel ? lopModel.days : (which === 'eco' ? (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 8) : 7)));
+        var desc = lopModel ? lopModel.desc : this._widgetDescriptions[which];
         if (desc) { doc.content.push({ text: l(desc), style: 'desc' }); }
         var C = doc.content;
         var name = this.displayName.bind(this);
@@ -1283,7 +1525,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 [l('Accidentes'), { text: v(this._alertAccidentes), alignment: 'right' }],
                 [l('Requiere mantención'), { text: v(this._alertMantencion), alignment: 'right' }],
                 [l('Ralentí excesivo'), { text: v(this._alertRalenti), alignment: 'right' }]
-            ]));
+            ].concat(this._fuelRowsPdf())));
         } else if (which === 'top5km') {
             var kr = this._lastTop5Ranked || [];
             C.push(this._pdfTable(['#', l('Vehículo'), l('Kilómetros')],
@@ -1311,6 +1553,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     })));
             }
         }
+        if (lopModel) { this._lopPdfContent(lopModel, C); }
         C.push({ text: l('Reporte generado por el Dashboard sobre datos de PILOT Telematics.'), style: 'foot' });
         return doc;
     },
@@ -1327,14 +1570,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         } else {
             var sorted = rows.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
             var me = this;
-            C.push(this._pdfTable([l('Fecha y hora'), l('Vehículo'), l('Calibrado'), l('Ubicación')],
+            var byId = this._onlineRecordsByAgent();
+            C.push(this._pdfTable([l('Fecha y hora'), l('Vehículo'), l('Ficha'), l('Calibrado'), l('Ubicación del choque'), l('Posición actual')],
                 sorted.map(function (r) {
+                    var rec = r.agentId != null ? byId[r.agentId] : null;
+                    var cur = rec ? me._recordLatLon(rec) : null;
                     var loc = (r.lat != null && r.lon != null) ? (r.lat.toFixed(5) + ', ' + r.lon.toFixed(5)) : l('N/D');
                     var cal = r.calibrated === false ? l('No') : l('Sí');
-                    return [me._fmtEventDateTime(r.ts), name(r.veh), cal, loc];
+                    var sheet = me._vehicleSheetLines(rec).join('\n') || l('N/D');
+                    return [me._fmtEventDateTime(r.ts), name(r.veh), sheet, cal, loc,
+                        cur ? (cur[0].toFixed(5) + ', ' + cur[1].toFixed(5)) : l('N/D')];
                 })));
         }
-        C.push({ text: l('Reporte generado por el Dashboard sobre datos de PILOT Telematics — sin informe nativo equivalente disponible en PILOT.'), style: 'foot' });
+        C.push({ text: l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. El informe nativo equivalente es "Crash detection" en el panel Informes de PILOT.'), style: 'foot' });
         return doc;
     },
 
@@ -1478,6 +1726,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 sorted.map(function (r) { return [name(r.name), { text: String(r.cur), alignment: 'right' }, { text: isFinite(r.prev) ? String(r.prev) : '—', alignment: 'right' }]; })));
         }
 
+        this._lopGoldenPdf(C);
+
         C.push({ text: l('Para ver la información al detalle en PILOT'), style: 'h2' });
         C.push({ ul: [
             l('Kilometraje: panel Informes → "Informe de kilometraje", selecciona vehículos/carpeta y el rango semanal, exporta a Excel.'),
@@ -1496,6 +1746,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * la columna derecha pasa a barra horizontal arriba: grid-template-areas
      * cambia solo la DISPOSICIÓN con el mismo DOM (ver .shell-grid en
      * style.css).
+     *
+     * Un solo DOM sirve a las dos vistas (RAC y LOP): cada card declara en
+     * VIEW_WIDGETS en qué vista se muestra y el CSS oculta la otra según la
+     * clase de vista del panel raíz. Así el cambio de vista es en vivo, sin
+     * destruir mapas ni volver a montar listeners. Las cards exclusivas de LOP
+     * que aún no existen son placeholders (ver lopSlotCards).
      *
      * El buscador de reportes está oculto: cardMarkup('buscador') se conserva
      * pero no se monta. buildLopShell se mantiene como rollback de la vista
@@ -1541,7 +1797,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     noFooter: true,
                     skeleton: 'stats'
                 })
-            ]
+            ].concat(this.lopSlotCards('mid'))
         };
 
         var colMap = {
@@ -1596,7 +1852,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         ]
                     }
                 })
-            ]
+            ].concat(this.lopSlotCards('map'))
         };
 
         var colRight = {
@@ -1630,40 +1886,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     /**
      * Barra de controles del pie:
-     * - Slider de alcance de 2 posiciones explícitas: "Selección Principal"
-     *   sigue los checkboxes del panel "Principal" de PILOT; "Toda la flota"
-     *   los ignora. Es slider y no botón toggle a propósito: el estado se lee
-     *   de la posición del thumb, sin ambigüedad de "¿avanza o retrocede al
-     *   hacer click?". El override vive en localStorage.
      * - Actualizar widgets: re-dispara todos los widgets sin recargar y sella
      *   la hora en la barra de resumen.
      */
     controlsBarMarkup: function () {
-        var isSelection = this.effectiveFleetScope() === 'pilot-selection';
         return {
             cls: 'promatic_dashboard_enhancer-controls',
             cn: [
-                {
-                    id: 'promatic_dashboard_enhancer-scope-slider',
-                    cls: 'promatic_dashboard_enhancer-scope' +
-                        (isSelection ? '' : ' is-all'),
-                    role: 'switch',
-                    cn: [
-                        {
-                            tag: 'span',
-                            cls: 'promatic_dashboard_enhancer-scope__opt promatic_dashboard_enhancer-scope__opt--sel',
-                            html: l('Selección Principal')
-                        },
-                        { tag: 'span', cls: 'promatic_dashboard_enhancer-scope__track', cn: [
-                            { tag: 'span', cls: 'promatic_dashboard_enhancer-scope__thumb' }
-                        ] },
-                        {
-                            tag: 'span',
-                            cls: 'promatic_dashboard_enhancer-scope__opt promatic_dashboard_enhancer-scope__opt--all',
-                            html: l('Toda la flota')
-                        }
-                    ]
-                },
                 {
                     tag: 'button', type: 'button',
                     id: 'promatic_dashboard_enhancer-btn-refresh',
@@ -1713,52 +1942,113 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         };
     },
 
-    // Refleja el estado efectivo en la posición del slider.
-    syncScopeSlider: function () {
-        var sl = Ext.get('promatic_dashboard_enhancer-scope-slider');
-        if (sl) {
-            sl[this.effectiveFleetScope() === 'pilot-selection' ? 'removeCls' : 'addCls']('is-all');
-        }
-    },
+    // Pausa mínima entre el inicio de dos consultas pesadas del refresco
+    // manual, y espera máxima por una consulta antes de seguir con la
+    // siguiente. Lanzarlas todas a la vez ya provocó que PILOT cerrara la
+    // sesión por ráfaga de requests.
+    REFRESH_STEP_GAP_MS: 1500,
+    REFRESH_STEP_MAX_WAIT_MS: 25000,
+    REFRESH_TOTAL_MAX_MS: 120000,
 
     /**
-     * Fija el alcance a un modo explícito ('pilot-selection' | 'all').
-     * 'pilot-selection' limpia el override (es el default de config); 'all'
-     * lo escribe.
-     */
-    setScopeMode: function (mode) {
-        if (mode === this.effectiveFleetScope()) { return; }
-        this.setScopeOverride(mode === 'all' ? 'all' : null);
-        this.syncScopeSlider();
-        this.refreshAllWidgets();
-    },
-
-    /**
-     * Re-corre todos los widgets con datos en vivo (no toca reloj/logo) y
-     * sella la hora del último refresco manual. Esa hora se muestra en la
-     * barra de resumen; antes se re-pintaba en cada datachanged del árbol y
-     * parecía un reloj.
+     * Re-corre los widgets con datos en vivo (no toca reloj/logo) y sella la
+     * hora del último refresco manual. Esa hora se muestra en la barra de
+     * resumen; antes se re-pintaba en cada datachanged del árbol y parecía un
+     * reloj.
+     *
+     * Las consultas pesadas se encadenan de a una: la siguiente arranca
+     * cuando la anterior pintó su card (o vence REFRESH_STEP_MAX_WAIT_MS),
+     * siempre tras REFRESH_STEP_GAP_MS. El botón queda ocupado hasta que
+     * termina la cadena, y un segundo clic mientras tanto se ignora. El
+     * fin de cada consulta se detecta por el primer pintado real de su card
+     * (_refreshPending, ver updateCardBody), porque los loaders no exponen
+     * callback de término.
+     *
+     * @return {Boolean} false si ya había un refresco en curso.
      */
     refreshAllWidgets: function () {
+        var me = this;
+        if (this._refreshAllBusy) { return false; }
+        this._refreshAllBusy = true;
         this._lastManualRefresh = new Date();
-        // Feedback visible de "recalculando": el mismo skeleton del montaje,
-        // en cada card afectada antes de la recarga.
+        this._refreshPending = {};
+        this._setRefreshBtnBusy(true);
+
+        // Livianos: salen del árbol Online en memoria, sin request. El
+        // skeleton va antes de refreshFleetStore para que el repintado no
+        // quede tapado por él.
         this.showCardSkeleton('gps_signal', 'chips');
-        this.showCardSkeleton('top5km', 'ranking');
         this.showCardSkeleton('flota', 'donut');
-        this.showCardSkeleton('eco_score', 'donut');
-        this.showCardSkeleton('alertas_generales', 'stats');
-        this.showCardSkeleton('violations', 'stats');
         this.refreshFleetStore();
-        this.loadTop5KmData();
-        this.loadAlertasGenerales();
-        this.loadEcoScore();
-        this.loadViolationsTrend();
-        // El dropdown puede tener carpetas nuevas si cambió la selección.
         this.populateMapFolderDropdown();
-        this.loadFleetHeatmap();
         this.populateFleetMapFolderDropdown();
         this.loadFleetMapClusters();
+
+        var heavy = [
+            { card: 'alertas_generales', skel: 'stats', run: function () { me.loadAlertasGenerales(); } },
+            { card: 'eco_score', skel: 'donut', run: function () { me.loadEcoScore(); } },
+            { card: 'top5km', skel: 'ranking', run: function () { me.loadTop5KmData(); } },
+            { card: 'violations', skel: 'stats', run: function () { me.loadViolationsTrend(); } }
+        ];
+        // El mapa de Hotspots solo existe (y vale la pena consultarlo) en RAC.
+        if (this._hotspotsPanel && this._activePreset !== 'lop') {
+            heavy.push({ card: null, run: function () { me.loadFleetHeatmap(); } });
+        }
+        // Los widgets LOP encadenan sus propios reportes pesados en serie y
+        // con pausa (y se saltan si ya hay una pasada en curso); van al final
+        // para no competir con los de arriba.
+        if (this._activePreset === 'lop') {
+            heavy.push({ card: null, run: function () { me.loadLopWidgets(true); } });
+        }
+
+        var done = false;
+        var startedAt = Date.now();
+        var finish = function () {
+            if (done) { return; }
+            done = true;
+            me._refreshAllBusy = false;
+            me._refreshPending = {};
+            me._setRefreshBtnBusy(false);
+        };
+        var waitAll = function () {
+            var pending = me._refreshPending || {};
+            var any = false;
+            for (var k in pending) { if (pending.hasOwnProperty(k)) { any = true; break; } }
+            if (!any || Date.now() - startedAt > me.REFRESH_TOTAL_MAX_MS) { finish(); return; }
+            Ext.defer(waitAll, 300);
+        };
+        var i = 0;
+        var next = function () {
+            if (i >= heavy.length) { waitAll(); return; }
+            var step = heavy[i++];
+            var began = Date.now();
+            try {
+                if (step.card) {
+                    me.showCardSkeleton(step.card, step.skel);
+                    me._refreshPending[step.card] = true;
+                }
+                step.run();
+            } catch (err) {
+                me.widgetErrorCode('REFRESH-STEP', err);
+                if (step.card) { delete me._refreshPending[step.card]; }
+            }
+            var waitStep = function () {
+                var settled = !step.card || !me._refreshPending[step.card];
+                if (!settled && Date.now() - began < me.REFRESH_STEP_MAX_WAIT_MS) {
+                    Ext.defer(waitStep, 250);
+                    return;
+                }
+                Ext.defer(next, me.REFRESH_STEP_GAP_MS);
+            };
+            waitStep();
+        };
+        next();
+        return true;
+    },
+
+    _setRefreshBtnBusy: function (busy) {
+        var b = Ext.get('promatic_dashboard_enhancer-btn-refresh');
+        if (b) { b[busy ? 'addCls' : 'removeCls']('promatic_dashboard_enhancer-ctrl-btn--busy'); }
     },
 
     /**
@@ -1801,7 +2091,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     // Pinta el skeleton de carga en el body de una card (si está montada).
     showCardSkeleton: function (id, kind) {
-        this.updateCardBody(id, Ext.DomHelper.markup(this.skeletonSpec(kind)), 0, true);
+        this._paintingSkeleton = true;
+        try {
+            this.updateCardBody(id, Ext.DomHelper.markup(this.skeletonSpec(kind)), 0, true);
+        } finally {
+            this._paintingSkeleton = false;
+        }
     },
 
     bindControlsBar: function (panel) {
@@ -1811,31 +2106,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         el._controlsBound = true;
 
         el.on('click', function (e) {
-            var slider = e.getTarget('#promatic_dashboard_enhancer-scope-slider', 5, true);
-            if (slider) {
-                e.preventDefault();
-                // El lado clickeado decide el modo (no un toggle ciego).
-                var allOpt = e.getTarget('.promatic_dashboard_enhancer-scope__opt--all', 3, true);
-                var selOpt = e.getTarget('.promatic_dashboard_enhancer-scope__opt--sel', 3, true);
-                if (allOpt) {
-                    me.setScopeMode('all');
-                } else if (selOpt) {
-                    me.setScopeMode('pilot-selection');
-                } else {
-                    // click en el track/thumb: alterna al otro lado
-                    me.setScopeMode(me.effectiveFleetScope() === 'pilot-selection' ? 'all' : 'pilot-selection');
-                }
-                return;
-            }
             var refreshBtn = e.getTarget('#promatic_dashboard_enhancer-btn-refresh', 5, true);
             if (refreshBtn) {
                 e.preventDefault();
-                refreshBtn.addCls('promatic_dashboard_enhancer-ctrl-btn--busy');
                 me.refreshAllWidgets();
-                Ext.defer(function () {
-                    var b = Ext.get('promatic_dashboard_enhancer-btn-refresh');
-                    if (b) { b.removeCls('promatic_dashboard_enhancer-ctrl-btn--busy'); }
-                }, 800);
                 return;
             }
             var minusBtn = e.getTarget('#promatic_dashboard_enhancer-scale-minus', 3, true);
@@ -1851,8 +2125,246 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         });
 
-        this.syncScopeSlider();
         this.applyScalePct(this.getScalePct());
+    },
+
+    // ---- Vistas (RAC / LOP) y modal "Controles" -------------------------
+
+    UI_PRESET_STORAGE_KEY: 'promatic_dashboard_enhancer_ui_preset',
+    UI_PRESETS: ['rac', 'lop'],
+    VIEW_LOP_CLS: 'promatic_dashboard_enhancer-view-lop',
+
+    /**
+     * Fuente única de qué widget se muestra en cada vista. Estados por vista:
+     * 'on' (visible y funcional), 'dev' (visible como placeholder "En
+     * desarrollo") y 'off' (oculto). Una card con 'off' en una vista recibe la
+     * clase que el CSS oculta en ella (viewVisibilityCls). `slot` ubica los
+     * placeholders de LOP en la columna del shell donde deben aparecer
+     * (lopSlotCards); al implementar uno, se pasa su estado lop a 'on'.
+     */
+    VIEW_WIDGETS: [
+        { id: 'alertas_generales', title: 'Alertas Generales', rac: 'on', lop: 'on' },
+        { id: 'gps_signal', title: 'Sin Señal GPS', rac: 'on', lop: 'on' },
+        { id: 'flota', title: 'Estado de Flota', rac: 'on', lop: 'on' },
+        { id: 'eco_score', title: 'Safety Score (ECO)', rac: 'on', lop: 'on' },
+        { id: 'fleet_map', title: 'Ubicación Global de la Flota', rac: 'off', lop: 'on' },
+        { id: 'top5km', title: 'Vehículos con Exceso de Kilometraje', rac: 'on', lop: 'off' },
+        { id: 'violations', title: 'Tendencia de Infracciones de Manejo', rac: 'on', lop: 'off' },
+        { id: 'hotspots', title: 'Hotspots de Pérdida de Conexión', rac: 'on', lop: 'off' },
+        // lopKey enlaza con lopWidgetCards(): ahí vive la card real de cada
+        // widget LOP. Sin lopKey (o sin card real) se pinta el placeholder.
+        { id: 'lop_conduccion', title: 'Conducción', rac: 'off', lop: 'on', slot: 'mid', lopKey: 'conduccion' },
+        { id: 'lop_estacionados', title: '% de Vehículos Estacionados por Sucursal', rac: 'off', lop: 'on', slot: 'mid', lopKey: 'estacionados' },
+        { id: 'lop_mantencion', title: 'Kilometraje para Mantención', rac: 'off', lop: 'on', slot: 'mid', lopKey: 'mantencion' },
+        { id: 'lop_rutas', title: 'Vehículos fuera de Rutas preestablecidas', rac: 'off', lop: 'dev', slot: 'mid', lopKey: 'rutas' },
+        { id: 'lop_sucursales', title: 'Vehículos disponibles por Sucursal', rac: 'off', lop: 'on', slot: 'map', lopKey: 'sucursales' },
+        { id: 'lop_combustible', title: 'Rendimiento de Combustible', rac: 'off', lop: 'on', slot: 'map', lopKey: 'combustible' },
+        { id: 'lop_tag', title: 'Vehículos que más consumen TAG', rac: 'off', lop: 'on', slot: 'map', lopKey: 'tag' }
+    ],
+
+    /** Vista activa: override del navegador (modal Controles) > config.ui.preset > 'rac'. */
+    effectiveUiPreset: function () {
+        var stored = null;
+        try { stored = window.localStorage && localStorage.getItem(this.UI_PRESET_STORAGE_KEY); } catch (err) { /* storage bloqueado */ }
+        if (this.UI_PRESETS.indexOf(stored) !== -1) { return stored; }
+        var cfg = (this.config && this.config.ui) || this.DEFAULT_CONFIG.ui || {};
+        return this.UI_PRESETS.indexOf(cfg.preset) !== -1 ? cfg.preset : 'rac';
+    },
+
+    setUiPresetOverride: function (preset) {
+        if (this.UI_PRESETS.indexOf(preset) === -1) { return; }
+        try {
+            if (window.localStorage) { localStorage.setItem(this.UI_PRESET_STORAGE_KEY, preset); }
+        } catch (err) {
+            this.widgetErrorCode('UI-PRESET-STORAGE', err);
+        }
+    },
+
+    /** Clase que oculta la card en la vista donde su estado es 'off'. */
+    viewVisibilityCls: function (cardId) {
+        for (var i = 0; i < this.VIEW_WIDGETS.length; i++) {
+            var w = this.VIEW_WIDGETS[i];
+            if (w.id !== cardId) { continue; }
+            if (w.lop === 'off') { return ' promatic_dashboard_enhancer-only-rac'; }
+            if (w.rac === 'off') { return ' promatic_dashboard_enhancer-only-lop'; }
+        }
+        return '';
+    },
+
+    /**
+     * Placeholders "En desarrollo" de los widgets de LOP de una columna del
+     * shell ('mid' | 'map'). Es el punto de enganche para los widgets reales:
+     * cada uno reemplaza el cuerpo de su card con updateCardBody(id, html) y
+     * marca su estado lop en VIEW_WIDGETS.
+     */
+    lopSlotCards: function (slot) {
+        var cards = [];
+        var real = this.lopWidgetCards();
+        for (var i = 0; i < this.VIEW_WIDGETS.length; i++) {
+            var w = this.VIEW_WIDGETS[i];
+            if (w.slot !== slot) { continue; }
+            if (w.lopKey && real[w.lopKey]) {
+                cards.push(real[w.lopKey]);
+                continue;
+            }
+            cards.push(this.cardMarkup(w.id, {
+                title: l(w.title),
+                noFooter: true,
+                bodyHtml: '<div class="promatic_dashboard_enhancer-wip">' + l('En desarrollo') + '</div>'
+            }));
+        }
+        return cards;
+    },
+
+    /**
+     * Aplica la vista efectiva: marca el panel raíz (el CSS oculta las cards
+     * de la otra vista) y monta lo que solo existe en RAC. El mapa de
+     * Hotspots se construye recién cuando la vista lo muestra: en LOP evita
+     * su consulta pesada de cortes de conexión. Idempotente.
+     */
+    applyViewPreset: function () {
+        var preset = this.effectiveUiPreset();
+        var root = Ext.get('promatic_dashboard_enhancer-panel-root');
+        if (root) { root[preset === 'lop' ? 'addCls' : 'removeCls'](this.VIEW_LOP_CLS); }
+        this._activePreset = preset;
+        if (preset === 'rac') { this.buildHotspotsMapPanel(); }
+        var panel = Ext.getCmp('promatic_dashboard_enhancer-panel-root');
+        if (panel && panel.updateLayout) { panel.updateLayout(); }
+        var me = this;
+        // Los widgets LOP piden reportes pesados (combustible, peajes): solo
+        // se cargan cuando la vista los muestra. El retraso deja que el árbol
+        // Online y los mapas terminen de montarse, de los que dependen.
+        if (preset === 'lop') {
+            Ext.defer(function () {
+                if (me._activePreset === 'lop') { me.loadLopWidgets(false); }
+            }, 1500);
+        }
+        // Un mapa montado mientras estaba oculto (display:none) midió 0 px;
+        // al mostrarse se re-mide. Respaldo del ResizeObserver de cada mapa.
+        Ext.defer(function () {
+            if (me._fleetMap && me._fleetMap.checkResize) { me._fleetMap.checkResize(); }
+            if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
+        }, 200);
+    },
+
+    /** Cierra el modal Controles si está abierto. */
+    closeControlsModal: function () {
+        if (this._controlsWin) {
+            this._controlsWin.destroy();
+            this._controlsWin = null;
+        }
+    },
+
+    /** Valor efectivo de un parámetro de config, con respaldo al default. */
+    _cfgValue: function (section, key) {
+        var cfg = (this.config && this.config[section]) || this.DEFAULT_CONFIG[section] || {};
+        return cfg[key];
+    },
+
+    /**
+     * Filas de solo lectura del modal: parámetros efectivos con su aspecto
+     * final. Aún no se editan desde la interfaz.
+     */
+    _controlsParamRows: function () {
+        var days = l('días');
+        return [
+            [l('Alcance de la flota'), l('Toda la flota') + ' (' + l('hasta') + ' ' + this._cfgValue('fleet', 'maxVehicles') + ' ' + l('vehículos') + ')'],
+            [l('Ventana de kilometraje'), this._cfgValue('top5km', 'windowDays') + ' ' + days],
+            [l('Ventana de Safety Score'), this._cfgValue('ecoScore', 'windowDays') + ' ' + days],
+            [l('Umbral de ralentí excesivo'), this._cfgValue('ecoScore', 'idleThresholdMin') + ' min'],
+            [l('Ventana de infracciones'), this._cfgValue('violations', 'windowDays') + ' ' + days],
+            [l('Ventana de Hotspots'), this._cfgValue('hotspots', 'windowDays') + ' ' + days],
+            [l('Zona horaria'), this._cfgValue('clock', 'timeZone')]
+        ];
+    },
+
+    /** Tabla de widgets de la vista elegida (vista previa, sin aplicar). */
+    _controlsWidgetsHtml: function (preset) {
+        var esc = Ext.String.htmlEncode;
+        var label = { on: l('Activo'), dev: l('En desarrollo') };
+        var rows = '';
+        for (var i = 0; i < this.VIEW_WIDGETS.length; i++) {
+            var w = this.VIEW_WIDGETS[i];
+            var st = w[preset];
+            if (st === 'off') { continue; }
+            rows += '<tr><td>' + esc(l(w.title)) + '</td><td class="promatic_dashboard_enhancer-ctl__st promatic_dashboard_enhancer-ctl__st--' + st + '">' + esc(label[st]) + '</td></tr>';
+        }
+        return '<table class="promatic_dashboard_enhancer-ctl__table">' + rows + '</table>';
+    },
+
+    /**
+     * Modal "Controles": selector de vista (RAC / LOP) y lectura de los
+     * parámetros efectivos. Guardar persiste la vista en localStorage y la
+     * aplica en vivo. La edición real de la config vivirá en un backend, por
+     * eso el modal no escribe nada fuera del navegador.
+     */
+    openControlsModal: function () {
+        var me = this;
+        var esc = Ext.String.htmlEncode;
+        this.closeControlsModal();
+        var current = this.effectiveUiPreset();
+        var idBase = 'promatic_dashboard_enhancer-ctl';
+
+        var radio = function (value, title, desc) {
+            return '<label class="promatic_dashboard_enhancer-ctl__opt">' +
+                '<input type="radio" name="' + idBase + '-view" value="' + value + '"' + (value === current ? ' checked' : '') + '> ' +
+                '<b>' + esc(title) + '</b><span>' + esc(desc) + '</span></label>';
+        };
+        var paramRows = '';
+        var rows = this._controlsParamRows();
+        for (var i = 0; i < rows.length; i++) {
+            paramRows += '<tr><td>' + esc(rows[i][0]) + '</td><td>' + esc(String(rows[i][1])) + '</td></tr>';
+        }
+
+        var html =
+            '<div class="promatic_dashboard_enhancer-ctl">' +
+                '<h4>' + esc(l('Vista')) + '</h4>' +
+                radio('rac', 'RAC', l('Renta de autos sueltos')) +
+                radio('lop', 'LOP', l('Administrador de flota')) +
+                '<h4>' + esc(l('Widgets de la vista elegida')) + '</h4>' +
+                '<div id="' + idBase + '-widgets">' + this._controlsWidgetsHtml(current) + '</div>' +
+                '<h4>' + esc(l('Parámetros vigentes (solo lectura)')) + '</h4>' +
+                '<table class="promatic_dashboard_enhancer-ctl__table">' + paramRows + '</table>' +
+                '<div id="' + idBase + '-msg" class="promatic_dashboard_enhancer-ctl__msg"></div>' +
+            '</div>';
+
+        this._controlsWin = Ext.create('Ext.window.Window', {
+            title: l('Controles'),
+            modal: true,
+            resizable: false,
+            width: 480,
+            maxHeight: Math.max(320, Math.floor(window.innerHeight * 0.9)),
+            scrollable: 'y',
+            closeAction: 'destroy',
+            html: html,
+            buttons: [
+                {
+                    text: l('Guardar'),
+                    handler: function () {
+                        var checked = document.querySelector('input[name="' + idBase + '-view"]:checked');
+                        var preset = checked ? checked.value : current;
+                        me.setUiPresetOverride(preset);
+                        me.applyViewPreset();
+                        var msg = document.getElementById(idBase + '-msg');
+                        if (msg) {
+                            msg.textContent = l('La configuración de vista pasará a gestionarse desde el Backend en una próxima versión.');
+                        }
+                    }
+                },
+                { text: l('Cerrar'), handler: function () { me.closeControlsModal(); } }
+            ],
+            listeners: {
+                afterrender: function (win) {
+                    win.getEl().on('change', function (e) {
+                        var t = e.getTarget('input[type=radio]');
+                        var box = document.getElementById(idBase + '-widgets');
+                        if (t && box) { box.innerHTML = me._controlsWidgetsHtml(t.value); }
+                    });
+                },
+                destroy: function () { me._controlsWin = null; }
+            }
+        });
+        this._controlsWin.show();
     },
 
     buildLopShell: function () {
@@ -1945,9 +2457,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return alias;
     },
 
-    // Alcance del dashboard operable desde el slider del pie: 'pilot-
-    // selection' sigue la selección con checkbox del panel "Principal"; 'all'
-    // usa la flota completa del árbol Online.
+    // Override de alcance que dejó el selector retirado. effectiveFleetScope()
+    // ya no lo lee; se conserva con el resto del código de selección inerte.
     SCOPE_OVERRIDE_STORAGE_KEY: 'promatic_dashboard_enhancer_scope_override',
 
     // Escala manual (+/-). El navegador no puede detectar el tamaño físico de
@@ -2011,16 +2522,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
-     * Alcance efectivo: el slider (localStorage) gana sobre
-     * config.fleet.scope.
+     * Alcance fijo en toda la flota: el dashboard no ofrece selector. Los
+     * widgets deben mostrar la flota completa (hasta fleet.maxVehicles) y no
+     * depender de lo que el usuario tenga marcado en el panel "Principal".
      */
     effectiveFleetScope: function () {
-        var override = this.getScopeOverride();
-        if (override === 'all' || override === 'pilot-selection') {
-            return override;
-        }
-        var fleetCfg = (this.config && this.config.fleet) || this.DEFAULT_CONFIG.fleet;
-        return fleetCfg.scope || 'all';
+        return 'all';
     },
 
     /**
@@ -2618,6 +3125,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 me._alertBorder = r[2];
                 Store.promatic_dashboard_enhancer.Module.debugLog('alertas generales: accidentes=' +
                     r[0] + ' requiere_mantencion=' + r[1] + ' paso_fronterizo=' + r[2]);
+                // Combustible corre aparte (lotes con pausa) y vuelve a
+                // dibujar las tarjetas al terminar; no demora las demás.
+                me.loadFuelAlerts(vehIds);
                 me.renderAlertasGenerales();
                 if (typeof onDone === 'function') { onDone(); }
             });
@@ -2899,6 +3409,668 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return tryOne(0);
     },
 
+    // ------------------------------------------------------------------
+    // Alertas de combustible (Alertas Generales: "Inconsistencias en Carga"
+    // y "Drenaje de Combustible").
+    //
+    // PILOT no genera eventos nativos para sensores de combustible de
+    // semanticid 2, así que las cargas y drenajes se CALCULAN sobre la serie
+    // de nivel del reporte "Fuel sensor report" (reports.php report_type=16).
+    // Es una heurística: todo resultado se rotula "posible", nunca como hecho.
+    //
+    // La configuración de sensores es por vehículo: la ausencia de sensor es
+    // "N/D", no cero, y siempre se muestra la cobertura (N de M con sensor).
+    //
+    // El esquema real de la respuesta del reporte 16 no está confirmado:
+    // _parseFuelReport es defensivo y, si no reconoce la respuesta, la
+    // tarjeta queda "EN DESARROLLO" en vez de mostrar un número inventado.
+    // Con el flag de debug activo, la respuesta cruda de los primeros
+    // vehículos se vuelca a consola para poder fijar el esquema.
+    // ------------------------------------------------------------------
+
+    /** Config de combustible con defaults; ver DEFAULT_CONFIG.fuel. */
+    _fuelCfg: function () {
+        return Ext.apply({}, (this.config && this.config.fuel) || {}, this.DEFAULT_CONFIG.fuel);
+    },
+
+    /**
+     * Detecta posibles cargas y drenajes en una serie de nivel.
+     *
+     * Se ignora el movimiento: con el vehículo en marcha el líquido se
+     * balancea y el sensor oscila, así que solo se evalúan tramos donde la
+     * velocidad es <= stopSpeedKmh en todas las muestras involucradas. Si la
+     * serie no trae velocidad, no se puede descartar movimiento y los eventos
+     * salen con speedKnown=false (confianza baja).
+     *
+     * Los umbrales son un porcentaje del nivel máximo observado (o de
+     * capacityHint): así no dependen de la unidad del sensor (litros, % o
+     * crudo), que el reporte no declara. Una mediana de 3 muestras filtra
+     * picos aislados, y un salto solo cuenta si las muestras siguientes lo
+     * confirman (descarta el rebote de un pico).
+     *
+     * Una carga se acepta también entre dos muestras separadas por un hueco
+     * (hasta maxGapMin): el equipo suele no reportar con el motor apagado, y
+     * un alza de nivel no puede ser consumo. Un drenaje solo se acepta dentro
+     * de windowMin, porque una baja a lo largo de un hueco largo es consumo.
+     *
+     * @param {Array<{ts:number, v:number, spd:(number|null)}>} samples ts en segundos
+     * @param {Object} o opciones (ver DEFAULT_CONFIG.fuel)
+     * @return {{events:Array, ref:number, n:number, speedKnown:boolean}}
+     */
+    _detectFuelEvents: function (samples, o) {
+        var s = (samples || []).filter(function (p) { return p && isFinite(p.ts) && isFinite(p.v); })
+            .sort(function (a, b) { return a.ts - b.ts; });
+        var n = s.length;
+        var res = { events: [], ref: 0, n: n, speedKnown: false };
+        if (n < (o.minSamples || 5)) { return res; }
+
+        var v = s.map(function (p) { return p.v; });
+        for (var k = 1; k < n - 1; k++) {
+            var a = s[k - 1].v, b = s[k].v, c = s[k + 1].v;
+            v[k] = a + b + c - Math.max(a, b, c) - Math.min(a, b, c);
+        }
+        var ref = Math.max(o.capacityHint || 0, Math.max.apply(null, v));
+        if (!(ref > 0)) { return res; }
+        res.ref = ref;
+
+        var stop = o.stopSpeedKmh == null ? 3 : o.stopSpeedKmh;
+        var moving = s.map(function (p) { return p.spd != null && p.spd > stop; });
+        res.speedKnown = s.some(function (p) { return p.spd != null; });
+        var windowSec = (o.windowMin || 30) * 60;
+        var maxGapSec = (o.maxGapMin || 360) * 60;
+
+        var median3 = function (arr) {
+            var t = arr.slice().sort(function (x, y) { return x - y; });
+            return t[Math.floor(t.length / 2)];
+        };
+
+        // sign +1 busca cargas (alza), -1 drenajes (baja).
+        var scan = function (sign, minPct) {
+            var thr = minPct / 100 * ref;
+            var i = 0, lastEv = null;
+            while (i < n - 1) {
+                if (moving[i]) { i++; continue; }
+                var bestJ = -1, bestD = 0;
+                for (var j = i + 1; j < n; j++) {
+                    if (moving[j]) { break; }
+                    var span = s[j].ts - s[i].ts;
+                    var pairGap = j === i + 1 && (s[j].ts - s[i].ts) <= maxGapSec;
+                    if (span > windowSec && !(sign > 0 && pairGap)) { break; }
+                    var d = sign * (v[j] - v[i]);
+                    if (d > bestD) { bestD = d; bestJ = j; }
+                }
+                if (bestJ > 0 && bestD >= thr) {
+                    var after = median3(v.slice(bestJ, Math.min(n, bestJ + 3)));
+                    if (sign * (after - v[i]) >= 0.7 * thr) {
+                        // Una carga lenta o un drenaje escalonado se parte en
+                        // varios tramos por la ventana: si este empieza donde
+                        // terminó el anterior del mismo tipo, se fusionan.
+                        var prev = lastEv;
+                        if (prev && s[i].ts - prev.te <= windowSec) {
+                            prev.te = s[bestJ].ts; prev.to = v[bestJ]; prev.delta = prev.to - prev.from;
+                            prev.pct = Math.abs(prev.delta) / ref * 100;
+                            prev.viaGap = prev.viaGap || (s[bestJ].ts - s[i].ts) > windowSec;
+                            i = bestJ + 1;
+                            continue;
+                        }
+                        lastEv = {
+                            kind: sign > 0 ? 'carga' : 'drenaje',
+                            ts: s[i].ts, te: s[bestJ].ts,
+                            from: v[i], to: v[bestJ], delta: v[bestJ] - v[i],
+                            pct: bestD / ref * 100,
+                            viaGap: (s[bestJ].ts - s[i].ts) > windowSec,
+                            speedKnown: res.speedKnown
+                        };
+                        res.events.push(lastEv);
+                        i = bestJ + 1;
+                        continue;
+                    }
+                }
+                i++;
+            }
+        };
+        scan(1, o.loadMinPct || 10);
+        scan(-1, o.drainMinPct || 6);
+        res.events.sort(function (x, y) { return x.ts - y.ts; });
+        return res;
+    },
+
+    /** ts en segundos si el número parece un timestamp Unix (s o ms), si no null. */
+    _fuelTs: function (x) {
+        var n = Number(x);
+        if (!isFinite(n)) { return null; }
+        if (n >= 1e9 && n < 4e9) { return n; }
+        if (n >= 1e12 && n < 4e12) { return Math.floor(n / 1000); }
+        return null;
+    },
+
+    /**
+     * Interpreta un arreglo como serie de muestras si TODAS las primeras
+     * (hasta 5) lo parecen: [ts, valor(, velocidad)] u objeto con una clave
+     * de tiempo y una de valor. null si no es una serie.
+     */
+    _asFuelSamples: function (arr) {
+        var me = this;
+        if (!Array.isArray(arr) || arr.length < 2) { return null; }
+        var tsKeys = ['ts', 'time', 't', 'unixtimestamp', 'timestamp', 'dt'];
+        var vKeys = ['value', 'val', 'v', 'fuel', 'level', 'liters', 'litres', 'l'];
+        var sKeys = ['speed', 'spd', 's'];
+        var pick = function (o, keys) {
+            for (var i = 0; i < keys.length; i++) {
+                if (o[keys[i]] != null && o[keys[i]] !== '') { return o[keys[i]]; }
+            }
+            return undefined;
+        };
+        var one = function (el) {
+            var ts, val, spd;
+            if (Array.isArray(el)) {
+                ts = el[0]; val = el[1]; spd = el.length > 2 ? el[2] : null;
+            } else if (el && typeof el === 'object') {
+                ts = pick(el, tsKeys); val = pick(el, vKeys); spd = pick(el, sKeys);
+            } else { return null; }
+            var t = me._fuelTs(ts);
+            if (t == null || val == null || val === '' || !isFinite(Number(val))) { return null; }
+            var sp = (spd == null || spd === '' || !isFinite(Number(spd))) ? null : Number(spd);
+            return { ts: t, v: Number(val), spd: sp };
+        };
+        for (var i = 0; i < Math.min(arr.length, 5); i++) {
+            if (!one(arr[i])) { return null; }
+        }
+        var out = [];
+        for (var j = 0; j < arr.length; j++) {
+            var p = one(arr[j]);
+            if (p) { out.push(p); }
+        }
+        return out;
+    },
+
+    /** Serie en forma de mapa { "<ts>": valor }, o null. */
+    _asFuelSamplesFromMap: function (obj) {
+        var keys = Object.keys(obj);
+        if (keys.length < 2) { return null; }
+        for (var i = 0; i < Math.min(keys.length, 5); i++) {
+            if (this._fuelTs(keys[i]) == null || obj[keys[i]] == null || !isFinite(Number(obj[keys[i]]))) { return null; }
+        }
+        var out = [];
+        for (var j = 0; j < keys.length; j++) {
+            var t = this._fuelTs(keys[j]);
+            if (t != null && isFinite(Number(obj[keys[j]]))) { out.push({ ts: t, v: Number(obj[keys[j]]), spd: null }); }
+        }
+        return out;
+    },
+
+    /** Recorre la respuesta y junta todo lo que parezca una serie temporal. */
+    _collectFuelSeries: function (node, path, out, depth) {
+        if (depth > 8 || node == null || typeof node !== 'object') { return; }
+        var me = this;
+        var smp = Array.isArray(node) ? me._asFuelSamples(node) : me._asFuelSamplesFromMap(node);
+        if (smp) { out.push({ path: path, samples: smp }); return; }
+        Object.keys(node).forEach(function (k) {
+            me._collectFuelSeries(node[k], path.concat(k), out, depth + 1);
+        });
+    },
+
+    /**
+     * Interpreta la respuesta de reports.php report_type=16 para UN vehículo.
+     * Esquema no confirmado: se buscan series [ts, valor(, velocidad)] en
+     * cualquier parte de `data`; una serie cuya ruta menciona "speed" es la
+     * velocidad y se cruza por tiempo con la serie de nivel. Si hay varias
+     * series de nivel se prefiere la que menciona combustible y, si no, la
+     * más larga.
+     *
+     * @return {{status:string, samples?:Array, sensor?:string}} status: 'ok',
+     *   'nosensor' (el reporte avisa que no hay sensor), 'nodata' (hay sensor
+     *   pero ninguna muestra en la ventana) o 'unrecognized'.
+     */
+    _parseFuelReport: function (resp) {
+        if (!resp || typeof resp !== 'object') { return { status: 'unrecognized' }; }
+        var txt = '';
+        try { txt = JSON.stringify(resp); } catch (e) { txt = ''; }
+        // El reporte de líquidos avisa con este texto cuando el objeto no
+        // tiene sensor; se asume el mismo criterio acá. Solo se mira en
+        // respuestas chicas para no confundir un dato largo con un aviso.
+        if (txt.length < 800 && /no\s+(fuel\s+)?sensors?|sin\s+sensor/i.test(txt)) { return { status: 'nosensor' }; }
+
+        var found = [];
+        this._collectFuelSeries(resp.data !== undefined ? resp.data : resp, [], found, 0);
+        var isSpeed = function (c) { return c.path.some(function (k) { return /speed|veloc|spd/i.test(k); }); };
+        var levels = found.filter(function (c) { return !isSpeed(c); });
+        var speeds = found.filter(isSpeed);
+
+        if (!levels.length) {
+            // Vacío en cualquier profundidad ({}, [], {"level1": []}): hay
+            // sensor pero ninguna muestra en la ventana.
+            var isEmpty = function (x) {
+                if (x == null) { return true; }
+                if (typeof x !== 'object') { return false; }
+                return Object.keys(x).every(function (k) { return isEmpty(x[k]); });
+            };
+            var empty = isEmpty(resp.data);
+            return { status: (resp.success !== false && empty) ? 'nodata' : 'unrecognized' };
+        }
+        var fuelRe = /fuel|combust|level|litr|nivel/i;
+        levels.sort(function (a, b) {
+            var fa = a.path.some(function (k) { return fuelRe.test(k); }) ? 1 : 0;
+            var fb = b.path.some(function (k) { return fuelRe.test(k); }) ? 1 : 0;
+            return (fb - fa) || (b.samples.length - a.samples.length);
+        });
+        var best = levels[0];
+        var samples = best.samples.map(function (p) { return { ts: p.ts, v: p.v, spd: p.spd }; });
+
+        // Velocidad en serie aparte: se toma la muestra más cercana (<= 5 min).
+        if (speeds.length && !samples.some(function (p) { return p.spd != null; })) {
+            var sp = speeds.sort(function (a, b) { return b.samples.length - a.samples.length; })[0].samples;
+            sp = sp.slice().sort(function (a, b) { return a.ts - b.ts; });
+            var q = 0;
+            samples.sort(function (a, b) { return a.ts - b.ts; });
+            for (var i = 0; i < samples.length; i++) {
+                while (q + 1 < sp.length && Math.abs(sp[q + 1].ts - samples[i].ts) <= Math.abs(sp[q].ts - samples[i].ts)) { q++; }
+                if (sp[q] && Math.abs(sp[q].ts - samples[i].ts) <= 300) { samples[i].spd = sp[q].v; }
+            }
+        }
+        return { status: 'ok', samples: samples, sensor: best.path[best.path.length - 1] || '' };
+    },
+
+    /**
+     * Extrae los sensores de la respuesta de routeBuilder.php
+     * (get_bind_routes_to_agents): objetos con `semanticid` y `agent_id` en
+     * cualquier parte. Devuelve [{agentId, semanticid}].
+     */
+    _parseSensorCatalog: function (resp) {
+        var out = [];
+        var walk = function (node, depth) {
+            if (depth > 6 || node == null || typeof node !== 'object') { return; }
+            if (!Array.isArray(node) && node.semanticid != null && node.agent_id != null) {
+                out.push({ agentId: Number(node.agent_id), semanticid: Number(node.semanticid) });
+                return;
+            }
+            Object.keys(node).forEach(function (k) { walk(node[k], depth + 1); });
+        };
+        walk(resp, 0);
+        return out;
+    },
+
+    _sleep: function (ms) {
+        return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    },
+
+    /**
+     * Cataloga qué vehículos tienen sensor de combustible (semanticid 2)
+     * consultando la lista de sensores por vehículo, en lotes chicos con
+     * pausa. El catálogo se cachea en memoria y en localStorage (la config de
+     * sensores casi no cambia). Solo lectura.
+     *
+     * Devuelve { ids, mode }: mode 'catalog' si el catálogo respondió con un
+     * formato reconocido; 'probe' si no (el llamador prueba el reporte 16
+     * sobre una muestra acotada de vehículos).
+     */
+    _fuelSensorVehicles: function (vehIds, cfg) {
+        var me = this;
+        if (cfg.agentIds && cfg.agentIds.length) {
+            var inScope = {};
+            vehIds.forEach(function (id) { inScope[id] = 1; });
+            return Promise.resolve({ ids: cfg.agentIds.map(Number).filter(function (id) { return inScope[id]; }), mode: 'config' });
+        }
+
+        var KEY = 'promatic_dashboard_enhancer_fuel_catalog';
+        var ttl = (cfg.catalogCacheHours || 24) * 3600000;
+        var cat = me._fuelCatalog;
+        if (!cat) {
+            try {
+                var raw = window.localStorage && JSON.parse(localStorage.getItem(KEY) || 'null');
+                if (raw && raw.at && Date.now() - raw.at < ttl && raw.known) { cat = raw; }
+            } catch (e) { /* storage bloqueado o corrupto */ }
+        }
+        cat = cat || { at: Date.now(), known: {} };
+        me._fuelCatalog = cat;
+
+        var pending = vehIds.filter(function (id) { return cat.known[id] === undefined; });
+        var batches = [];
+        for (var i = 0; i < pending.length; i += cfg.catalogBatch) { batches.push(pending.slice(i, i + cfg.catalogBatch)); }
+
+        var failed = false;
+        var seq = Promise.resolve();
+        batches.forEach(function (ids, bi) {
+            seq = seq.then(function () {
+                if (failed) { return null; }
+                return (bi ? me._sleep(cfg.pauseMs) : Promise.resolve()).then(function () {
+                    var url = '/backend/ax/mod/routeBuilder.php?cmd=get_bind_routes_to_agents&agents_ids=' +
+                        encodeURIComponent('[' + ids.join(',') + ']') + '&page=1&start=0&limit=5000';
+                    return fetch(url, { credentials: 'include' });
+                }).then(function (resp) {
+                    if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                    return resp.json();
+                }).then(function (data) {
+                    var sensors = me._parseSensorCatalog(data);
+                    Store.promatic_dashboard_enhancer.Module.debugLog('combustible: catálogo de sensores, lote ' + (bi + 1) + '/' + batches.length +
+                        ': ' + ids.length + ' vehículos, ' + sensors.length + ' sensores', bi === 0 ? data : '');
+                    var seen = {};
+                    sensors.forEach(function (sn) { seen[sn.agentId] = 1; });
+                    // Un lote de varios vehículos que responde por uno solo
+                    // indica que el endpoint no acepta una lista: el
+                    // catálogo no es confiable y se pasa a sondeo directo.
+                    if (!sensors.length || (ids.length >= 5 && Object.keys(seen).length === 1)) { failed = true; return; }
+                    ids.forEach(function (id) { cat.known[id] = 0; });
+                    sensors.forEach(function (sn) {
+                        if (sn.semanticid === 2) { cat.known[sn.agentId] = 1; }
+                    });
+                });
+            }).catch(function (err) {
+                failed = true;
+                console.warn('[promatic_dashboard_enhancer] catálogo de sensores de combustible no disponible:', err);
+            });
+        });
+
+        return seq.then(function () {
+            if (failed) { return { ids: [], mode: 'probe' }; }
+            cat.at = cat.at || Date.now();
+            try { localStorage.setItem(KEY, JSON.stringify(cat)); } catch (e) { /* storage bloqueado */ }
+            return { ids: vehIds.filter(function (id) { return cat.known[id] === 1; }), mode: 'catalog' };
+        });
+    },
+
+    /**
+     * Carga las alertas de combustible sin bloquear el resto de las
+     * tarjetas: la tarjeta pasa por "cargando", y al terminar se vuelve a
+     * dibujar. Respeta el caché (cacheMinutes por vehículo) para que los
+     * refrescos frecuentes del dashboard no repitan las consultas, y limita
+     * cada ciclo a maxVehicles consultas nuevas: con flotas grandes la
+     * cobertura se completa de a poco en los ciclos siguientes.
+     *
+     * Estado resultante en this._fuel (ver _fuelSummary).
+     */
+    loadFuelAlerts: function (vehIds) {
+        var me = this;
+        var cfg = me._fuelCfg();
+        if (!cfg.enabled || !vehIds || !vehIds.length || me._fuelRunning) { return; }
+        me._fuelRunning = true;
+        me._fuelPerVeh = me._fuelPerVeh || {};
+        var dbg = Store.promatic_dashboard_enhancer.Module.debugLog.bind(Store.promatic_dashboard_enhancer.Module);
+        var breakerKey = 'reports.php:report_type=16';
+        var ttl = cfg.cacheMinutes * 60000;
+        var now = Date.now();
+
+        var finish = function (extra) {
+            me._fuelRunning = false;
+            me._fuel = Ext.apply(me._fuelAggregate(vehIds, cfg), extra || {});
+            dbg('combustible: estado=' + me._fuel.state + ' modo=' + me._fuel.mode + ' ok=' + me._fuel.counts.ok +
+                ' sin_sensor=' + me._fuel.counts.nosensor + ' sin_datos=' + me._fuel.counts.nodata +
+                ' no_reconocido=' + me._fuel.counts.unrecognized + ' error=' + me._fuel.counts.error +
+                ' cargas=' + me._fuel.loadIds.length + ' drenajes=' + me._fuel.drainIds.length);
+            me.renderAlertasGenerales();
+        };
+
+        if (me._isEndpointBlocked(breakerKey)) { me._fuelRunning = false; return; }
+
+        me._fuelSensorVehicles(vehIds, cfg).then(function (src) {
+            var candidates = src.mode === 'probe'
+                ? vehIds.slice(0, cfg.maxVehicles * 2)
+                : src.ids;
+            var todo = candidates.filter(function (id) {
+                var c = me._fuelPerVeh[id];
+                return !c || now - c.at > ttl;
+            }).slice(0, cfg.maxVehicles);
+
+            var stop = new Date();
+            stop.setDate(stop.getDate() + 1);
+            var start = new Date();
+            start.setDate(start.getDate() - cfg.windowDays);
+            var rawLogged = 0;
+
+            var runOne = function (id) {
+                return me.fetchReportType(16, String(id), start, stop, 30000).then(function (resp) {
+                    if (rawLogged < cfg.debugRawMax) {
+                        rawLogged++;
+                        dbg('combustible report_type=16 crudo (agent ' + id + '):', resp);
+                    }
+                    var parsed = me._parseFuelReport(resp);
+                    var entry = { at: Date.now(), status: parsed.status, events: [], n: 0, sensor: parsed.sensor || '', ref: 0, speedKnown: false };
+                    if (parsed.status === 'ok') {
+                        var det = me._detectFuelEvents(parsed.samples, cfg);
+                        entry.events = det.events; entry.n = det.n; entry.ref = det.ref; entry.speedKnown = det.speedKnown;
+                        if (det.n < cfg.minSamples) { entry.status = 'nodata'; }
+                    }
+                    me._fuelPerVeh[id] = entry;
+                }).catch(function (err) {
+                    if (err && /HTTP 401/.test(err.message || '')) { me._markEndpointBlocked(breakerKey); }
+                    me.widgetErrorCode('FUEL-16', err, 'agent ' + id);
+                    me._fuelPerVeh[id] = { at: Date.now(), status: 'error', events: [], n: 0 };
+                });
+            };
+
+            // Lotes chicos y secuenciales, con pausa: nunca ráfagas contra
+            // PILOT (ya cerró sesiones por exceso de consultas simultáneas).
+            var seq = Promise.resolve();
+            for (var b = 0; b < todo.length; b += cfg.batchSize) {
+                (function (slice, first) {
+                    seq = seq.then(function () {
+                        if (me._isEndpointBlocked(breakerKey)) { return null; }
+                        return (first ? Promise.resolve() : me._sleep(cfg.pauseMs))
+                            .then(function () { return Promise.all(slice.map(runOne)); });
+                    });
+                })(todo.slice(b, b + cfg.batchSize), b === 0);
+            }
+            return seq.then(function () {
+                var extra = { mode: src.mode, sensorCount: src.mode === 'probe' ? null : src.ids.length };
+                // Catálogo o lista explícita sin ningún vehículo con sensor:
+                // es "sin sensor" (N/D), no "sin datos".
+                if (src.mode !== 'probe' && !src.ids.length) { extra.state = 'nosensor'; }
+                finish(extra);
+            });
+        }).catch(function (err) {
+            me.widgetErrorCode('FUEL-ALERT', err);
+            me._fuelRunning = false;
+            me._fuel = { state: 'error', counts: { ok: 0, nosensor: 0, nodata: 0, unrecognized: 0, error: 0 }, loadIds: [], drainIds: [], scopeTotal: vehIds.length, mode: '' };
+            me.renderAlertasGenerales();
+        });
+    },
+
+    /**
+     * Agrega los resultados por vehículo (this._fuelPerVeh) de los vehículos
+     * en alcance.
+     * state: 'ok' (hay al menos un vehículo analizado), 'unrecognized' (el
+     * reporte respondió pero no se reconoció su formato), 'nosensor' (ningún
+     * vehículo con sensor), 'nodata' (con sensor pero sin muestras) o 'error'.
+     */
+    _fuelAggregate: function (vehIds, cfg) {
+        var me = this;
+        var counts = { ok: 0, nosensor: 0, nodata: 0, unrecognized: 0, error: 0 };
+        var loadIds = [], drainIds = [], loadEvents = 0, drainEvents = 0, analyzed = 0;
+        vehIds.forEach(function (id) {
+            var c = me._fuelPerVeh[id];
+            if (!c) { return; }
+            counts[c.status] = (counts[c.status] || 0) + 1;
+            if (c.status !== 'ok') { return; }
+            analyzed++;
+            var ld = c.events.filter(function (e) { return e.kind === 'carga'; }).length;
+            var dr = c.events.length - ld;
+            if (ld) { loadIds.push(id); loadEvents += ld; }
+            if (dr) { drainIds.push(id); drainEvents += dr; }
+        });
+        var state = 'nodata';
+        if (counts.ok) { state = 'ok'; }
+        else if (counts.unrecognized) { state = 'unrecognized'; }
+        else if (counts.error && !counts.nosensor && !counts.nodata) { state = 'error'; }
+        else if (counts.nosensor && !counts.nodata) { state = 'nosensor'; }
+        return {
+            state: state, counts: counts, analyzed: analyzed,
+            loadIds: loadIds, drainIds: drainIds, loadEvents: loadEvents, drainEvents: drainEvents,
+            scopeTotal: vehIds.length, windowDays: cfg.windowDays, at: Date.now()
+        };
+    },
+
+    /**
+     * Resumen para tarjetas, reportes y exportador. `kind`: 'carga' o
+     * 'drenaje'. count es número solo si hay datos reales (state 'ok');
+     * `cov` es el texto de cobertura ("N de M con sensor").
+     * @return {{state:string, count:(number|null), cov:string, ids:Array}}
+     */
+    _fuelSummary: function (kind) {
+        var f = this._fuel;
+        if (!f) {
+            return { state: this._fuelRunning ? 'loading' : 'none', count: null, cov: '', ids: [] };
+        }
+        // Con catálogo, "con sensor" es el total catalogado; en sondeo, solo
+        // los vehículos que respondieron con sensor.
+        var withSensor = f.sensorCount != null ? f.sensorCount : f.counts.ok + f.counts.nodata + f.counts.unrecognized;
+        var cov = l('posible') + ' · ' + withSensor + ' ' + l('de') + ' ' + f.scopeTotal + ' ' + l('con sensor');
+        var ids = kind === 'carga' ? (f.loadIds || []) : (f.drainIds || []);
+        return {
+            state: f.state, withSensor: withSensor, analyzed: f.counts.ok, cov: cov, ids: ids,
+            count: f.state === 'ok' ? ids.length : null
+        };
+    },
+
+    /**
+     * Detalle de posibles cargas ('carga') o drenajes ('drenaje') de
+     * combustible: 1 fila por evento, con ficha del vehículo y posición
+     * actual (online_tree), más la cobertura por estado del sensor.
+     */
+    buildFuelAlertsReport: function (kind) {
+        var me = this;
+        var esc = Ext.String.htmlEncode;
+        var isLoad = kind === 'carga';
+        var f = this._fuel || { counts: {}, scopeTotal: 0 };
+        var cfg = this._fuelCfg();
+        var title = isLoad ? l('Detalle Posibles Inconsistencias en Carga') : l('Detalle Posible Drenaje de Combustible');
+        var byId = this._onlineRecordsByAgent();
+        var nameById = {};
+        Object.keys(byId).forEach(function (id) { nameById[id] = byId[id].get('name'); });
+
+        var events = [];
+        Object.keys(this._fuelPerVeh || {}).forEach(function (id) {
+            var c = me._fuelPerVeh[id];
+            if (!c || c.status !== 'ok') { return; }
+            c.events.forEach(function (e) {
+                if (e.kind === kind) { events.push({ id: Number(id), e: e, ref: c.ref }); }
+            });
+        });
+        events.sort(function (a, b) { return b.e.ts - a.e.ts; });
+        var shown = events.slice(0, 300);
+
+        var rowHtml = function (x) {
+            var rec = byId[x.id];
+            var name = rec ? rec.get('name') : String(x.id);
+            var cur = rec ? me._recordLatLon(rec) : null;
+            var sheet = me._vehicleSheetLines(rec).map(esc).join('<br>') || l('N/D');
+            var curCell = cur
+                ? '<button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + cur[0] +
+                  '" data-focus-lon="' + cur[1] + '" data-focus-label="' + esc(me.displayName(name) + ' — ' + l('posición actual')) +
+                  '">' + l('ver posición actual') + '</button><br>' + cur[0].toFixed(5) + ', ' + cur[1].toFixed(5)
+                : l('N/D');
+            var e = x.e;
+            var conf = (e.speedKnown ? '' : l('sin dato de velocidad (confianza baja)')) +
+                (e.viaGap ? (e.speedKnown ? '' : '<br>') + l('el equipo no reportó entre ambas lecturas') : '');
+            return '<tr><td>' + esc(me._fmtEventDateTime(e.ts)) + (e.te !== e.ts ? ' → ' + esc(me._fmtEventDateTime(e.te)) : '') +
+                '</td><td>' + esc(me.displayName(name)) + '</td><td>' + sheet + '</td><td class="n">' +
+                e.from.toFixed(1) + ' → ' + e.to.toFixed(1) + '<br>(' + (e.delta > 0 ? '+' : '') + e.delta.toFixed(1) + ' · ' + e.pct.toFixed(0) + '% ' + l('del máximo') +
+                ')</td><td>' + (conf || l('vehículo detenido')) + '</td><td>' + curCell + '</td></tr>';
+        };
+
+        var body;
+        if (f.state === 'unrecognized') {
+            body = '<p>' + l('El reporte de sensor de combustible respondió, pero su formato aún no se reconoce: función en desarrollo. Activa el modo de depuración para volcar la respuesta cruda a la consola.') + '</p>';
+        } else if (!shown.length) {
+            body = '<p>' + (f.state === 'ok'
+                ? l('Ningún vehículo con sensor muestra un evento posible en la ventana analizada.')
+                : l('Sin datos de sensor de combustible para mostrar.')) + '</p>';
+        } else {
+            body = '<table id="promatic_dashboard_enhancer-fuel-table"><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
+                '</th><th>' + l('Ficha') + '</th><th>' + l('Nivel (unidad del sensor)') + '</th><th>' + l('Condición') +
+                '</th><th>' + l('Posición actual') + '</th></tr>';
+            for (var i = 0; i < shown.length; i++) { body += rowHtml(shown[i]); }
+            body += '</table>';
+            if (events.length > shown.length) { body += '<p class="sub">' + l('Se muestran los 300 más recientes de') + ' ' + events.length + '.</p>'; }
+        }
+
+        var c = f.counts || {};
+        var cover = '<table><tr><th>' + l('Cobertura') + '</th><th>' + l('Vehículos') + '</th></tr>' +
+            (f.sensorCount != null ? '<tr><td>' + l('Con sensor de combustible (catálogo)') + '</td><td class="n">' + f.sensorCount + '</td></tr>' : '') +
+            '<tr><td>' + l('Analizados con sensor') + '</td><td class="n">' + (c.ok || 0) + '</td></tr>' +
+            '<tr><td>' + l('Con sensor, sin muestras en la ventana') + '</td><td class="n">' + (c.nodata || 0) + '</td></tr>' +
+            '<tr><td>' + l('Sin sensor de combustible (N/D)') + '</td><td class="n">' + (c.nosensor || 0) + '</td></tr>' +
+            '<tr><td>' + l('Respuesta no reconocida / error') + '</td><td class="n">' + ((c.unrecognized || 0) + (c.error || 0)) + '</td></tr>' +
+            '<tr><td>' + l('Vehículos en el alcance') + '</td><td class="n">' + (f.scopeTotal || 0) + '</td></tr></table>';
+
+        var desc = '<p class="desc">' + (isLoad
+            ? l('Posibles cargas de combustible: alzas de nivel con el vehículo detenido, calculadas por el Dashboard sobre la serie del sensor. Son indicios, no hechos: confirma con la tarjeta de combustible o el conductor.')
+            : l('Posibles drenajes de combustible: bajas bruscas de nivel con el vehículo detenido, calculadas por el Dashboard sobre la serie del sensor. Son indicios, no hechos: un sensor con ruido o un estanque en pendiente pueden imitarlos.')) +
+            '</p><p class="desc">' + l('Umbral: variación mínima de') + ' ' + (isLoad ? cfg.loadMinPct : cfg.drainMinPct) + '% ' +
+            l('del nivel máximo observado; ventana de') + ' ' + cfg.windowDays + ' ' + l('días. Fuente: reports.php report_type=16.') + '</p>';
+
+        return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
+            '</title>' + this._reportStyles() + '</head><body>' +
+            this._reportHeader(title, cfg.windowDays) + desc + body +
+            '<h2>' + l('Cobertura de sensores') + '</h2>' + cover +
+            '<div class="foot">' + l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. La configuración de sensores es por vehículo: "sin sensor" no es lo mismo que "sin eventos".') +
+            '</div>' + this._modalActionsScript() + '</body></html>';
+    },
+
+    buildFuelAlertsPdfDoc: function (kind) {
+        var me = this;
+        var isLoad = kind === 'carga';
+        var f = this._fuel || { counts: {}, scopeTotal: 0 };
+        var cfg = this._fuelCfg();
+        var doc = this._pdfBase(isLoad ? l('Detalle Posibles Inconsistencias en Carga') : l('Detalle Posible Drenaje de Combustible'),
+            this._pdfRange(cfg.windowDays));
+        var C = doc.content;
+        var byId = this._onlineRecordsByAgent();
+        C.push({ text: (isLoad
+            ? l('Posibles cargas: alzas de nivel con el vehículo detenido, calculadas sobre la serie del sensor (report_type=16). Son indicios, no hechos.')
+            : l('Posibles drenajes: bajas bruscas de nivel con el vehículo detenido, calculadas sobre la serie del sensor (report_type=16). Son indicios, no hechos.')), style: 'desc' });
+
+        var rows = [];
+        Object.keys(this._fuelPerVeh || {}).forEach(function (id) {
+            var c = me._fuelPerVeh[id];
+            if (!c || c.status !== 'ok') { return; }
+            c.events.forEach(function (e) {
+                if (e.kind !== kind) { return; }
+                var rec = byId[id];
+                rows.push([e.ts, [me._fmtEventDateTime(e.ts), me.displayName(rec ? rec.get('name') : String(id)),
+                    me._vehicleSheetLines(rec).join('\n') || l('N/D'),
+                    e.from.toFixed(1) + ' → ' + e.to.toFixed(1) + ' (' + (e.delta > 0 ? '+' : '') + e.delta.toFixed(1) + ', ' + e.pct.toFixed(0) + '%)',
+                    e.speedKnown ? l('vehículo detenido') : l('sin dato de velocidad')]]);
+            });
+        });
+        rows.sort(function (a, b) { return b[0] - a[0]; });
+        if (f.state === 'unrecognized') {
+            C.push({ text: l('Formato del reporte de sensor aún no reconocido: función en desarrollo.') });
+        } else if (!rows.length) {
+            C.push({ text: l('Ningún vehículo con sensor muestra un evento posible en la ventana analizada.') });
+        } else {
+            C.push(this._pdfTable([l('Fecha y hora'), l('Vehículo'), l('Ficha'), l('Nivel (unidad del sensor)'), l('Condición')],
+                rows.slice(0, 300).map(function (r) { return r[1]; })));
+        }
+        var c = f.counts || {};
+        C.push({ text: l('Cobertura de sensores'), style: 'h2' });
+        C.push(this._pdfTable([l('Cobertura'), l('Vehículos')], [
+            [l('Analizados con sensor'), { text: String(c.ok || 0), alignment: 'right' }],
+            [l('Con sensor, sin muestras en la ventana'), { text: String(c.nodata || 0), alignment: 'right' }],
+            [l('Sin sensor de combustible (N/D)'), { text: String(c.nosensor || 0), alignment: 'right' }],
+            [l('Respuesta no reconocida / error'), { text: String((c.unrecognized || 0) + (c.error || 0)), alignment: 'right' }],
+            [l('Vehículos en el alcance'), { text: String(f.scopeTotal || 0), alignment: 'right' }]
+        ]));
+        C.push({ text: l('Reporte generado por el Dashboard sobre datos de PILOT Telematics.'), style: 'foot' });
+        return doc;
+    },
+
+    /** Abre el modal de detalle de combustible; el mapa muestra la posición actual de los vehículos con eventos. */
+    openFuelAlertModal: function (kind) {
+        var me = this;
+        var byId = this._onlineRecordsByAgent();
+        var s = this._fuelSummary(kind);
+        var points = [];
+        s.ids.forEach(function (id) {
+            var rec = byId[id];
+            var cur = rec ? me._recordLatLon(rec) : null;
+            if (cur) { points.push({ lat: cur[0], lon: cur[1], label: me.displayName(rec.get('name')) }); }
+        });
+        var title = kind === 'carga' ? l('Detalle Posibles Inconsistencias en Carga') : l('Detalle Posible Drenaje de Combustible');
+        me.openReportModal(me.buildFuelAlertsReport(kind), title,
+            me._safe(function () { return me.buildFuelAlertsPdfDoc(kind); }),
+            points, { notice: points.length ? l('Mostrando la posición actual de los vehículos con eventos posibles') : '' });
+    },
+
     renderAlertasGenerales: function () {
         var accidentes = this._alertAccidentes;
         var mantencion = this._alertMantencion;
@@ -2976,6 +4148,28 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return spec;
         };
 
+        // Tarjetas de combustible: el número solo aparece con datos reales;
+        // "cargando", "N/D" (sin sensor o sin muestras) y "EN DESARROLLO"
+        // (respuesta no reconocida) son estados distintos a un cero. La
+        // cobertura va bajo el título. Siempre clicables si hay estado: el
+        // modal explica la cobertura aunque el conteo sea 0.
+        var me = this;
+        var fuelCard = function (kind, bg, title, titleAttr, iconCls) {
+            var sm = me._fuelSummary(kind);
+            var count = sm.count;
+            var beta = sm.state === 'unrecognized';
+            if (sm.state === 'loading') { count = '…'; }
+            var cov = sm.cov ? '<span class="promatic_dashboard_enhancer-stat-card__cov">' + Ext.String.htmlEncode(sm.cov) + '</span>' : '';
+            var spec = card(bg, title + cov, count, svgCombustible,
+                titleAttr + (sm.cov ? ' — ' + sm.cov : ''), beta, iconCls,
+                sm.ids, null, false);
+            if (sm.state !== 'none' && sm.state !== 'loading') {
+                spec['data-fuel-alert'] = kind;
+                if (spec.cls.indexOf('--clickable') === -1) { spec.cls += ' promatic_dashboard_enhancer-stat-card--clickable'; }
+            }
+            return spec;
+        };
+
         var idleMin = (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).idleThresholdMin) || 120;
         var gridCls = 'promatic_dashboard_enhancer-stat-card-grid';
 
@@ -2994,12 +4188,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 // se pasa vehIds.
                 card('var(--g6)', l('Ralentí excesivo'), ralenti, svgRalenti,
                     l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti'),
-                card('var(--g7)', l('Inconsistencias en Carga'), null, svgCombustible,
-                    l('Carga de combustible fuera de lo esperado — pendiente de conexión'), true, 'pde_alert-inconsistencias'),
-                card('var(--g6)', l('Drenaje de Combustible'), null, svgCombustible,
-                    l('Baja brusca de combustible que no corresponde a una recarga — pendiente de conexión'), true, 'pde_alert-drenaje'),
+                fuelCard('carga', 'var(--g7)', l('Inconsistencias en Carga'),
+                    l('Posibles cargas de combustible: alza de nivel con el vehículo detenido, calculada sobre el sensor'), 'pde_alert-inconsistencias'),
+                fuelCard('drenaje', 'var(--g6)', l('Drenaje de Combustible'),
+                    l('Posibles drenajes: baja brusca de nivel con el vehículo detenido, calculada sobre el sensor'), 'pde_alert-drenaje'),
                 card('var(--g7)', l('GPS Manipulado'), null, svgGpsManual,
-                    l('Desconexión intencional del equipo — pendiente de conexión'), true, 'pde_alert-manipulacion'),
+                    l('Desconexión intencional del equipo — en desarrollo: aún no hay una fuente de datos confirmada'), true, 'pde_alert-manipulacion'),
                 // Conectada solo en cuentas con borderAlert.eventType; es
                 // grave: un vehículo detenido en un paso fronterizo sin
                 // permiso es un posible vehículo perdido.
@@ -3067,6 +4261,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me._lastEcoResp = data;
                     me.renderEcoScore(data, days);
                     me.refreshRalentiAlert();
+                    me._onLopDataReady();
                 })
                 .catch(function (err) {
                     var code = me.widgetErrorCode('ECO-SCORE', err);
@@ -3302,6 +4497,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         var byDate = (resp && resp.data) || {};
+        this._lopCacheViolationRows(byDate);
+        this._onLopDataReady();
         var totals = { speed: 0, accel: 0, braking: 0, idling: 0, turn: 0, seatbelt: 0 };
         var rowCount = 0;
         for (var range in byDate) {
@@ -3748,6 +4945,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         countShort + ' breves (' + shortMin + '-' + shortMax + 's, ' + me._hotspotsPointsByMode.short.length + ' celdas)' +
                         (me._mapFolderFilter ? ' (carpeta ' + me._mapFolderFilter + ')' : ''));
 
+                    Store.promatic_dashboard_enhancer.Module.debugLog('hotspots desconexión: histograma de duraciones (s)',
+                        me._durationHistogram(rawPoints));
                     me._paintHotspotsHeatmap();
                 })
                 .catch(function (err) {
@@ -3755,6 +4954,34 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me.widgetErrorCode('FLEETMAP-HEATMAP-FETCH', err);
                 });
         });
+    },
+
+    /**
+     * Cuenta los cortes por tramo de duración (segundos) y da mínimo/máximo.
+     * Solo para diagnóstico: si no hay ningún corte bajo el piso de la capa
+     * "breve", el vacío viene del reporte (no registra cortes cortos) y no de
+     * la clasificación o el dibujo.
+     */
+    _durationHistogram: function (rawPoints) {
+        var edges = [10, 30, 60, 90, 120, 300, 900, 3600];
+        var hist = { '<10': 0 };
+        var i, min = Infinity, max = 0;
+        for (i = 0; i < edges.length; i++) {
+            hist[edges[i] + '+'] = 0;
+        }
+        for (i = 0; i < rawPoints.length; i++) {
+            var d = rawPoints[i][2] || 0;
+            if (d < min) { min = d; }
+            if (d > max) { max = d; }
+            var key = '<10';
+            for (var e = 0; e < edges.length; e++) {
+                if (d >= edges[e]) { key = edges[e] + '+'; }
+            }
+            hist[key]++;
+        }
+        hist.min = rawPoints.length ? min : null;
+        hist.max = rawPoints.length ? max : null;
+        return hist;
     },
 
     /**
@@ -3771,9 +4998,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var points = this._hotspotsPointsByMode[mode] || [];
         var label = mode === 'short' ? l('Intermitencias breves') : l('Pérdidas de conexión');
 
+        // Se quita SOLO la capa propia (id guardado al crearla). removeAllHeatsMap
+        // barre todas las capas de calor de la instancia y, al dejar el mapa sin
+        // capas, el mapa se reencuadraba a Sudamérica al cambiar a una capa vacía.
         try {
-            if (typeof map.removeAllHeatsMap === 'function') { map.removeAllHeatsMap(); }
+            if (this._hotspotsHeat && typeof map.removeHeatMap === 'function') {
+                var prevId = (this._hotspotsHeat.id !== undefined) ? this._hotspotsHeat.id : this._hotspotsHeat;
+                map.removeHeatMap(prevId);
+            }
         } catch (e) { /* no-op */ }
+        this._hotspotsHeat = null;
 
         if (points.length === 0) {
             console.warn('[promatic_dashboard_enhancer] hotspots desconexión: 0 celdas para el modo "' + mode + '".');
@@ -3786,7 +5020,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 // isBounds=false: el mapa mantiene el centro/zoom fijo de la
                 // Región Metropolitana y no se reencuadra según la dispersión
                 // de los puntos.
-                map.setHeatmap(points, false, label);
+                this._hotspotsHeat = map.setHeatmap(points, false, label);
             }
             if (map.checkResize) { map.checkResize(); }
         } catch (err) {
@@ -4319,12 +5553,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         for (var i = 0; i < geofences.length; i++) {
             var g = geofences[i];
             if (!g.group_name || entry.groupNames.indexOf(g.group_name) === -1) { continue; }
-            // 'circle' no es un polígono (points = [lat, lon, radioM]); sin
-            // soporte de ray casting para círculos todavía, se salta.
-            if (g.type === 'circle') { continue; }
-            var points = this._geofencePolygonPoints(g);
-            if (!points || points.length < 3) { continue; }
-            if (this._pointInPolygon(ll[0], ll[1], points)) {
+            // Polígono (ray casting) o círculo (distancia al centro):
+            // las bases definidas como círculo nunca daban match.
+            if (this._pointInGeofence(ll[0], ll[1], g)) {
                 return g;
             }
         }
@@ -4683,6 +5914,1617 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var mount = Ext.get('promatic_dashboard_enhancer-branch-veh-list-mount');
         if (mount) { mount.setHtml(listHtml); }
+    },
+
+    // =====================================================================
+    // Widgets de la vista LOP (administrador de flota)
+    //
+    // Bloque autocontenido: cada widget es un par load/render independiente
+    // que escribe en su propia card con updateCardBody(id, html, 0, true)
+    // (optional=true: si la card no está montada en el shell activo, no pasa
+    // nada). El shell que los muestre usa lopWidgetCards() para las cards y
+    // llama loadLopWidgets() al montar y al refrescar.
+    //
+    // Escala: la flota principal ronda los 1350 vehículos y PILOT ya cerró
+    // sesiones por ráfagas. Por eso (1) todo lo que se pueda se agrega en el
+    // cliente sobre datos ya cargados, (2) los reportes pesados van en lotes
+    // chicos, en serie y con pausa, solo sobre vehículos con actividad
+    // reciente, (3) los resultados se cachean y (4) un widget pesado no
+    // arranca hasta que termina el anterior.
+    //
+    // Distinción que atraviesa todo el bloque: "sin dato" (N/D) no es "cero".
+    // La configuración de sensores es por vehículo, así que cada widget
+    // muestra cobertura (cuántos vehículos tienen el dato).
+    // =====================================================================
+
+    LOP_CARD_IDS: {
+        sucursales: 'lop_sucursales',
+        estacionados: 'lop_estacionados',
+        conduccion: 'lop_conduccion',
+        combustible: 'lop_combustible',
+        mantencion: 'lop_mantencion',
+        tag: 'lop_tag',
+        rutas: 'lop_rutas'
+    },
+
+    // Todos los valores se pueden pisar con config.lop.<sección> (config.json
+    // o config remota). Los umbrales de negocio (km de servicio, % de
+    // sobreconsumo) son un punto de partida razonable, no una norma del
+    // cliente: se ajustan por cuenta.
+    LOP_DEFAULTS: {
+        // batchSize/batchPauseMs: lotes de veh_id por POST a reports.php. La
+        // pausa evita la ráfaga; batchTimeoutMs coincide con el timeout de
+        // flota completa de los demás reportes. maxVehicles acota el total
+        // por widget (se prioriza a los vehículos con movimiento más
+        // reciente). cacheMinutes: vigencia del resultado de un reporte
+        // pesado; el botón Actualizar lo ignora. startDelayMs deja pasar la
+        // carga inicial del resto de los widgets antes de pedir reportes.
+        batch: { batchSize: 60, batchPauseMs: 1500, batchTimeoutMs: 45000, maxVehicles: 600, cacheMinutes: 30, startDelayMs: 5000 },
+        // minKm: bajo ese recorrido el L/100 km es ruido y el vehículo no
+        // entra al ranking. overconsumptionPct: un vehículo está en
+        // sobreconsumo si supera en ese % la mediana de su cohorte (su
+        // carpeta si tiene al menos minCohort vehículos con dato; si no, la
+        // flota). distCol/fuelCol: índice de columna a usar si la detección
+        // por nombre de encabezado no acierta con el reporte de la cuenta.
+        fuel: { windowDays: 30, minKm: 100, overconsumptionPct: 20, minCohort: 5, rankCount: 8, explode: 3, distCol: null, fuelCol: null },
+        // minKm: bajo ese recorrido el índice por 100 km no se calcula.
+        driving: { rankCount: 8, minKm: 50 },
+        // intervalKm: cada cuántos km se sugiere servicio; warnWithinKm:
+        // cuánto antes del próximo múltiplo se avisa; highOdometerKm:
+        // odómetro desde el cual se sugiere revisión general.
+        maintenance: { intervalKm: 10000, warnWithinKm: 1000, highOdometerKm: 100000, rankCount: 8 },
+        tag: { windowDays: 30, rankCount: 8, explode: 3 },
+        branches: { rankCount: 12 }
+    },
+
+    _lopCfg: function (section) {
+        var user = (this.config && this.config.lop && this.config.lop[section]) || {};
+        return Ext.apply(Ext.apply({}, this.LOP_DEFAULTS[section] || {}), user);
+    },
+
+    /**
+     * Cards de los widgets LOP como specs de cardMarkup, indexadas por clave
+     * lógica (ver LOP_CARD_IDS). El shell LOP decide en qué orden y dónde se
+     * ubican.
+     */
+    lopWidgetCards: function () {
+        var ids = this.LOP_CARD_IDS;
+        var out = {};
+        out.sucursales = this.cardMarkup(ids.sucursales, {
+            title: l('Vehículos disponibles por Sucursal'),
+            hint: l('Vehículos del alcance cuya última posición cae dentro de una sucursal o base del cliente (geocercas configuradas). Disponible = estacionado y en línea. Solo cuentan los vehículos de flotas con sucursales configuradas.'),
+            noFooter: true, skeleton: 'ranking'
+        });
+        out.estacionados = this.cardMarkup(ids.estacionados, {
+            title: l('% de Vehículos Estacionados por Sucursal'),
+            hint: l('De los vehículos presentes en cada sucursal, qué porcentaje está estacionado (no en movimiento y con señal). Un porcentaje bajo indica vehículos que están saliendo o con problemas de conexión.'),
+            noFooter: true, skeleton: 'ranking'
+        });
+        out.conduccion = this.cardMarkup(ids.conduccion, {
+            title: l('Conducción'),
+            hint: l('Frenadas, aceleraciones y curvas bruscas y excesos de velocidad por vehículo o conductor, normalizados por 100 km. Reutiliza el Safety Score (Fleet ECO report) y las infracciones de manejo ya cargadas, sin consultas nuevas. Un 0 puede significar que el vehículo no tiene sensor de conducción brusca: revisa la cobertura.'),
+            noFooter: true, skeleton: 'ranking'
+        });
+        out.combustible = this.cardMarkup(ids.combustible, {
+            title: l('Rendimiento de Combustible'),
+            hint: l('Consumo por norma (reporte de combustible de PILOT, no requiere sensor de tanque) y L/100 km por vehículo. Sobreconsumo = más de un porcentaje configurable sobre la mediana de su carpeta. Solo vehículos con recorrido mínimo y norma de consumo configurada.'),
+            noFooter: true, skeleton: 'ranking'
+        });
+        out.mantencion = this.cardMarkup(ids.mantencion, {
+            title: l('Kilometraje para Mantención'),
+            hint: l('Odómetro de cada vehículo (current_mileage de PILOT) frente al intervalo de servicio y al umbral de revisión configurados. Vehículos sin odómetro cargado figuran como N/D, no como 0 km.'),
+            noFooter: true, skeleton: 'ranking'
+        });
+        out.tag = this.cardMarkup(ids.tag, {
+            title: l('Vehículos que más consumen TAG'),
+            hint: l('Pasadas por pórticos de peaje por vehículo en el período (reporte Toll Roads de PILOT, módulo pagado aparte).'),
+            noFooter: true, skeleton: 'ranking'
+        });
+        out.rutas = this.cardMarkup(ids.rutas, {
+            title: l('Vehículos fuera de Rutas preestablecidas'),
+            hint: l('Requiere una fuente que asigne rutas a vehículos. Hoy no hay una confirmada en PILOT.'),
+            noFooter: true, bodyHtml: this._lopDevMarkup(l('Rutas preestablecidas: pendiente de definir la fuente de datos.'))
+        });
+        return out;
+    },
+
+    /**
+     * Arranca los widgets LOP. Lo primero que corre es todo lo que se
+     * calcula en el cliente; los reportes pesados (combustible, peajes) se
+     * encadenan: uno a la vez, después de startDelayMs. force=true (botón
+     * Actualizar) ignora la caché de reportes.
+     */
+    loadLopWidgets: function (force) {
+        var me = this;
+        this._lopEnsureExportOptions();
+        this._lopBindClicks();
+
+        this.loadLopBranches();
+        this.renderLopMaintenance();
+        this.renderLopDriving();
+        this.updateCardBody(this.LOP_CARD_IDS.rutas, this._lopDevMarkup(l('Rutas preestablecidas: pendiente de definir la fuente de datos.')), 0, true);
+
+        if (this._lopHeavyBusy) { return; }
+        this._lopHeavyBusy = true;
+        var done = function () { me._lopHeavyBusy = false; };
+        var delay = this._lopCfg('batch').startDelayMs;
+        Ext.defer(function () {
+            me.loadLopFuel(force)
+                .then(function () { return me.loadLopTag(force); })
+                .then(done, done);
+        }, delay);
+    },
+
+    /**
+     * Hook para loadEcoScore / renderViolationsTrend: cuando llega uno de los
+     * reportes de conducción se repinta el widget con lo que haya (los dos
+     * llegan en momentos distintos y el segundo puede fallar por timeout).
+     */
+    _onLopDataReady: function () {
+        if (!this._lopStarted) { return; }
+        try {
+            this.renderLopDriving();
+        } catch (err) {
+            this.widgetErrorCode('LOP-CONDUCCION', err);
+        }
+    },
+
+    // ---------------------------------------------------------------------
+    // Utilidades puras (sin DOM ni red; se prueban en Node)
+    // ---------------------------------------------------------------------
+
+    _lopMedian: function (values) {
+        return this._lopPercentile(values, 50);
+    },
+
+    /** Percentil por interpolación lineal; [] → null. No modifica `values`. */
+    _lopPercentile: function (values, p) {
+        if (!values || values.length === 0) { return null; }
+        var s = values.slice().sort(function (a, b) { return a - b; });
+        var pos = (s.length - 1) * p / 100;
+        var lo = Math.floor(pos), hi = Math.ceil(pos);
+        return s[lo] + (s[hi] - s[lo]) * (pos - lo);
+    },
+
+    /**
+     * Número desde una celda de reporte: acepta número, "45.2 km", "1.234,5"
+     * o HTML con texto. Devuelve null (no 0) si no hay número: sin dato no es
+     * cero. integerAmount: ver la nota sobre separadores de miles.
+     */
+    _lopNum: function (v, integerAmount) {
+        if (typeof v === 'number') { return isFinite(v) ? v : null; }
+        if (typeof v !== 'string') { return null; }
+        var t = v.replace(/<[^>]*>/g, '').replace(/\s/g, '');
+        var m = t.match(/-?\d+(?:[.,]\d+)*/);
+        if (!m) { return null; }
+        var s = m[0];
+        // "1.200" es ambiguo (1,2 o 1200). Los montos en pesos son enteros,
+        // así que con integerAmount un único separador seguido de 3 dígitos
+        // es de miles; km y litros siguen leyéndose como decimales.
+        if (integerAmount && /^-?\d{1,3}([.,]\d{3})+$/.test(s)) { return parseFloat(s.replace(/[.,]/g, '')); }
+        var lastDot = s.lastIndexOf('.'), lastComma = s.lastIndexOf(',');
+        if (lastDot !== -1 && lastComma !== -1) {
+            // El último separador es el decimal; el otro agrupa miles.
+            var dec = Math.max(lastDot, lastComma);
+            s = s.slice(0, dec).replace(/[.,]/g, '') + '.' + s.slice(dec + 1);
+        } else if (lastComma !== -1) {
+            s = s.replace(',', '.');
+        }
+        var n = parseFloat(s);
+        return isFinite(n) ? n : null;
+    },
+
+    _lopStripTags: function (v) {
+        return String(v == null ? '' : v).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    },
+
+    /** Campo de un record del árbol Online (get() o data), null si falta o está vacío. */
+    _recordField: function (rec, key) {
+        var v = rec && rec.get ? rec.get(key) : undefined;
+        if ((v === undefined || v === null) && rec && rec.data) { v = rec.data[key]; }
+        return (v === undefined || v === null || v === '') ? null : v;
+    },
+
+    _lopFmt: function (n, dec) {
+        if (n === null || n === undefined || !isFinite(n)) { return l('N/D'); }
+        var d = dec || 0;
+        var s = Number(n).toFixed(d);
+        var parts = s.split('.');
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        return parts.join(',');
+    },
+
+    _lopFmtDur: function (sec) {
+        if (sec === null || sec === undefined || !isFinite(sec)) { return l('N/D'); }
+        var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+        return h + ':' + (m < 10 ? '0' : '') + m + ' h';
+    },
+
+    _lopDistanceM: function (lat1, lon1, lat2, lon2) {
+        var R = 6371000, rad = Math.PI / 180;
+        var dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+    },
+
+    /**
+     * Junta las "filas" de la respuesta de un reporte sin asumir su forma:
+     * los reportes de PILOT anidan data por rango de fechas, grupo o
+     * vehículo, y una fila es un array que empieza con un valor simple (el
+     * nombre del objeto) o un objeto con .data de ese tipo. Devuelve
+     * [{ veh, cells }]. Profundidad acotada para no recorrer basura.
+     */
+    _lopCollectRows: function (node, out, depth) {
+        out = out || [];
+        depth = depth || 0;
+        if (depth > 6 || node === null || typeof node !== 'object') { return out; }
+        var isPrim = function (v) { return v === null || typeof v !== 'object'; };
+        var i, k;
+        if (Array.isArray(node)) {
+            if (node.length >= 2 && isPrim(node[0])) {
+                out.push({ veh: String(node[0]), cells: node });
+                return out;
+            }
+            for (i = 0; i < node.length; i++) { this._lopCollectRows(node[i], out, depth + 1); }
+            return out;
+        }
+        if (Array.isArray(node.data) && node.data.length >= 2 && isPrim(node.data[0])) {
+            out.push({ veh: node.veh != null ? String(node.veh) : String(node.data[0]), cells: node.data });
+            return out;
+        }
+        for (k in node) {
+            if (node.hasOwnProperty(k)) { this._lopCollectRows(node[k], out, depth + 1); }
+        }
+        return out;
+    },
+
+    /**
+     * Nombres de columna desde resp.headers (filas de { name, colspan? }):
+     * se elige la última fila de encabezado cuya longitud, con colspan
+     * expandido, calza con el ancho de la fila de datos. null si ninguna.
+     */
+    _lopColumnNames: function (resp, rowLen) {
+        var hdr = resp && resp.headers;
+        if (!Array.isArray(hdr)) { return null; }
+        for (var r = hdr.length - 1; r >= 0; r--) {
+            var row = hdr[r];
+            if (!Array.isArray(row)) { continue; }
+            var names = [];
+            for (var c = 0; c < row.length; c++) {
+                var cell = row[c];
+                var nm = (cell && typeof cell === 'object') ? (cell.name || cell.text || cell.header || '') : String(cell);
+                var span = (cell && typeof cell === 'object') ? (Number(cell.colspan || cell.cols) || 1) : 1;
+                for (var s = 0; s < span; s++) { names.push(this._lopStripTags(nm)); }
+            }
+            if (names.length === rowLen) { return names; }
+        }
+        return null;
+    },
+
+    /** Primer índice de `names` que cumple `include` y no `exclude`; -1 si no hay. */
+    _lopFindCol: function (names, include, exclude) {
+        if (!names) { return -1; }
+        for (var i = 1; i < names.length; i++) {
+            if (include.test(names[i]) && !(exclude && exclude.test(names[i]))) { return i; }
+        }
+        return -1;
+    },
+
+    /**
+     * Ranking de conducción. rows: [{ name, dist, brake, accel, turn, speed }]
+     * con null donde no hay dato. metric: 'total' | 'brake' | 'accel' |
+     * 'turn' | 'speed'. Índice = eventos por 100 km; los vehículos bajo
+     * minKm no entran al ranking (su índice sería ruido) y se cuentan en
+     * `excluded`. Una métrica sin dato (null) tampoco puntúa.
+     */
+    _lopRankDriving: function (rows, metric, minKm) {
+        var ranked = [], excluded = 0, noData = 0;
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i];
+            var val;
+            if (metric === 'total') {
+                var parts = [r.brake, r.accel, r.turn];
+                var any = false, sum = 0;
+                for (var p = 0; p < parts.length; p++) {
+                    if (parts[p] !== null && parts[p] !== undefined) { any = true; sum += parts[p]; }
+                }
+                val = any ? sum : null;
+            } else {
+                val = r[metric];
+            }
+            if (val === null || val === undefined) { noData++; continue; }
+            if (!(r.dist >= minKm)) { excluded++; continue; }
+            ranked.push({ row: r, value: val, index: val / r.dist * 100 });
+        }
+        ranked.sort(function (a, b) { return b.index - a.index || b.value - a.value; });
+        return { ranked: ranked, excluded: excluded, noData: noData };
+    },
+
+    /**
+     * Sobreconsumo de combustible. rows: [{ name, km, liters, group }].
+     * Elegible: km >= minKm y liters > 0 (liters 0 con km > 0 significa que
+     * la norma de consumo no está configurada en ese vehículo: es N/D, no un
+     * vehículo que no gasta). L/100 km = liters / km * 100. Cada vehículo se
+     * compara contra la MEDIANA de su cohorte (carpeta con al menos
+     * minCohort elegibles; si no, toda la flota): un camión y un sedán no
+     * son comparables, y la mediana no la arrastran los valores extremos.
+     */
+    _lopFuelAnalysis: function (rows, opts) {
+        var eligible = [], noNorm = 0, lowKm = 0;
+        var i;
+        for (i = 0; i < rows.length; i++) {
+            var r = rows[i];
+            if (!(r.km >= opts.minKm)) { lowKm++; continue; }
+            if (!(r.liters > 0)) { noNorm++; continue; }
+            eligible.push({ name: r.name, group: r.group || '', km: r.km, liters: r.liters, lPer100: r.liters / r.km * 100 });
+        }
+        var all = eligible.map(function (e) { return e.lPer100; });
+        var fleetMedian = this._lopMedian(all);
+        var byGroup = {};
+        for (i = 0; i < eligible.length; i++) {
+            var g = eligible[i].group;
+            (byGroup[g] = byGroup[g] || []).push(eligible[i].lPer100);
+        }
+        var factor = 1 + (opts.overconsumptionPct || 0) / 100;
+        var flagged = 0;
+        for (i = 0; i < eligible.length; i++) {
+            var e = eligible[i];
+            var cohort = byGroup[e.group];
+            var useGroup = e.group !== '' && cohort && cohort.length >= opts.minCohort;
+            e.refMedian = useGroup ? this._lopMedian(cohort) : fleetMedian;
+            e.refLabel = useGroup ? 'carpeta' : 'flota';
+            e.ratio = e.refMedian > 0 ? e.lPer100 / e.refMedian : null;
+            e.over = e.ratio !== null && e.ratio >= factor;
+            if (e.over) { flagged++; }
+        }
+        return {
+            eligible: eligible, flagged: flagged, noNorm: noNorm, lowKm: lowKm,
+            fleetMedian: fleetMedian,
+            p90: this._lopPercentile(all, 90),
+            totalLiters: eligible.reduce(function (a, e) { return a + e.liters; }, 0)
+        };
+    },
+
+    /**
+     * Mantención por kilometraje. rows: [{ name, odo }] con odo null si el
+     * vehículo no informa odómetro (0 también cuenta como sin dato: un
+     * odómetro en 0 es un equipo sin lectura, no un vehículo nuevo). Estado:
+     * 'high' (odómetro >= highOdometerKm), 'due' (a menos de warnWithinKm
+     * del próximo múltiplo de intervalKm) u 'ok'.
+     */
+    _lopMaintenanceAnalysis: function (rows, opts) {
+        var withData = [], noData = 0, i;
+        for (i = 0; i < rows.length; i++) {
+            var r = rows[i];
+            if (!(r.odo > 0)) { noData++; continue; }
+            var since = r.odo % opts.intervalKm;
+            var toNext = opts.intervalKm - since;
+            var status = 'ok';
+            if (r.odo >= opts.highOdometerKm) { status = 'high'; }
+            else if (toNext <= opts.warnWithinKm) { status = 'due'; }
+            withData.push({ name: r.name, odo: r.odo, toNext: toNext, status: status });
+        }
+        var weight = { high: 2, due: 1, ok: 0 };
+        withData.sort(function (a, b) { return weight[b.status] - weight[a.status] || b.odo - a.odo; });
+        var high = 0, due = 0;
+        for (i = 0; i < withData.length; i++) {
+            if (withData[i].status === 'high') { high++; } else if (withData[i].status === 'due') { due++; }
+        }
+        return { rows: withData, noData: noData, high: high, due: due };
+    },
+
+    // ---------------------------------------------------------------------
+    // Geocercas: forma (polígono o círculo) y punto-en-geocerca
+    // ---------------------------------------------------------------------
+
+    /**
+     * Centro y radio (m) de una geocerca tipo círculo. El formato exacto de
+     * `points` para círculos en GET /api/v3/geofences no está confirmado
+     * (PILOT guarda "lat;lon;radio" internamente), por eso se aceptan las
+     * variantes razonables: [lat, lon, r], [[lat, lon, r]], [[lat, lon]] con
+     * radio aparte, [{lat, lon}] o el string "lat;lon;r". null si no se
+     * reconoce: el llamador salta la geocerca en vez de fallar.
+     */
+    _geofenceCircle: function (g) {
+        var raw = g && g.points;
+        var lat = NaN, lon = NaN, r = NaN;
+        if (typeof raw === 'string') {
+            var p = raw.split(/[;,|]/);
+            lat = Number(p[0]); lon = Number(p[1]); r = Number(p[2]);
+        } else if (Array.isArray(raw) && raw.length) {
+            var first = raw[0];
+            if (Array.isArray(first)) {
+                lat = Number(first[0]); lon = Number(first[1]); r = Number(first[2]);
+            } else if (first && typeof first === 'object') {
+                lat = Number(first.lat); lon = Number(first.lon != null ? first.lon : first.lng);
+                r = Number(first.radius != null ? first.radius : first.r);
+            } else {
+                lat = Number(raw[0]); lon = Number(raw[1]); r = Number(raw[2]);
+            }
+        }
+        if (!(r > 0)) {
+            r = Number(g.radius != null ? g.radius : (g.r != null ? g.r : g.width));
+        }
+        if (!isFinite(lat) || !isFinite(lon) || !(r > 0)) { return null; }
+        return { lat: lat, lon: lon, r: r };
+    },
+
+    /**
+     * Forma lista para comparar de una geocerca: { kind:'poly', pts, bbox } o
+     * { kind:'circle', lat, lon, r }; null si no es un área usable (línea,
+     * puntos insuficientes, formato desconocido). Se memoriza en el propio
+     * objeto de la geocerca: con ~160 geocercas y ~1350 vehículos, parsear en
+     * cada comparación sería el costo dominante.
+     */
+    _lopGeofenceShape: function (g) {
+        if (!g) { return null; }
+        if (g._lopShape !== undefined) { return g._lopShape; }
+        var shape = null;
+        if (g.type === 'circle') {
+            var c = this._geofenceCircle(g);
+            if (c) { shape = { kind: 'circle', lat: c.lat, lon: c.lon, r: c.r }; }
+        } else if (g.type !== 'line') {
+            var pts = this._geofencePolygonPoints(g);
+            if (pts && pts.length >= 3) {
+                var b = { minLat: 90, maxLat: -90, minLon: 180, maxLon: -180 };
+                for (var i = 0; i < pts.length; i++) {
+                    if (pts[i][0] < b.minLat) { b.minLat = pts[i][0]; }
+                    if (pts[i][0] > b.maxLat) { b.maxLat = pts[i][0]; }
+                    if (pts[i][1] < b.minLon) { b.minLon = pts[i][1]; }
+                    if (pts[i][1] > b.maxLon) { b.maxLon = pts[i][1]; }
+                }
+                shape = { kind: 'poly', pts: pts, bbox: b };
+            }
+        }
+        g._lopShape = shape;
+        return shape;
+    },
+
+    /** true si (lat, lon) cae dentro de la geocerca `g` (polígono o círculo). */
+    _pointInGeofence: function (lat, lon, g) {
+        var s = this._lopGeofenceShape(g);
+        if (!s) { return false; }
+        if (s.kind === 'circle') {
+            return this._lopDistanceM(lat, lon, s.lat, s.lon) <= s.r;
+        }
+        var b = s.bbox;
+        if (lat < b.minLat || lat > b.maxLat || lon < b.minLon || lon > b.maxLon) { return false; }
+        return this._pointInPolygon(lat, lon, s.pts);
+    },
+
+    /**
+     * Resumen de las geocercas cargadas por grupo, solo con el flag de debug:
+     * cuántas son polígono, círculo o línea, cuántas se pudieron interpretar
+     * y la forma cruda de `points` de una muestra. Es el dato que falta para
+     * diagnosticar un grupo que nunca da match (p. ej. bases definidas como
+     * círculos con un formato de `points` distinto al esperado).
+     */
+    _lopLogGeofenceShapes: function (geofences) {
+        var groups = {};
+        for (var i = 0; i < geofences.length; i++) {
+            var g = geofences[i];
+            var key = g.group_name || '(sin grupo)';
+            var e = groups[key] = groups[key] || { total: 0, types: {}, usable: 0, sample: null };
+            e.total++;
+            e.types[g.type || '?'] = (e.types[g.type || '?'] || 0) + 1;
+            if (this._lopGeofenceShape(g)) { e.usable++; }
+            else if (!e.sample) {
+                var raw = JSON.stringify(g.points);
+                e.sample = { type: g.type, points: raw && raw.length > 160 ? raw.slice(0, 160) + '…' : raw };
+            }
+        }
+        Store.promatic_dashboard_enhancer.Module.debugLog('geocercas por grupo (tipos, interpretables, muestra no interpretada):', groups);
+    },
+
+    // ---------------------------------------------------------------------
+    // 1. Vehículos disponibles por sucursal / % estacionados
+    // ---------------------------------------------------------------------
+
+    /**
+     * Carga (si falta) las geocercas y pinta las dos cards de sucursales.
+     * Reutiliza el match del mapa de flota (config.branches.clientMap: qué
+     * carpeta de flota usa qué grupos de geocercas) y su caché
+     * _lastGeofences; no hace requests propios aparte de ese GET si todavía
+     * no se cargó.
+     */
+    loadLopBranches: function () {
+        var me = this;
+        var cfg = (me.config && me.config.branches) || (me.DEFAULT_CONFIG.branches || {});
+        if ((cfg.clientMap || []).length === 0) {
+            var msg = this._lopDevMarkup(l('Sin sucursales configuradas para esta cuenta.'));
+            this.updateCardBody(this.LOP_CARD_IDS.sucursales, msg, 0, true);
+            this.updateCardBody(this.LOP_CARD_IDS.estacionados, msg, 0, true);
+            return;
+        }
+        var go = function () {
+            try {
+                me._lopBranchData = me._lopComputeBranches();
+                me.renderLopBranches();
+            } catch (err) {
+                var code = me.widgetErrorCode('LOP-SUCURSALES', err);
+                var m = l('No se pudo calcular las sucursales.') + ' (' + code + ')';
+                me.updateCardBody(me.LOP_CARD_IDS.sucursales, m, 0, true);
+                me.updateCardBody(me.LOP_CARD_IDS.estacionados, m, 0, true);
+            }
+        };
+        if (this._lastGeofences) { go(); return; }
+        this.withFleetVehicleIds(function () {
+            me.loadBranchGeofences(function (errCode) {
+                if (errCode) {
+                    var m = l('No se pudieron cargar las geocercas.') + ' (' + errCode + ')';
+                    me.updateCardBody(me.LOP_CARD_IDS.sucursales, m, 0, true);
+                    me.updateCardBody(me.LOP_CARD_IDS.estacionados, m, 0, true);
+                    return;
+                }
+                go();
+            });
+        });
+    },
+
+    /**
+     * Presencia por sucursal. Para CADA vehículo del alcance (no solo los
+     * apagados, a diferencia del tooltip del mapa) se busca la geocerca de los
+     * grupos de su cliente que contiene su última posición; el estado
+     * (movimiento / estacionado / sin señal) sale del propio árbol Online. Se
+     * usa el texto de estado y no `firing`: en vehículos cuyo sensor de
+     * ignición está fijo en "encendido" no distinguiría nada.
+     *
+     * Devuelve { rows, totals } con una fila por geocerca con al menos un
+     * vehículo; totals separa los vehículos sin cliente mapeado, sin posición,
+     * fuera de toda sucursal y dentro de alguna.
+     */
+    _lopComputeBranches: function () {
+        var onlineTree = this.getOnlineTree();
+        var records = onlineTree ? this.getScopedFleetRecords(onlineTree) : [];
+        var geofences = this._lastGeofences || [];
+        if (!this._lopGeoLogged) {
+            this._lopGeoLogged = true;
+            this._lopLogGeofenceShapes(geofences);
+        }
+
+        var byGroup = {};
+        for (var gi = 0; gi < geofences.length; gi++) {
+            var g = geofences[gi];
+            if (g && g.group_name && this._lopGeofenceShape(g)) {
+                (byGroup[g.group_name] = byGroup[g.group_name] || []).push(g);
+            }
+        }
+
+        var perFence = {};
+        var totals = { scope: 0, unmapped: 0, noCoords: 0, outside: 0, inside: 0 };
+        var unmatchedSamples = [];
+
+        for (var i = 0; i < records.length; i++) {
+            var rec = records[i];
+            if (!this._recordField(rec, 'agentid')) { continue; }
+            totals.scope++;
+            var entry = this._clientMapEntryForRecord(rec);
+            if (!entry || !entry.groupNames || entry.groupNames.length === 0) { totals.unmapped++; continue; }
+            var ll = this._recordLatLon(rec);
+            if (!ll) { totals.noCoords++; continue; }
+
+            var hit = null;
+            for (var n = 0; n < entry.groupNames.length && !hit; n++) {
+                var list = byGroup[entry.groupNames[n]] || [];
+                for (var j = 0; j < list.length; j++) {
+                    if (this._pointInGeofence(ll[0], ll[1], list[j])) { hit = list[j]; break; }
+                }
+            }
+            if (!hit) {
+                totals.outside++;
+                if (unmatchedSamples.length < 5) { unmatchedSamples.push({ ll: ll, groups: entry.groupNames }); }
+                continue;
+            }
+            totals.inside++;
+            var online = !!this._recordField(rec, 'is_server_online');
+            var moving = online && String(this._recordField(rec, 'status') || '').indexOf('movimiento') !== -1;
+            var row = perFence[hit.id] = perFence[hit.id] || {
+                id: hit.id, name: hit.name || String(hit.id), group: hit.group_name,
+                present: 0, parked: 0, moving: 0, offline: 0
+            };
+            row.present++;
+            if (!online) { row.offline++; } else if (moving) { row.moving++; } else { row.parked++; }
+        }
+
+        var rows = [];
+        for (var k in perFence) {
+            if (perFence.hasOwnProperty(k)) {
+                perFence[k].pct = perFence[k].present > 0 ? Math.round(perFence[k].parked / perFence[k].present * 100) : 0;
+                rows.push(perFence[k]);
+            }
+        }
+        rows.sort(function (a, b) { return b.present - a.present || (a.name < b.name ? -1 : 1); });
+
+        Store.promatic_dashboard_enhancer.Module.debugLog('sucursales LOP: ' + totals.scope + ' vehículos en alcance, ' +
+            totals.inside + ' dentro de una sucursal (' + rows.length + ' sucursales con vehículos), ' +
+            totals.outside + ' fuera de toda sucursal, ' + totals.unmapped + ' sin cliente mapeado, ' +
+            totals.noCoords + ' sin posición');
+        if (totals.inside === 0 && unmatchedSamples.length > 0) {
+            this._lopLogNearestGeofence(unmatchedSamples, byGroup);
+        }
+        return { rows: rows, totals: totals };
+    },
+
+    /**
+     * Diagnóstico de "ningún vehículo cae en ninguna sucursal": para unos
+     * pocos vehículos sin match, distancia a la geocerca más cercana por
+     * centroide (o centro del círculo) con las coordenadas en orden normal y
+     * con lat/lon invertidos. Distancias de decenas de metros apuntan a un
+     * problema de forma o radio de la geocerca; cientos de km apuntan a un
+     * grupo equivocado; si la invertida es la corta, la API devuelve lon/lat.
+     */
+    _lopLogNearestGeofence: function (samples, byGroup) {
+        var me = this;
+        var out = [];
+        var centroid = function (g) {
+            var s = me._lopGeofenceShape(g);
+            if (s.kind === 'circle') { return [s.lat, s.lon]; }
+            return [(s.bbox.minLat + s.bbox.maxLat) / 2, (s.bbox.minLon + s.bbox.maxLon) / 2];
+        };
+        for (var i = 0; i < samples.length; i++) {
+            var s = samples[i], best = null, bestSw = null;
+            for (var gi = 0; gi < s.groups.length; gi++) {
+                var list = byGroup[s.groups[gi]] || [];
+                for (var j = 0; j < list.length; j++) {
+                    var c = centroid(list[j]);
+                    var d = me._lopDistanceM(s.ll[0], s.ll[1], c[0], c[1]);
+                    var dsw = me._lopDistanceM(s.ll[0], s.ll[1], c[1], c[0]);
+                    if (best === null || d < best.m) { best = { m: Math.round(d), name: list[j].name, type: list[j].type }; }
+                    if (bestSw === null || dsw < bestSw) { bestSw = Math.round(dsw); }
+                }
+            }
+            out.push({ veh: s.ll, masCercana: best, distInvertidaM: bestSw });
+        }
+        Store.promatic_dashboard_enhancer.Module.debugLog('sucursales LOP: sin ningún match; geocerca más cercana de 5 vehículos de muestra:', out);
+    },
+
+    renderLopBranches: function () {
+        var data = this._lopBranchData;
+        if (!data) { return; }
+        var ids = this.LOP_CARD_IDS;
+        var esc = Ext.String.htmlEncode;
+        var t = data.totals;
+        var cfg = this._lopCfg('branches');
+
+        if (t.scope === 0) {
+            var emptyMsg = this._lopNote(l('Sin vehículos en el alcance actual.'));
+            this.updateCardBody(ids.sucursales, emptyMsg, 0, true);
+            this.updateCardBody(ids.estacionados, emptyMsg, 0, true);
+            return;
+        }
+
+        var coverage = this._lopNote(
+            l('En sucursal') + ': ' + t.inside + ' ' + l('de') + ' ' + t.scope + ' ' + l('vehículos') +
+            (t.outside ? ' · ' + t.outside + ' ' + l('fuera de toda sucursal') : '') +
+            (t.unmapped ? ' · ' + t.unmapped + ' ' + l('de flotas sin sucursales configuradas') : '') +
+            (t.noCoords ? ' · ' + t.noCoords + ' ' + l('sin posición') : ''));
+
+        if (data.rows.length === 0) {
+            var none = Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: [
+                { cls: 'promatic_dashboard_enhancer-lop-empty', html: l('Ningún vehículo dentro de una sucursal ahora mismo.') },
+                coverage
+            ] });
+            this.updateCardBody(ids.sucursales, none, 0, true);
+            this.updateCardBody(ids.estacionados, none, 0, true);
+            return;
+        }
+
+        var shown = data.rows.slice(0, cfg.rankCount * 3);
+        var num = function (v) { return { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: String(v) }; };
+        var trs = shown.map(function (r) {
+            return { tag: 'tr', cn: [
+                { tag: 'td', html: esc(r.name), title: esc(r.group || '') },
+                num(r.present), num(r.parked), num(r.moving), num(r.offline)
+            ] };
+        });
+        this.updateCardBody(ids.sucursales, Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: [
+            { cls: 'promatic_dashboard_enhancer-lop-scroll', cn: [{ tag: 'table', cls: 'promatic_dashboard_enhancer-lop-table', cn: [
+                { tag: 'thead', cn: [{ tag: 'tr', cn: [
+                    { tag: 'th', html: l('Sucursal') }, { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Presentes') },
+                    { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Disponibles') },
+                    { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('En ruta') },
+                    { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Sin señal') }
+                ] }] },
+                { tag: 'tbody', cn: trs }
+            ] }] },
+            coverage
+        ] }), 0, true);
+
+        var bars = data.rows.slice(0, cfg.rankCount).map(function (r) {
+            return { cls: 'promatic_dashboard_enhancer-lop-bar', cn: [
+                { cls: 'promatic_dashboard_enhancer-lop-bar__label', html: esc(r.name), title: esc(r.name) },
+                { cls: 'promatic_dashboard_enhancer-lop-bar__track', cn: [
+                    { cls: 'promatic_dashboard_enhancer-lop-bar__fill', style: 'width:' + r.pct + '%' }
+                ] },
+                { cls: 'promatic_dashboard_enhancer-lop-bar__val', html: r.pct + '% <span>(' + r.parked + '/' + r.present + ')</span>' }
+            ] };
+        });
+        this.updateCardBody(ids.estacionados, Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: bars.concat([
+            this._lopNote(l('Estacionado = en línea y sin movimiento, sobre los vehículos presentes en la sucursal.'))
+        ]) }), 0, true);
+    },
+
+    // ---------------------------------------------------------------------
+    // Reportes pesados en lotes (combustible, peajes)
+    // ---------------------------------------------------------------------
+
+    /**
+     * POST a reports.php con un cuerpo estándar (buildReportBody) y explode
+     * opcional. explode=3 ("No dividir") pide una fila por vehículo en toda la
+     * ventana en vez de una por día, lo que reduce el payload y evita sumar
+     * subtotales diarios con totales.
+     */
+    _lopFetchReport: function (reportType, csv, start, stop, timeoutMs, explode) {
+        var body = this.buildReportBody(reportType, csv, start, stop);
+        if (explode) { body = body.replace(/(^|&)explode=\d+/, '$1explode=' + encodeURIComponent(explode)); }
+        var ctrl = new AbortController();
+        var to = setTimeout(function () { ctrl.abort(); }, timeoutMs);
+        return fetch('/backend/ax/reports.php', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body,
+            signal: ctrl.signal
+        }).then(function (resp) {
+            if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+            return resp.json();
+        }).finally(function () { clearTimeout(to); });
+    },
+
+    /**
+     * Ejecuta runOne(sliceIds) sobre lotes de ids, UNO A LA VEZ y con pausa
+     * entre lotes (las ráfagas hicieron que PILOT cerrara la sesión). Dos
+     * lotes seguidos que fallan cortan la cola: si PILOT rechaza o está
+     * saturado, insistir solo empeora. onProgress(done, total, partial) se
+     * llama tras cada lote para pintar resultados parciales. isStale() corta
+     * si arrancó una carga más nueva.
+     * Resuelve { resps, failed, done, total, aborted }.
+     */
+    _lopRunBatches: function (ids, runOne, opts) {
+        var total = ids.length, done = 0, failed = 0, consecutive = 0, aborted = false;
+        var resps = [];
+        var queue = ids.slice();
+        return new Promise(function (resolve) {
+            var step = function () {
+                if (queue.length === 0 || (opts.isStale && opts.isStale())) { resolve({ resps: resps, failed: failed, done: done, total: total, aborted: aborted }); return; }
+                var slice = queue.splice(0, opts.batchSize);
+                runOne(slice).then(function (resp) {
+                    consecutive = 0;
+                    resps.push(resp);
+                }).catch(function (err) {
+                    failed++;
+                    consecutive++;
+                    console.warn('[promatic_dashboard_enhancer] lote de reporte falló (' + (err && err.message ? err.message : err) + ')');
+                }).then(function () {
+                    done += slice.length;
+                    if (opts.onProgress) { opts.onProgress(done, total, resps); }
+                    if (consecutive >= 2) {
+                        aborted = true;
+                        console.warn('[promatic_dashboard_enhancer] 2 lotes seguidos fallaron: se corta la cola (' +
+                            queue.length + ' vehículos sin consultar) para no arriesgar la sesión con PILOT.');
+                        resolve({ resps: resps, failed: failed, done: done, total: total, aborted: true });
+                        return;
+                    }
+                    setTimeout(step, opts.pauseMs);
+                });
+            };
+            step();
+        });
+    },
+
+    /** Ids a consultar: vehículos del alcance con movimiento reciente, acotados a maxVehicles. */
+    _lopCandidateIds: function (days) {
+        var onlineTree = this.getOnlineTree();
+        if (!onlineTree) { return { ids: [], scope: 0 }; }
+        var scope = this.getFleetVehicleIds(onlineTree).length;
+        var ids = this.getRecentlyActiveIds(onlineTree, days);
+        var max = this._lopCfg('batch').maxVehicles;
+        if (ids.length > max) { ids = ids.slice(0, max); }
+        return { ids: ids, scope: scope };
+    },
+
+    _lopCacheGet: function (key, sig) {
+        var c = this._lopCache && this._lopCache[key];
+        var ttl = this._lopCfg('batch').cacheMinutes * 60000;
+        return (c && c.sig === sig && (Date.now() - c.ts) < ttl) ? c.value : null;
+    },
+    _lopCacheSet: function (key, sig, value) {
+        if (!this._lopCache) { this._lopCache = {}; }
+        this._lopCache[key] = { sig: sig, ts: Date.now(), value: value };
+    },
+
+    /** Resumen de la forma de una respuesta de reporte para el log de debug. */
+    _lopDescribeResp: function (resp) {
+        var rows = this._lopCollectRows(resp && resp.data);
+        var hdr = null;
+        if (rows.length) { hdr = this._lopColumnNames(resp, rows[0].cells.length); }
+        return {
+            keys: resp && typeof resp === 'object' ? Object.keys(resp) : typeof resp,
+            success: resp && resp.success, msg: resp && resp.msg,
+            filas: rows.length, encabezados: hdr || (resp && resp.headers),
+            muestra: rows.slice(0, 2).map(function (r) { return r.cells; })
+        };
+    },
+
+    // ---------------------------------------------------------------------
+    // 3. Rendimiento de combustible (report_type=6)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Parser DEFENSIVO del reporte de combustible por norma: el schema de
+     * report_type=6 no está documentado. Se identifican las columnas de
+     * distancia y de combustible por el texto de sus encabezados, que llegan
+     * en el idioma de la sesión (español o inglés) (o por
+     * config.lop.fuel.distCol/fuelCol) y se suma por vehículo. Devuelve
+     * { recognized, reason, rows:[{name, km, liters}], cols }.
+     */
+    _lopParseFuelResp: function (resps, cfg) {
+        var agg = {}, order = [], cols = null, anyRows = false, reason = '';
+        for (var r = 0; r < resps.length; r++) {
+            var rows = this._lopCollectRows(resps[r] && resps[r].data);
+            if (rows.length === 0) { continue; }
+            anyRows = true;
+            var names = this._lopColumnNames(resps[r], rows[0].cells.length);
+            var di = cfg.distCol != null ? Number(cfg.distCol) :
+                this._lopFindCol(names, /dist|mileage|kilomet|\bkm\b|пробег|recorr/i, /100|avg|average|prom|средн/i);
+            var fi = cfg.fuelCol != null ? Number(cfg.fuelCol) :
+                this._lopFindCol(names, /fuel|consum|rashod|combust|litr|liter|volume|расход|топлив/i, /100|avg|average|prom|средн|rate|cost|price|precio|importe|sum\b/i);
+            if (di < 0 || fi < 0 || di === fi) {
+                reason = 'no se identificaron las columnas de distancia y combustible (encabezados: ' + JSON.stringify(names) + ')';
+                continue;
+            }
+            cols = { dist: di, fuel: fi, names: names };
+            for (var i = 0; i < rows.length; i++) {
+                var cells = rows[i].cells;
+                var nm = rows[i].veh;
+                if (/^(total|итого|всего|all)\b/i.test(nm)) { continue; }
+                var km = this._lopNum(cells[di]);
+                var lt = this._lopNum(cells[fi]);
+                if (km === null && lt === null) { continue; }
+                if (!agg[nm]) { agg[nm] = { name: nm, km: 0, liters: 0, hasKm: false, hasLt: false }; order.push(nm); }
+                if (km !== null) { agg[nm].km += km; agg[nm].hasKm = true; }
+                if (lt !== null) { agg[nm].liters += lt; agg[nm].hasLt = true; }
+            }
+        }
+        if (!anyRows) { return { recognized: false, reason: 'la respuesta no trae filas', rows: [] }; }
+        if (!cols) { return { recognized: false, reason: reason, rows: [] }; }
+        var out = order.map(function (k) { return { name: agg[k].name, km: agg[k].hasKm ? agg[k].km : null, liters: agg[k].hasLt ? agg[k].liters : null }; });
+        return { recognized: out.length > 0, reason: out.length ? '' : 'sin filas con datos numéricos', rows: out, cols: cols };
+    },
+
+    /**
+     * Combustible: report_type=6 en lotes sobre vehículos con movimiento
+     * reciente. Devuelve una Promise que siempre resuelve (nunca rechaza), para
+     * poder encadenar el siguiente widget pesado. Con sensor de tanque
+     * (semanticid 2, p. ej. FuelLevel2) se podría contrastar el consumo por
+     * norma con el real vía report_type=16; no se implementa acá.
+     */
+    loadLopFuel: function (force) {
+        var me = this;
+        var id = this.LOP_CARD_IDS.combustible;
+        var cfg = this._lopCfg('fuel');
+        var bcfg = this._lopCfg('batch');
+        var cand = this._lopCandidateIds(cfg.windowDays);
+        if (cand.ids.length === 0) {
+            this.updateCardBody(id, this._lopNote(l('Sin vehículos con movimiento reciente en el alcance.')), 0, true);
+            return Promise.resolve();
+        }
+        var sig = cand.scope + ':' + cfg.windowDays;
+        var cached = force ? null : this._lopCacheGet('fuel', sig);
+        if (cached) { this._lopFuel = cached; this.renderLopFuel(); return Promise.resolve(); }
+
+        var nonce = (this._lopFuelNonce = (this._lopFuelNonce || 0) + 1);
+        var stop = new Date();
+        var start = new Date();
+        start.setDate(start.getDate() - cfg.windowDays);
+        var plan = { queried: cand.ids.length, scope: cand.scope };
+
+        return this._lopRunBatches(cand.ids, function (slice) {
+            return me._lopFetchReport(6, slice.join(','), start, stop, bcfg.batchTimeoutMs, cfg.explode);
+        }, {
+            batchSize: bcfg.batchSize, pauseMs: bcfg.batchPauseMs,
+            isStale: function () { return nonce !== me._lopFuelNonce; },
+            onProgress: function (done, total) {
+                if (!me._lopFuel) {
+                    me.updateCardBody(id, me._lopNote(l('Cargando combustible…') + ' ' + done + '/' + total), 0, true);
+                }
+            }
+        }).then(function (res) {
+            if (nonce !== me._lopFuelNonce) { return; }
+            if (res.resps.length) {
+                Store.promatic_dashboard_enhancer.Module.debugLog('combustible (report_type=6), forma de la 1.ª respuesta:', me._lopDescribeResp(res.resps[0]));
+            }
+            var parsed = me._lopParseFuelResp(res.resps, cfg);
+            if (!parsed.recognized) {
+                Store.promatic_dashboard_enhancer.Module.debugLog('combustible: respuesta no reconocida — ' + parsed.reason);
+                me._lopFuel = null;
+                me.updateCardBody(id, me._lopDevMarkup(res.resps.length === 0
+                    ? l('Combustible: el reporte no respondió.') : l('Combustible: formato de reporte aún no reconocido.')), 0, true);
+                return;
+            }
+            var groupOf = me._lopGroupByName();
+            parsed.rows.forEach(function (row) { row.group = groupOf[row.name] || ''; });
+            var analysis = me._lopFuelAnalysis(parsed.rows, cfg);
+            me._lopFuel = { analysis: analysis, plan: plan, failed: res.failed, aborted: res.aborted, cols: parsed.cols, days: cfg.windowDays };
+            me._lopCacheSet('fuel', sig, me._lopFuel);
+            Store.promatic_dashboard_enhancer.Module.debugLog('combustible: ' + parsed.rows.length + ' vehículos con fila, ' +
+                analysis.eligible.length + ' elegibles, ' + analysis.noNorm + ' sin norma de consumo, ' + analysis.lowKm +
+                ' bajo ' + cfg.minKm + ' km, mediana ' + (analysis.fleetMedian === null ? 'N/D' : analysis.fleetMedian.toFixed(1)) +
+                ' L/100 km, ' + analysis.flagged + ' en sobreconsumo; columnas', parsed.cols);
+            me.renderLopFuel();
+        }).catch(function (err) {
+            me.updateCardBody(id, l('No se pudo cargar el combustible.') + ' (' + me.widgetErrorCode('LOP-COMBUSTIBLE', err) + ')', 0, true);
+        });
+    },
+
+    /** nombre de vehículo → nombre de su carpeta, desde el árbol Online (para cohortes de comparación). */
+    _lopGroupByName: function () {
+        var onlineTree = this.getOnlineTree();
+        var map = {};
+        if (!onlineTree) { return map; }
+        var records = this.getScopedFleetRecords(onlineTree);
+        for (var i = 0; i < records.length; i++) {
+            var nm = this._recordField(records[i], 'name');
+            if (!nm) { continue; }
+            var grp = this._recordField(records[i], 'group');
+            if (!grp && records[i].parentNode && records[i].parentNode.get) {
+                grp = records[i].parentNode.get('text') || records[i].parentNode.get('name');
+            }
+            map[String(nm)] = grp ? String(grp) : '';
+        }
+        return map;
+    },
+
+    renderLopFuel: function () {
+        var d = this._lopFuel;
+        var id = this.LOP_CARD_IDS.combustible;
+        if (!d) { return; }
+        var a = d.analysis, cfg = this._lopCfg('fuel'), esc = Ext.String.htmlEncode, me = this;
+        var mode = this._lopFuelMode || 'rate';
+
+        if (a.eligible.length === 0) {
+            this.updateCardBody(id, Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: [
+                { cls: 'promatic_dashboard_enhancer-lop-empty', html: l('Ningún vehículo con consumo por norma y recorrido suficiente en el período.') },
+                this._lopNote(a.noNorm + ' ' + l('sin norma de consumo (N/D)') + ' · ' + a.lowKm + ' ' + l('con menos de') + ' ' + cfg.minKm + ' km')
+            ] }), 0, true);
+            return;
+        }
+
+        var list = a.eligible.slice();
+        if (mode === 'liters') { list.sort(function (x, y) { return y.liters - x.liters; }); }
+        else { list.sort(function (x, y) { return y.lPer100 - x.lPer100; }); }
+        list = list.slice(0, cfg.rankCount);
+
+        var trs = list.map(function (e) {
+            return { tag: 'tr', cls: e.over ? 'promatic_dashboard_enhancer-lop-row--bad' : '', cn: [
+                { tag: 'td', html: esc(me.displayName(e.name)), title: esc(e.group) },
+                { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: me._lopFmt(e.liters, 0) + ' L' },
+                { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: me._lopFmt(e.km, 0) },
+                { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: me._lopFmt(e.lPer100, 1) },
+                { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: e.ratio === null ? l('N/D') : ('+' + Math.round((e.ratio - 1) * 100) + '%').replace('+-', '-') }
+            ] };
+        });
+
+        this.updateCardBody(id, Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: [
+            { cls: 'promatic_dashboard_enhancer-lop-boxes', cn: [
+                this._lopBox(String(a.flagged), l('en sobreconsumo'), a.flagged ? 'bad' : 'ok'),
+                this._lopBox(this._lopFmt(a.fleetMedian, 1), l('mediana L/100 km'), 'neutral'),
+                this._lopBox(this._lopFmt(a.totalLiters, 0), l('litros (norma)'), 'neutral')
+            ] },
+            { cls: 'promatic_dashboard_enhancer-lop-chips', cn: [
+                this._lopChip('fuel-mode', 'rate', l('Por L/100 km'), mode === 'rate'),
+                this._lopChip('fuel-mode', 'liters', l('Por litros'), mode === 'liters')
+            ] },
+            { cls: 'promatic_dashboard_enhancer-lop-scroll', cn: [{ tag: 'table', cls: 'promatic_dashboard_enhancer-lop-table', cn: [
+                { tag: 'thead', cn: [{ tag: 'tr', cn: [
+                    { tag: 'th', html: l('Vehículo') }, { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Litros') },
+                    { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: 'km' },
+                    { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: 'L/100' },
+                    { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('vs mediana') }
+                ] }] },
+                { tag: 'tbody', cn: trs }
+            ] }] },
+            this._lopNote(l('Cobertura') + ': ' + a.eligible.length + ' ' + l('de') + ' ' + d.plan.queried + ' ' + l('vehículos consultados') +
+                ' (' + l('alcance') + ' ' + d.plan.scope + ': ' + l('solo con movimiento reciente') + '; ' + a.noNorm + ' ' + l('sin norma de consumo') + ', ' + a.lowKm + ' ' + l('con menos de') + ' ' + cfg.minKm + ' km). ' +
+                l('Sobreconsumo') + ' = +' + cfg.overconsumptionPct + '% ' + l('sobre la mediana de su carpeta') + ' · ' + d.days + ' ' + l('días') +
+                (d.failed ? ' · ' + d.failed + ' ' + l('lotes fallidos') : '') + (d.aborted ? ' (' + l('carga cortada') + ')' : ''))
+        ] }), 0, true);
+    },
+
+    // ---------------------------------------------------------------------
+    // 5. TAG / peajes (report_type=96, sin probar en este proyecto)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Parser DEFENSIVO de Toll Roads: una fila = una pasada por pórtico. Se
+     * cuenta por vehículo y, si hay una columna de monto (por encabezado), se
+     * suma. Los textos pueden traer HTML residual en las columnas de pórtico
+     * (se limpia). Devuelve { recognized, reason, rows:[{name, passes,
+     * amount|null}] }.
+     */
+    _lopParseTagResp: function (resps) {
+        var agg = {}, order = [], anyRows = false, amountCol = -1, names = null;
+        for (var r = 0; r < resps.length; r++) {
+            var rows = this._lopCollectRows(resps[r] && resps[r].data);
+            if (rows.length === 0) { continue; }
+            anyRows = true;
+            names = this._lopColumnNames(resps[r], rows[0].cells.length);
+            amountCol = this._lopFindCol(names, /sum|cost|amount|price|tarif|monto|importe|valor|total|fee|charge|стоим|сумм|цена/i, /count|cantidad|qty|кол/i);
+            for (var i = 0; i < rows.length; i++) {
+                var nm = this._lopStripTags(rows[i].veh);
+                if (!nm || /^(total|итого|всего)\b/i.test(nm)) { continue; }
+                if (!agg[nm]) { agg[nm] = { name: nm, passes: 0, amount: 0, hasAmount: false }; order.push(nm); }
+                agg[nm].passes++;
+                if (amountCol > 0) {
+                    var amt = this._lopNum(rows[i].cells[amountCol], true);
+                    if (amt !== null) { agg[nm].amount += amt; agg[nm].hasAmount = true; }
+                }
+            }
+        }
+        if (!anyRows) { return { recognized: false, reason: 'la respuesta no trae filas', rows: [], names: names }; }
+        var out = order.map(function (k) { return { name: agg[k].name, passes: agg[k].passes, amount: agg[k].hasAmount ? agg[k].amount : null }; });
+        return { recognized: out.length > 0, reason: '', rows: out, names: names, amountCol: amountCol };
+    },
+
+    loadLopTag: function (force) {
+        var me = this;
+        var id = this.LOP_CARD_IDS.tag;
+        var cfg = this._lopCfg('tag');
+        var bcfg = this._lopCfg('batch');
+        var cand = this._lopCandidateIds(cfg.windowDays);
+        if (cand.ids.length === 0) {
+            this.updateCardBody(id, this._lopNote(l('Sin vehículos con movimiento reciente en el alcance.')), 0, true);
+            return Promise.resolve();
+        }
+        var sig = cand.scope + ':' + cfg.windowDays;
+        var cached = force ? null : this._lopCacheGet('tag', sig);
+        if (cached) { this._lopTag = cached; this.renderLopTag(); return Promise.resolve(); }
+
+        var nonce = (this._lopTagNonce = (this._lopTagNonce || 0) + 1);
+        var stop = new Date();
+        var start = new Date();
+        start.setDate(start.getDate() - cfg.windowDays);
+
+        return this._lopRunBatches(cand.ids, function (slice) {
+            return me._lopFetchReport(96, slice.join(','), start, stop, bcfg.batchTimeoutMs, cfg.explode);
+        }, {
+            batchSize: bcfg.batchSize, pauseMs: bcfg.batchPauseMs,
+            isStale: function () { return nonce !== me._lopTagNonce; },
+            onProgress: function (done, total) {
+                if (!me._lopTag) {
+                    me.updateCardBody(id, me._lopNote(l('Cargando peajes…') + ' ' + done + '/' + total), 0, true);
+                }
+            }
+        }).then(function (res) {
+            if (nonce !== me._lopTagNonce) { return; }
+            if (res.resps.length) {
+                Store.promatic_dashboard_enhancer.Module.debugLog('TAG (report_type=96), forma de la 1.ª respuesta:', me._lopDescribeResp(res.resps[0]));
+            }
+            // success:false (módulo sin habilitar) o ninguna respuesta útil
+            // → "En desarrollo", nunca un 0 inventado.
+            var usable = res.resps.filter(function (x) { return x && x.success !== false; });
+            var parsed = me._lopParseTagResp(usable);
+            if (!parsed.recognized) {
+                Store.promatic_dashboard_enhancer.Module.debugLog('TAG: sin datos reconocidos — ' + (parsed.reason || 'sin respuestas útiles'));
+                me._lopTag = null;
+                me.updateCardBody(id, me._lopDevMarkup(l('Peajes (TAG): reporte no disponible o formato aún no reconocido en esta cuenta.')), 0, true);
+                return;
+            }
+            me._lopTag = { rows: parsed.rows.sort(function (a, b) { return (b.amount || 0) - (a.amount || 0) || b.passes - a.passes; }),
+                hasAmount: parsed.amountCol > 0 && parsed.rows.some(function (x) { return x.amount !== null; }),
+                queried: cand.ids.length, failed: res.failed, aborted: res.aborted, days: cfg.windowDays };
+            me._lopCacheSet('tag', sig, me._lopTag);
+            Store.promatic_dashboard_enhancer.Module.debugLog('TAG: ' + parsed.rows.length + ' vehículos con pasadas, columna de monto ' +
+                (parsed.amountCol > 0 ? parsed.names[parsed.amountCol] : 'no identificada'));
+            me.renderLopTag();
+        }).catch(function (err) {
+            me.updateCardBody(id, l('No se pudo cargar el consumo de TAG.') + ' (' + me.widgetErrorCode('LOP-TAG', err) + ')', 0, true);
+        });
+    },
+
+    renderLopTag: function () {
+        var d = this._lopTag;
+        if (!d) { return; }
+        var cfg = this._lopCfg('tag'), esc = Ext.String.htmlEncode, me = this;
+        var list = d.rows.slice(0, cfg.rankCount);
+        var maxPasses = 0;
+        d.rows.forEach(function (r) { if (r.passes > maxPasses) { maxPasses = r.passes; } });
+        var totalPasses = d.rows.reduce(function (a, r) { return a + r.passes; }, 0);
+        var trs = list.map(function (r) {
+            var cells = [
+                { tag: 'td', html: esc(me.displayName(r.name)) },
+                { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: String(r.passes) }
+            ];
+            if (d.hasAmount) { cells.push({ tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: me._lopFmt(r.amount, 0) }); }
+            return { tag: 'tr', cn: cells };
+        });
+        var head = [{ tag: 'th', html: l('Vehículo') }, { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Pasadas') }];
+        if (d.hasAmount) { head.push({ tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Monto') }); }
+        this.updateCardBody(this.LOP_CARD_IDS.tag, Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: [
+            { cls: 'promatic_dashboard_enhancer-lop-boxes', cn: [
+                this._lopBox(String(d.rows.length), l('vehículos con pasadas'), 'neutral'),
+                this._lopBox(String(totalPasses), l('pasadas'), 'neutral')
+            ] },
+            { cls: 'promatic_dashboard_enhancer-lop-scroll', cn: [{ tag: 'table', cls: 'promatic_dashboard_enhancer-lop-table', cn: [
+                { tag: 'thead', cn: [{ tag: 'tr', cn: head }] },
+                { tag: 'tbody', cn: trs }
+            ] }] },
+            this._lopNote(l('Consultados') + ' ' + d.queried + ' ' + l('vehículos con movimiento reciente') + ' · ' + d.days + ' ' + l('días') +
+                (d.failed ? ' · ' + d.failed + ' ' + l('lotes fallidos') : '') + (d.aborted ? ' (' + l('carga cortada') + ')' : ''))
+        ] }), 0, true);
+    },
+
+    // ---------------------------------------------------------------------
+    // 2. Conducción (Safety Score + infracciones, sin consultas nuevas)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Guarda por vehículo y por conductor lo que trae el reporte de
+     * infracciones (report_type=114), que renderViolationsTrend solo suma en
+     * totales de flota. Filas: [veh, grupo, fecha, conductor, km, duración,
+     * velocidad, aceleración, frenado, ralentí, giro, cinturón, ...] (un
+     * vehículo por día). Conductor "no driver" o vacío se descarta: no es una
+     * persona. Se llama desde renderViolationsTrend con la respuesta cruda.
+     */
+    _lopCacheViolationRows: function (byDate) {
+        try {
+            this._lopCacheViolationRowsUnsafe(byDate);
+        } catch (err) {
+            // Dato auxiliar del widget Conducción: nunca debe tumbar la
+            // tarjeta de Tendencia de Infracciones.
+            this.widgetErrorCode('LOP-VIOLATIONS-CACHE', err);
+        }
+    },
+
+    _lopCacheViolationRowsUnsafe: function (byDate) {
+        var perVeh = {}, perDriver = {};
+        var acc = function (map, key, c) {
+            var o = map[key] = map[key] || { name: key, dist: 0, speed: 0, accel: 0, braking: 0, idling: 0, turn: 0, seatbelt: 0 };
+            o.dist += Number(c[4]) || 0;
+            o.speed += Number(c[6]) || 0;
+            o.accel += Number(c[7]) || 0;
+            o.braking += Number(c[8]) || 0;
+            o.idling += Number(c[9]) || 0;
+            o.turn += Number(c[10]) || 0;
+            o.seatbelt += Number(c[11]) || 0;
+            return o;
+        };
+        for (var range in byDate) {
+            if (!byDate.hasOwnProperty(range)) { continue; }
+            var rows = byDate[range] || [];
+            for (var i = 0; i < rows.length; i++) {
+                var c = rows[i];
+                if (!c || c.length < 12 || !c[0]) { continue; }
+                var v = acc(perVeh, String(c[0]), c);
+                var drv = this._lopStripTags(c[3]);
+                if (drv && !/^no driver$/i.test(drv) && drv !== '0') {
+                    v.driver = drv;
+                    acc(perDriver, drv, c);
+                }
+            }
+        }
+        this._lastViolationsRows = perVeh;
+        this._lastViolationsByDriver = perDriver;
+    },
+
+    /**
+     * Une las dos fuentes por nombre de vehículo. Fleet ECO aporta frenadas,
+     * aceleraciones, tiempo sobre el límite, ralentí y km; infracciones aporta
+     * curvas, conductor y el conteo de velocidad. Un campo que la fuente no
+     * trae queda en null (N/D), no en 0.
+     */
+    _lopDrivingRows: function () {
+        var eco = this._lastEcoRows || [];
+        var viol = this._lastViolationsRows || null;
+        var byName = {}, order = [], i;
+        for (i = 0; i < eco.length; i++) {
+            var e = eco[i];
+            byName[e.name] = { name: e.name, group: e.group, dist: e.dist, brake: e.brake, accel: e.accel,
+                turn: null, speed: null, overSec: e.over, idleSec: e.idle, score: e.cur, driver: null };
+            order.push(e.name);
+        }
+        if (viol) {
+            for (var nm in viol) {
+                if (!viol.hasOwnProperty(nm)) { continue; }
+                var v = viol[nm];
+                var row = byName[nm];
+                if (!row) {
+                    row = byName[nm] = { name: nm, group: '', dist: v.dist, brake: v.braking, accel: v.accel,
+                        turn: null, speed: null, overSec: null, idleSec: null, score: null, driver: null };
+                    order.push(nm);
+                }
+                row.turn = v.turn;
+                row.speed = v.speed;
+                row.driver = v.driver || null;
+            }
+        }
+        return order.map(function (k) { return byName[k]; });
+    },
+
+    _lopDrivingDriverRows: function () {
+        var d = this._lastViolationsByDriver;
+        if (!d) { return null; }
+        var out = [];
+        for (var k in d) {
+            if (d.hasOwnProperty(k)) {
+                out.push({ name: k, dist: d[k].dist, brake: d[k].braking, accel: d[k].accel, turn: d[k].turn, speed: d[k].speed });
+            }
+        }
+        return out;
+    },
+
+    renderLopDriving: function () {
+        var id = this.LOP_CARD_IDS.conduccion;
+        var cfg = this._lopCfg('driving');
+        var me = this, esc = Ext.String.htmlEncode;
+        var vehRows = this._lopDrivingRows();
+        if (vehRows.length === 0) {
+            this.updateCardBody(id, this._lopNote(l('Esperando el Safety Score y las infracciones de manejo…')), 0, true);
+            return;
+        }
+        var by = this._lopDrivingBy || 'veh';
+        var metric = this._lopDrivingMetric || 'total';
+        var drvRows = this._lopDrivingDriverRows();
+        if (by === 'driver' && !drvRows) { by = 'veh'; }
+        var rows = by === 'driver' ? drvRows : vehRows;
+        var rk = this._lopRankDriving(rows, metric, cfg.minKm);
+        var top = rk.ranked.slice(0, cfg.rankCount);
+
+        var withEvents = 0, withKm = 0;
+        vehRows.forEach(function (r) {
+            if (r.dist > 0) { withKm++; }
+            if ((r.brake || 0) + (r.accel || 0) + (r.turn || 0) > 0) { withEvents++; }
+        });
+        var eco = (this._lastEcoRows || []).length;
+        var viol = this._lastViolationsRows ? Object.keys(this._lastViolationsRows).length : 0;
+
+        var cell = function (v, hl) {
+            return { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n' + (hl ? ' promatic_dashboard_enhancer-lop-hl' : ''),
+                html: v === null || v === undefined ? l('N/D') : me._lopFmt(v, 0) };
+        };
+        var trs = top.map(function (t, idx) {
+            var r = t.row;
+            return { tag: 'tr', cn: [
+                { tag: 'td', html: (idx + 1) + '. ' + esc(by === 'driver' ? r.name : me.displayName(r.name)) },
+                cell(r.brake, metric === 'brake'), cell(r.accel, metric === 'accel'),
+                cell(r.turn, metric === 'turn'), cell(r.speed, metric === 'speed'),
+                { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: me._lopFmt(r.dist, 0) },
+                { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n promatic_dashboard_enhancer-lop-hl', html: me._lopFmt(t.index, 1) }
+            ] };
+        });
+
+        var metrics = [['total', l('Total')], ['brake', l('Frenadas')], ['accel', l('Aceleraciones')], ['turn', l('Curvas')], ['speed', l('Velocidad')]];
+        var chips = metrics.map(function (m) { return me._lopChip('drv-metric', m[0], m[1], metric === m[0]); });
+        var byChips = [this._lopChip('drv-by', 'veh', l('Vehículos'), by === 'veh')];
+        byChips.push(this._lopChip('drv-by', 'driver', l('Conductores'), by === 'driver', !drvRows));
+
+        this.updateCardBody(id, Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: [
+            { cls: 'promatic_dashboard_enhancer-lop-chips', cn: byChips.concat(chips) },
+            top.length === 0
+                ? { cls: 'promatic_dashboard_enhancer-lop-empty', html: l('Sin datos suficientes para esta métrica.') }
+                : { cls: 'promatic_dashboard_enhancer-lop-scroll', cn: [{ tag: 'table', cls: 'promatic_dashboard_enhancer-lop-table', cn: [
+                    { tag: 'thead', cn: [{ tag: 'tr', cn: [
+                        { tag: 'th', html: by === 'driver' ? l('Conductor') : l('Vehículo') },
+                        { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Frenadas') },
+                        { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Aceler.') },
+                        { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Curvas') },
+                        { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Vel.') },
+                        { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: 'km' },
+                        { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Índice') }
+                    ] }] },
+                    { tag: 'tbody', cn: trs }
+                ] }] },
+            this._lopNote(l('Índice = eventos cada 100 km (mín.') + ' ' + cfg.minKm + ' km). ' +
+                l('Cobertura') + ': Safety Score ' + eco + ' ' + l('veh.') + ', ' + l('infracciones') + ' ' + viol + ' ' + l('veh.') +
+                ' · ' + withEvents + ' ' + l('de') + ' ' + withKm + ' ' + l('con recorrido registran eventos') +
+                (rk.excluded ? ' · ' + rk.excluded + ' ' + l('bajo el mínimo de km') : '') +
+                (viol === 0 ? ' · ' + l('Curvas y Velocidad: N/D (infracciones sin cargar)') : ''))
+        ] }), 0, true);
+    },
+
+    // ---------------------------------------------------------------------
+    // 4. Kilometraje para mantención (odómetro del árbol Online, sin red)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Usa current_mileage del record del árbol Online (sin requests). No lee
+     * el odómetro CAN/ECU de los sensores (Param389 / Param87 en algunas
+     * flotas): su disponibilidad por vehículo no está confirmada, así que
+     * donde el árbol no trae odómetro el vehículo figura como N/D.
+     */
+    renderLopMaintenance: function () {
+        var id = this.LOP_CARD_IDS.mantencion;
+        var onlineTree = this.getOnlineTree();
+        if (!onlineTree) { return; }
+        var me = this, esc = Ext.String.htmlEncode;
+        var cfg = this._lopCfg('maintenance');
+        var records = this.getScopedFleetRecords(onlineTree);
+        var rows = [];
+        for (var i = 0; i < records.length; i++) {
+            if (!this._recordField(records[i], 'agentid')) { continue; }
+            var odo = this._lopNum(this._recordField(records[i], 'current_mileage'));
+            rows.push({ name: String(this._recordField(records[i], 'name') || ''), odo: odo });
+        }
+        if (rows.length === 0) {
+            this.updateCardBody(id, this._lopNote(l('Sin vehículos en el alcance actual.')), 0, true);
+            return;
+        }
+        var a = this._lopMaintenanceAnalysis(rows, cfg);
+        this._lopMaint = { analysis: a, total: rows.length, cfg: cfg };
+        Store.promatic_dashboard_enhancer.Module.debugLog('mantención por km: ' + rows.length + ' vehículos, ' + a.rows.length +
+            ' con odómetro, ' + a.high + ' sobre ' + cfg.highOdometerKm + ' km, ' + a.due + ' próximos a servicio');
+
+        if (a.rows.length === 0) {
+            this.updateCardBody(id, this._lopDevMarkup(l('Mantención por km: los vehículos no informan odómetro en el árbol.')), 0, true);
+            return;
+        }
+        var label = { high: l('Revisión'), due: l('Servicio próximo'), ok: l('OK') };
+        var mod = { high: 'bad', due: 'mid', ok: 'ok' };
+        var trs = a.rows.slice(0, cfg.rankCount).map(function (r) {
+            return { tag: 'tr', cn: [
+                { tag: 'td', html: esc(me.displayName(r.name)) },
+                { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: me._lopFmt(r.odo, 0) + ' km' },
+                { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: me._lopFmt(r.toNext, 0) + ' km' },
+                { tag: 'td', cn: [{ tag: 'span', cls: 'promatic_dashboard_enhancer-lop-flag promatic_dashboard_enhancer-lop-flag--' + mod[r.status], html: label[r.status] }] }
+            ] };
+        });
+        this.updateCardBody(id, Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: [
+            { cls: 'promatic_dashboard_enhancer-lop-boxes', cn: [
+                this._lopBox(String(a.high), l('sugieren revisión'), a.high ? 'bad' : 'ok'),
+                this._lopBox(String(a.due), l('servicio próximo'), a.due ? 'mid' : 'ok'),
+                this._lopBox(String(a.noData), l('sin odómetro (N/D)'), 'neutral')
+            ] },
+            { cls: 'promatic_dashboard_enhancer-lop-scroll', cn: [{ tag: 'table', cls: 'promatic_dashboard_enhancer-lop-table', cn: [
+                { tag: 'thead', cn: [{ tag: 'tr', cn: [
+                    { tag: 'th', html: l('Vehículo') }, { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Odómetro') },
+                    { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Próx. servicio') }, { tag: 'th', html: l('Estado') }
+                ] }] },
+                { tag: 'tbody', cn: trs }
+            ] }] },
+            this._lopNote(l('Cobertura') + ': ' + a.rows.length + ' ' + l('de') + ' ' + rows.length + ' ' + l('con odómetro') + ' · ' +
+                l('revisión desde') + ' ' + me._lopFmt(cfg.highOdometerKm, 0) + ' km · ' + l('servicio cada') + ' ' + me._lopFmt(cfg.intervalKm, 0) +
+                ' km (' + l('aviso a') + ' ' + me._lopFmt(cfg.warnWithinKm, 0) + ' km)')
+        ] }), 0, true);
+    },
+
+    // ---------------------------------------------------------------------
+    // Piezas de marcado compartidas
+    // ---------------------------------------------------------------------
+
+    _lopDevMarkup: function (text) {
+        return Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-dev', cn: [
+            { tag: 'span', cls: 'promatic_dashboard_enhancer-lop-dev__badge', html: l('EN DESARROLLO') },
+            { tag: 'div', html: text }
+        ] });
+    },
+
+    _lopNote: function (text) {
+        return { cls: 'promatic_dashboard_enhancer-lop-note', html: text };
+    },
+
+    _lopBox: function (value, label, mod) {
+        return { cls: 'promatic_dashboard_enhancer-lop-box promatic_dashboard_enhancer-lop-box--' + mod, cn: [
+            { cls: 'promatic_dashboard_enhancer-lop-box__v', html: value },
+            { cls: 'promatic_dashboard_enhancer-lop-box__l', html: label }
+        ] };
+    },
+
+    _lopChip: function (group, value, label, on, disabled) {
+        return { tag: 'span', cls: 'promatic_dashboard_enhancer-lop-chip' + (on ? ' promatic_dashboard_enhancer-lop-chip--on' : '') +
+            (disabled ? ' promatic_dashboard_enhancer-lop-chip--off' : ''),
+            'data-lop-chip': group, 'data-lop-value': value, html: label };
+    },
+
+    /**
+     * Click delegado de los chips de los widgets LOP (modo de ranking). Se
+     * bindea una vez sobre el panel raíz; no toca los handlers del resto.
+     */
+    _lopBindClicks: function () {
+        var me = this;
+        this._lopStarted = true;
+        var panel = Ext.getCmp('promatic_dashboard_enhancer-panel-root');
+        var el = panel && panel.getEl && panel.getEl();
+        if (!el || el._lopBound) { return; }
+        el._lopBound = true;
+        el.on('click', function (e) {
+            var chip = e.getTarget('[data-lop-chip]', 4, true);
+            if (!chip || chip.hasCls('promatic_dashboard_enhancer-lop-chip--off')) { return; }
+            var group = chip.getAttribute('data-lop-chip');
+            var value = chip.getAttribute('data-lop-value');
+            if (group === 'drv-metric') { me._lopDrivingMetric = value; me.renderLopDriving(); }
+            else if (group === 'drv-by') { me._lopDrivingBy = value; me.renderLopDriving(); }
+            else if (group === 'fuel-mode') { me._lopFuelMode = value; me.renderLopFuel(); }
+        });
+    },
+
+    // ---------------------------------------------------------------------
+    // Exportador y Golden Report
+    // ---------------------------------------------------------------------
+
+    _LOP_EXPORTS: {
+        lop_sucursales: 'Vehículos por Sucursal',
+        lop_conduccion: 'Conducción',
+        lop_combustible: 'Rendimiento de Combustible',
+        lop_mantencion: 'Kilometraje para Mantención',
+        lop_tag: 'Consumo de TAG'
+    },
+
+    _lopIsExport: function (which) { return this._LOP_EXPORTS.hasOwnProperty(which); },
+
+    _lopExportTitle: function (which) {
+        return this._lopIsExport(which) ? l(this._LOP_EXPORTS[which]) : null;
+    },
+
+    /** Agrega al selector del exportador las opciones LOP (idempotente; solo se llama desde la vista LOP). */
+    _lopEnsureExportOptions: function () {
+        var sel = document.getElementById('promatic_dashboard_enhancer-export-widget');
+        if (!sel) { return; }
+        for (var k in this._LOP_EXPORTS) {
+            if (!this._LOP_EXPORTS.hasOwnProperty(k)) { continue; }
+            var exists = false;
+            for (var i = 0; i < sel.options.length; i++) { if (sel.options[i].value === k) { exists = true; break; } }
+            if (!exists) {
+                var opt = document.createElement('option');
+                opt.value = k;
+                opt.text = l(this._LOP_EXPORTS[k]);
+                sel.appendChild(opt);
+            }
+        }
+    },
+
+    /**
+     * Modelo neutro de un widget LOP para el exportador: { title, desc, days,
+     * boxes:[{v,l,mod}], tables:[{title, headers, rows}], notes:[] }. A partir
+     * de él _lopModelHtml arma el modal/PDF HTML y _lopPdfContent el pdfMake.
+     * Los datos son los ya calculados por los widgets: el exportador no hace
+     * requests. Sin datos devuelve un modelo con solo `notes`.
+     */
+    _lopExportModel: function (which) {
+        var me = this;
+        var nd = l('N/D');
+        var f = function (n, d) { return me._lopFmt(n, d); };
+        var m = { title: this._lopExportTitle(which), desc: '', days: 7, boxes: [], tables: [], notes: [] };
+
+        if (which === 'lop_sucursales') {
+            m.desc = l('Vehículos del alcance dentro de cada sucursal o base del cliente según su última posición. Disponible = estacionado y en línea; % estacionados sobre los vehículos presentes.');
+            var b = this._lopBranchData;
+            if (!b) { m.notes.push(l('Sin datos de sucursales cargados.')); return m; }
+            m.boxes = [{ v: b.totals.inside, l: l('en sucursal'), mod: 'neutral' }, { v: b.totals.outside, l: l('fuera de sucursal'), mod: 'mid' }, { v: b.totals.scope, l: l('en el alcance'), mod: 'neutral' }];
+            m.tables.push({ title: l('Sucursales'), headers: [l('Sucursal'), l('Presentes'), l('Disponibles'), l('En ruta'), l('Sin señal'), l('% estacionados')],
+                rows: b.rows.map(function (r) { return [r.name, String(r.present), String(r.parked), String(r.moving), String(r.offline), r.pct + '%']; }) });
+        } else if (which === 'lop_conduccion') {
+            m.desc = l('Frenadas, aceleraciones y curvas bruscas y excesos de velocidad por vehículo, con índice de eventos cada 100 km. Fuentes: Fleet ECO report e infracciones de manejo.');
+            m.days = ((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 8;
+            var rows = this._lopDrivingRows();
+            if (rows.length === 0) { m.notes.push(l('Sin datos de conducción cargados.')); return m; }
+            var cfg = this._lopCfg('driving');
+            var rk = this._lopRankDriving(rows, 'total', cfg.minKm);
+            m.tables.push({ title: l('Vehículos por índice de eventos bruscos'), headers: [l('Vehículo'), l('Frenadas'), l('Aceleraciones'), l('Curvas'), l('Velocidad'), 'km', l('Eventos/100 km')],
+                rows: rk.ranked.map(function (t) {
+                    var r = t.row;
+                    return [me.displayName(r.name), f(r.brake, 0), f(r.accel, 0), f(r.turn, 0), f(r.speed, 0), f(r.dist, 0), f(t.index, 1)];
+                }) });
+            var dr = this._lopDrivingDriverRows();
+            if (dr && dr.length) {
+                var rkd = this._lopRankDriving(dr, 'total', cfg.minKm);
+                m.tables.push({ title: l('Conductores por índice de eventos bruscos'), headers: [l('Conductor'), l('Frenadas'), l('Aceleraciones'), l('Curvas'), l('Velocidad'), 'km', l('Eventos/100 km')],
+                    rows: rkd.ranked.map(function (t) {
+                        var r = t.row;
+                        return [r.name, f(r.brake, 0), f(r.accel, 0), f(r.turn, 0), f(r.speed, 0), f(r.dist, 0), f(t.index, 1)];
+                    }) });
+            }
+            m.notes.push(l('Índice calculado sobre vehículos con al menos') + ' ' + cfg.minKm + ' km. ' + l('N/D = la fuente no trae el dato; 0 puede indicar vehículo sin sensor.'));
+        } else if (which === 'lop_combustible') {
+            m.desc = l('Consumo por norma (reporte de combustible de PILOT) y L/100 km por vehículo; sobreconsumo frente a la mediana de su carpeta.');
+            var d = this._lopFuel;
+            if (!d) { m.notes.push(l('Sin datos de combustible cargados.')); return m; }
+            m.days = d.days;
+            var a = d.analysis, fc = this._lopCfg('fuel');
+            m.boxes = [{ v: a.flagged, l: l('en sobreconsumo'), mod: a.flagged ? 'bad' : 'good' }, { v: f(a.fleetMedian, 1), l: l('mediana L/100 km'), mod: 'neutral' }, { v: f(a.p90, 1), l: l('percentil 90'), mod: 'neutral' }];
+            var sorted = a.eligible.slice().sort(function (x, y) { return y.lPer100 - x.lPer100; });
+            m.tables.push({ title: l('Vehículos por L/100 km'), headers: [l('Vehículo'), l('Litros'), 'km', 'L/100 km', l('vs mediana'), l('Estado')],
+                rows: sorted.map(function (e) {
+                    return [me.displayName(e.name), f(e.liters, 0), f(e.km, 0), f(e.lPer100, 1),
+                        e.ratio === null ? nd : Math.round((e.ratio - 1) * 100) + '%', e.over ? l('Sobreconsumo') : 'OK'];
+                }) });
+            m.notes.push(l('Cobertura') + ': ' + a.eligible.length + ' ' + l('de') + ' ' + d.plan.queried + ' ' + l('vehículos consultados') +
+                '; ' + a.noNorm + ' ' + l('sin norma de consumo (N/D)') + ', ' + a.lowKm + ' ' + l('con menos de') + ' ' + fc.minKm + ' km. ' +
+                l('Sobreconsumo') + ' = +' + fc.overconsumptionPct + '% ' + l('sobre la mediana.'));
+        } else if (which === 'lop_mantencion') {
+            m.desc = l('Vehículos ordenados por odómetro frente al intervalo de servicio y al umbral de revisión configurados.');
+            var mt = this._lopMaint;
+            if (!mt) { m.notes.push(l('Sin datos de kilometraje cargados.')); return m; }
+            var ma = mt.analysis;
+            var lbl = { high: l('Revisión'), due: l('Servicio próximo'), ok: 'OK' };
+            m.boxes = [{ v: ma.high, l: l('sugieren revisión'), mod: ma.high ? 'bad' : 'good' }, { v: ma.due, l: l('servicio próximo'), mod: ma.due ? 'mid' : 'good' }, { v: ma.noData, l: l('sin odómetro (N/D)'), mod: 'neutral' }];
+            m.tables.push({ title: l('Odómetro'), headers: [l('Vehículo'), l('Odómetro'), l('Próx. servicio en'), l('Estado')],
+                rows: ma.rows.map(function (r) { return [me.displayName(r.name), f(r.odo, 0) + ' km', f(r.toNext, 0) + ' km', lbl[r.status]]; }) });
+            m.notes.push(l('Cobertura') + ': ' + ma.rows.length + ' ' + l('de') + ' ' + mt.total + ' ' + l('con odómetro') + '.');
+        } else if (which === 'lop_tag') {
+            m.desc = l('Pasadas por pórticos de peaje por vehículo (reporte Toll Roads de PILOT).');
+            var t = this._lopTag;
+            if (!t) { m.notes.push(l('Sin datos de peajes cargados o reporte no disponible en esta cuenta.')); return m; }
+            m.days = t.days;
+            var head = [l('Vehículo'), l('Pasadas')];
+            if (t.hasAmount) { head.push(l('Monto')); }
+            m.tables.push({ title: l('Vehículos con más pasadas'), headers: head,
+                rows: t.rows.map(function (r) {
+                    var row = [me.displayName(r.name), String(r.passes)];
+                    if (t.hasAmount) { row.push(f(r.amount, 0)); }
+                    return row;
+                }) });
+            m.notes.push(l('Consultados') + ' ' + t.queried + ' ' + l('vehículos con movimiento reciente.'));
+        }
+        return m;
+    },
+
+    _lopModelHtml: function (m, maxRows) {
+        var esc = Ext.String.htmlEncode;
+        var html = '';
+        if (m.boxes.length) {
+            html += '<div class="grid">' + m.boxes.map(function (b) {
+                return '<div class="box ' + b.mod + '"><div class="v">' + esc(String(b.v)) + '</div><div class="l">' + esc(b.l) + '</div></div>';
+            }).join('') + '</div>';
+        }
+        m.tables.forEach(function (t) {
+            var rows = maxRows ? t.rows.slice(0, maxRows) : t.rows;
+            html += (m.tables.length > 1 ? '<h2>' + esc(t.title) + '</h2>' : '') +
+                '<table><tr>' + t.headers.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr>' +
+                rows.map(function (r) {
+                    return '<tr>' + r.map(function (c, i) { return '<td' + (i > 0 ? ' class="n"' : '') + '>' + esc(String(c)) + '</td>'; }).join('') + '</tr>';
+                }).join('') + '</table>';
+        });
+        m.notes.forEach(function (n) { html += '<p class="sub">' + esc(n) + '</p>'; });
+        return html;
+    },
+
+    _lopPdfContent: function (m, C, maxRows) {
+        var me = this;
+        if (m.boxes.length) {
+            var colors = { good: '#238a4c', mid: '#a34d00', bad: '#ad1100', neutral: '#0a67a0' };
+            C.push(this._pdfBoxes(m.boxes.map(function (b) { return { v: b.v, l: b.l, color: colors[b.mod] || colors.neutral }; })));
+        }
+        m.tables.forEach(function (t) {
+            if (m.tables.length > 1) { C.push({ text: t.title, style: 'h2' }); }
+            var rows = maxRows ? t.rows.slice(0, maxRows) : t.rows;
+            C.push(me._pdfTable(t.headers, rows.map(function (r) {
+                return r.map(function (c, i) { return i > 0 ? { text: String(c), alignment: 'right' } : String(c); });
+            })));
+        });
+        m.notes.forEach(function (n) { C.push({ text: n, style: 'sub' }); });
+    },
+
+    /** Secciones LOP del Golden Report (HTML): solo los widgets con datos cargados. */
+    _lopGoldenHtml: function () {
+        var out = '';
+        var esc = Ext.String.htmlEncode;
+        for (var k in this._LOP_EXPORTS) {
+            if (!this._LOP_EXPORTS.hasOwnProperty(k)) { continue; }
+            try {
+                var m = this._lopExportModel(k);
+                if (m.tables.length === 0) { continue; }
+                out += '<h2>' + esc(m.title) + '</h2>' + this._lopModelHtml(m, 10);
+            } catch (err) {
+                // Un widget LOP con datos raros no debe romper el Golden Report completo.
+                this.widgetErrorCode('LOP-GOLDEN', err, k);
+            }
+        }
+        return out;
+    },
+
+    _lopGoldenPdf: function (C) {
+        for (var k in this._LOP_EXPORTS) {
+            if (!this._LOP_EXPORTS.hasOwnProperty(k)) { continue; }
+            try {
+                var m = this._lopExportModel(k);
+                if (m.tables.length === 0) { continue; }
+                C.push({ text: m.title, style: 'h2' });
+                this._lopPdfContent(m, C, 10);
+            } catch (err) {
+                this.widgetErrorCode('LOP-GOLDEN', err, k);
+            }
+        }
     },
 
     updateGpsSignalCard: function (b24, b48, bMore, bNoData) {
@@ -5553,6 +8395,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * (ver activateReportsTab).
      */
     runNativeReport: function (reportType, vehicleIds, startDate, stopDate) {
+        var me = this;
         var reports = window.skeleton && skeleton.navigation && skeleton.navigation.reports;
         if (!reports || !reports.down) {
             console.warn('[promatic_dashboard_enhancer] runNativeReport: panel de Informes no disponible');
@@ -5572,6 +8415,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var rec = reportStore.findRecord('id', Number(reportType), 0, false, false, true);
             if (!rec) {
                 console.error('[promatic_dashboard_enhancer] runNativeReport: report type no encontrado:', reportType);
+                // La cuenta puede no tener este informe habilitado: al menos
+                // se deja marcado el vehículo para que el usuario elija.
+                me.selectVehiclesInReports(ids);
                 return;
             }
             reportCombo.setValue(rec.get('id'));
@@ -5692,6 +8538,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 return;
             }
 
+            var fuelEl = e.getTarget('[data-fuel-alert]', 8, true);
+            if (fuelEl) {
+                e.preventDefault();
+                me.openFuelAlertModal(fuelEl.getAttribute('data-fuel-alert'));
+                return;
+            }
+
             var a = e.getTarget('[data-alert-ids]', 8, true);
             if (!a) { return; }
             e.preventDefault();
@@ -5702,13 +8555,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // se emite para esta card.
             if (a.hasCls && a.hasCls('promatic_dashboard_enhancer-stat-card--clickable') &&
                 a.dom && a.dom.querySelector('.pde_alert-accidentes')) {
-                var accidentesRows = me._alertAccidentesRows || [];
-                var accidentesMapPoints = accidentesRows
-                    .filter(function (r) { return r.lat != null && r.lon != null; })
-                    .map(function (r) { return { lat: r.lat, lon: r.lon, label: me.displayName(r.veh) }; });
+                var accMap = me.accidentesMapSetup();
                 me.openReportModal(me.buildAccidentesReport(), l('Detalle Alarma de Posibles Accidentes'),
                     me._safe(function () { return me.buildAccidentesPdfDoc(); }),
-                    accidentesMapPoints);
+                    accMap.points, accMap.opts);
                 return;
             }
 
@@ -5830,7 +8680,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 console.warn('[promatic_dashboard_enhancer] config.json no cargó (' +
                     (err && err.message ? err.message : err) + ') — usando DEFAULT_CONFIG');
             })
-            .then(function () { return me.loadRemoteConfig(); });
+            .then(function () { return me.loadRemoteConfig(); })
+            .then(function () {
+                // Si la config (local o remota) llegó después del primer
+                // render, la vista puede ser distinta de la que se aplicó.
+                if (me._activePreset && me.effectiveUiPreset() !== me._activePreset) { me.applyViewPreset(); }
+            });
     },
 
     sha256Hex: function (text) {
