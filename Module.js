@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.0',
-    moduleBuild: '2026-10-09-1618',
+    version: '0.26.1',
+    moduleBuild: '2026-10-09-1656',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -203,10 +203,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me.bindControlsBar(panel);
                         me.bindExportBlock(panel);
                         me.bindFleetUpdates();
-                        me.loadTop5KmData();
-                        me.loadAlertasGenerales();
-                        me.loadEcoScore();
-                        me.loadViolationsTrend();
+                        // Con la flota completa los reportes pesados no pueden
+                        // salir todos a la vez: ver startInitialLoad.
+                        me.startInitialLoad();
                         // Mapa de hotspots: instancia propia de MapContainer
                         // dentro de un Ext.panel.Panel (patrón del ejemplo
                         // oficial examples/airports/Map.js). El listener
@@ -2001,14 +2000,35 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             heavy.push({ card: null, run: function () { me.loadLopWidgets(true); } });
         }
 
+        this._runHeavySteps(heavy, function () {
+            me._refreshAllBusy = false;
+            me._setRefreshBtnBusy(false);
+        });
+        return true;
+    },
+
+    /**
+     * Ejecuta consultas pesadas de a una, con pausa entre ellas (ver
+     * REFRESH_STEP_GAP_MS). Cada paso es { card, skel, run }: si trae `card`,
+     * el siguiente paso espera a que esa card pinte por primera vez (o a que
+     * venza REFRESH_STEP_MAX_WAIT_MS); `skel` (opcional) pinta antes el
+     * skeleton de carga. Lo usan el refresco manual y el arranque: con la
+     * flota completa, lanzar todo a la vez agota las conexiones del navegador
+     * hacia PILOT (los fetch vencen en la cola) y PILOT termina cerrando la
+     * sesión.
+     *
+     * @param {Object[]} heavy Pasos a correr en orden.
+     * @param {Function} [onFinish] Se llama al terminar la cadena completa.
+     */
+    _runHeavySteps: function (heavy, onFinish) {
+        var me = this;
         var done = false;
         var startedAt = Date.now();
         var finish = function () {
             if (done) { return; }
             done = true;
-            me._refreshAllBusy = false;
             me._refreshPending = {};
-            me._setRefreshBtnBusy(false);
+            if (onFinish) { onFinish(); }
         };
         var waitAll = function () {
             var pending = me._refreshPending || {};
@@ -2024,7 +2044,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var began = Date.now();
             try {
                 if (step.card) {
-                    me.showCardSkeleton(step.card, step.skel);
+                    if (step.skel) { me.showCardSkeleton(step.card, step.skel); }
                     me._refreshPending[step.card] = true;
                 }
                 step.run();
@@ -2042,8 +2062,60 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             };
             waitStep();
         };
+        me._refreshPending = me._refreshPending || {};
         next();
-        return true;
+    },
+
+    /**
+     * Carga inicial de los widgets con consultas pesadas, en serie. Va de lo
+     * más útil a lo más caro; Hotspots, combustible y los widgets LOP se
+     * difieren hasta que esta cadena termina (ver _afterStartup). Mientras
+     * corre, el refresco automático de 60 s no arranca.
+     */
+    startInitialLoad: function () {
+        var me = this;
+        this._startupDone = false;
+        this._refreshPending = {};
+        var heavy = [
+            { card: 'alertas_generales', run: function () { me.loadAlertasGenerales(); } },
+            { card: 'eco_score', run: function () { me.loadEcoScore(); } },
+            { card: 'top5km', run: function () { me.loadTop5KmData(); } },
+            { card: 'violations', run: function () { me.loadViolationsTrend(); } },
+            { card: null, run: function () {
+                if (me._hotspotsNeedsLoad && me._hotspotsMap) {
+                    me._hotspotsNeedsLoad = false;
+                    me.loadFleetHeatmap();
+                }
+            } }
+        ];
+        this._runHeavySteps(heavy, function () {
+            me._startupDone = true;
+            // Cubre el caso de que el mapa se haya montado después de su paso.
+            if (me._hotspotsNeedsLoad && me._hotspotsMap) {
+                me._hotspotsNeedsLoad = false;
+                me.loadFleetHeatmap();
+            }
+            var queue = me._startupQueue || [];
+            me._startupQueue = [];
+            // Lo diferido sale de a uno, separado, para no re-armar la ráfaga.
+            for (var q = 0; q < queue.length; q++) {
+                Ext.defer(queue[q], me.STARTUP_DEFERRED_GAP_MS * (q + 1));
+            }
+        });
+    },
+
+    // Separación entre cada tarea diferida del arranque (combustible, LOP).
+    STARTUP_DEFERRED_GAP_MS: 15000,
+
+    /**
+     * Ejecuta `fn` cuando terminó la carga inicial (de inmediato, con un
+     * pequeño retraso, si ya terminó). Evita que combustible y los widgets
+     * LOP compitan con los reportes del arranque.
+     */
+    _afterStartup: function (fn) {
+        if (this._startupDone) { Ext.defer(fn, 1500); return; }
+        this._startupQueue = this._startupQueue || [];
+        this._startupQueue.push(fn);
     },
 
     _setRefreshBtnBusy: function (busy) {
@@ -2067,7 +2139,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var me = this;
         if (me._autoRefreshTimer) { return; }
         me._autoRefreshTimer = setInterval(function () {
-            if (me._autoRefreshBusy) { return; }
+            // Durante la carga inicial no se suma otra consulta de alertas.
+            if (me._autoRefreshBusy || !me._startupDone) { return; }
             me._autoRefreshBusy = true;
             me.refreshFleetStore();
             // withFleetVehicleIds reintenta hasta 40 veces cada 500 ms (~20
@@ -2235,9 +2308,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // se cargan cuando la vista los muestra. El retraso deja que el árbol
         // Online y los mapas terminen de montarse, de los que dependen.
         if (preset === 'lop') {
-            Ext.defer(function () {
+            this._afterStartup(function () {
                 if (me._activePreset === 'lop') { me.loadLopWidgets(false); }
-            }, 1500);
+            });
         }
         // Un mapa montado mientras estaba oculto (display:none) midió 0 px;
         // al mostrarse se re-mide. Respaldo del ResizeObserver de cada mapa.
@@ -3127,7 +3200,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     r[0] + ' requiere_mantencion=' + r[1] + ' paso_fronterizo=' + r[2]);
                 // Combustible corre aparte (lotes con pausa) y vuelve a
                 // dibujar las tarjetas al terminar; no demora las demás.
-                me.loadFuelAlerts(vehIds);
+                if (me._startupDone) {
+                    me.loadFuelAlerts(vehIds);
+                } else if (!me._fuelQueued) {
+                    me._fuelQueued = true;
+                    me._afterStartup(function () { me.loadFuelAlerts(vehIds); });
+                }
                 me.renderAlertasGenerales();
                 if (typeof onDone === 'function') { onDone(); }
             });
@@ -3754,6 +3832,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     sensors.forEach(function (sn) {
                         if (sn.semanticid === 2) { cat.known[sn.agentId] = 1; }
                     });
+                    // Se guarda lote a lote: si la sesión se cae o se recarga
+                    // la página a mitad de un escaneo de ~1400 vehículos, el
+                    // siguiente arranque retoma donde quedó.
+                    try { localStorage.setItem(KEY, JSON.stringify(cat)); } catch (e) { /* storage bloqueado */ }
                 });
             }).catch(function (err) {
                 failed = true;
@@ -4669,7 +4751,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me._hotspotsMap.init(-33.45, -70.66, 11, this.id + '-body', false);
                         me.populateMapFolderDropdown();
                         me.bindHotspotsGapModeToggle();
-                        me.loadFleetHeatmap();
+                        // Su reporte de cortes es de los más pesados: durante
+                        // el arranque lo dispara la cadena de startInitialLoad.
+                        if (me._startupDone) {
+                            me.loadFleetHeatmap();
+                        } else {
+                            me._hotspotsNeedsLoad = true;
+                        }
                         // Leaflet midió el contenedor antes de que terminara
                         // el layout flex: se recalcula a los 300/700 ms para
                         // que ocupe todo el ancho.
