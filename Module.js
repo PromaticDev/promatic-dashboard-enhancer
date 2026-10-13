@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.12',
-    moduleBuild: '2026-10-13-1536',
+    version: '0.26.13',
+    moduleBuild: '2026-10-13-1643',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -1181,7 +1181,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var label = me.displayName(r.veh) + ' — ' + me._fmtEventDateTime(r.ts);
             var locCell;
             if (r.lat != null && r.lon != null) {
-                locCell = me._iconFocusBtn(r.lat, r.lon, label, l('Ver en mapa interno'), me._SVG_PIN) +
+                locCell = me._iconFocusBtn(r.lat, r.lon, label, l('Ver en PILOT'), me._SVG_PIN) +
                     (link ? me._iconExtLink(link, l('Ver en mapa externo')) : '');
             } else {
                 locCell = l('N/D');
@@ -1261,7 +1261,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 initCenter: withCoords.length ? { lat: withCoords[0].lat, lon: withCoords[0].lon } : null,
                 notice: recent.length
                     ? l('Mostrando hoy y ayer')
-                    : l('Mostrando hoy y ayer (sin accidentes recientes). Los históricos se dibujan con "ver en mapa interno".')
+                    : l('Mostrando hoy y ayer (sin accidentes recientes). Los históricos se dibujan con el ícono "Ver en PILOT".')
             }
         };
     },
@@ -1655,7 +1655,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var link = me._mapsLink(r.lat, r.lon);
             var locCell;
             if (r.lat != null && r.lon != null) {
-                locCell = '<button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + r.lat + '" data-focus-lon="' + r.lon + '">' + l('ver en mapa interno') + '</button>' +
+                locCell = '<button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + r.lat + '" data-focus-lon="' + r.lon + '">' + l('ver en PILOT') + '</button>' +
                     (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '') +
                     ' — ' + r.lat.toFixed(5) + ', ' + r.lon.toFixed(5);
             } else {
@@ -3731,6 +3731,42 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
+     * Agrupa los avisos de ralentí (events.php type=16) en sesiones. PILOT
+     * repite el aviso cada `sec` segundos (600) mientras el ralentí sigue,
+     * así que varios avisos seguidos del mismo vehículo, en el mismo lugar,
+     * son un solo ralentí largo. Un aviso nuevo continúa la sesión si llega
+     * a menos de 1,5 × el intervalo del anterior y a menos de 250 m. La
+     * duración es la suma de los intervalos de los avisos: un mínimo (el
+     * ralentí puede haber seguido hasta el siguiente aviso que no llegó).
+     * @return {Array<{agentId, veh, startTs, endTs, n, sec, lat, lon}>} la más reciente primero.
+     */
+    _groupIdleSessions: function (episodes) {
+        var me = this;
+        var list = (episodes || []).filter(function (x) { return x.ts != null; })
+            .sort(function (a, b) {
+                var ka = String(a.agentId != null ? a.agentId : a.veh), kb = String(b.agentId != null ? b.agentId : b.veh);
+                return ka < kb ? -1 : ka > kb ? 1 : a.ts - b.ts;
+            });
+        var out = [], cur = null;
+        for (var i = 0; i < list.length; i++) {
+            var x = list[i];
+            var key = String(x.agentId != null ? x.agentId : x.veh);
+            var step = x.sec || 600;
+            var joins = cur && cur.key === key && (x.ts - cur.endTs) <= step * 1.5 &&
+                (cur.lat == null || x.lat == null || me._lopDistanceM(cur.lat, cur.lon, x.lat, x.lon) <= 250);
+            if (joins) {
+                cur.endTs = x.ts;
+                cur.n++;
+                cur.sec += step;
+            } else {
+                cur = { key: key, agentId: x.agentId, veh: x.veh, startTs: x.ts, endTs: x.ts, n: 1, sec: step, lat: x.lat, lon: x.lon };
+                out.push(cur);
+            }
+        }
+        return out.sort(function (a, b) { return b.startTs - a.startTs; });
+    },
+
+    /**
      * Modal de detalle de "Ralentí excesivo": los vehículos que superan el
      * umbral (ecoScore.idleThresholdMin) de ralentí acumulado en la ventana
      * del Fleet ECO report (report_type=223, columna Excess Idle) con su
@@ -3789,7 +3825,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             for (var i = 0; i < rows.length; i++) { body += rowHtml(rows[i]); }
             body += '</table>';
 
-            body += '<h2>' + l('Avisos de ralentí (día, hora y lugar)') + '</h2>';
+            body += '<h2>' + l('Ralentí por sesión (día, hora y lugar)') + '</h2>';
             if (!ev) {
                 body += '<p>' + l('Los avisos de ralentí aún no están disponibles.') + '</p>';
             } else if (ev.error) {
@@ -3797,25 +3833,26 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             } else if (!haveEvents) {
                 body += '<p>' + l('PILOT no registró avisos de ralentí para estos vehículos en el período (el aviso puede no estar configurado en la cuenta).') + '</p>';
             } else {
-                var sorted = episodes.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
-                body += '<table id="promatic_dashboard_enhancer-ralenti-events"><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
-                    '</th><th>' + l('Duración') + '</th><th>' + l('Lugar') + '</th></tr>';
-                for (var k = 0; k < sorted.length; k++) {
-                    var x = sorted[k];
-                    var lbl = me.displayName(x.veh) + ' — ' + me._fmtEventDateTime(x.ts);
+                var sessions = me._groupIdleSessions(episodes);
+                body += '<table id="promatic_dashboard_enhancer-ralenti-events"><tr><th>' + l('Primer aviso') + '</th><th>' + l('Último aviso') +
+                    '</th><th>' + l('Vehículo') + '</th><th>' + l('Duración (mínima)') + '</th><th>' + l('Avisos') + '</th><th>' + l('Lugar') + '</th></tr>';
+                for (var k = 0; k < sessions.length; k++) {
+                    var x = sessions[k];
+                    var lbl = me.displayName(x.veh) + ' — ' + me._fmtEventDateTime(x.startTs);
                     var link = x.lat != null ? me._mapsLink(x.lat, x.lon) : null;
                     var place = x.lat != null
-                        ? me._iconFocusBtn(x.lat, x.lon, lbl, l('Ver en mapa interno'), me._SVG_PIN) +
+                        ? me._iconFocusBtn(x.lat, x.lon, lbl, l('Ver en PILOT'), me._SVG_PIN) +
                           (link ? me._iconExtLink(link, l('Ver en mapa externo')) : '')
                         : l('N/D');
-                    body += '<tr><td>' + esc(me._fmtEventDateTime(x.ts)) + '</td><td>' + esc(me.displayName(x.veh)) + '</td><td>' +
-                        (x.sec != null ? esc(fmtDur(x.sec)) : esc(x.msg)) + '</td><td>' + place + '</td></tr>';
+                    body += '<tr><td>' + esc(me._fmtEventDateTime(x.startTs)) + '</td><td>' +
+                        (x.n > 1 ? esc(me._fmtEventDateTime(x.endTs)) : '—') + '</td><td>' + esc(me.displayName(x.veh)) + '</td><td>' +
+                        esc('≥ ' + fmtDur(x.sec)) + '</td><td>' + x.n + '</td><td>' + place + '</td></tr>';
                 }
                 body += '</table>';
             }
         }
 
-        var desc = '<p class="desc">' + l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en los últimos ' + days + ' días, de mayor a menor. El promedio diario es el acumulado dividido en los ' + days + ' días del período. Total: ' + rows.length + '.') + '</p>' +
+        var desc = '<p class="desc">' + l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en los últimos ' + days + ' días, de mayor a menor. El promedio diario es el acumulado dividido en los ' + days + ' días del período. PILOT repite el aviso cada 10 min mientras el ralentí continúa: los avisos seguidos del mismo vehículo y lugar se agrupan en una sesión. Total: ' + rows.length + '.') + '</p>' +
             '<p class="desc">' + l('Fuente: reports.php report_type=223 (acumulado) y events.php type=16 (avisos)') + '</p>';
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
@@ -3831,9 +3868,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var me = this;
         var ev = this._alertRalentiEvents;
         var points = [];
-        ((ev && ev.rows) || []).forEach(function (x) {
+        this._groupIdleSessions((ev && ev.rows) || []).forEach(function (x) {
             if (x.lat == null) { return; }
-            points.push({ lat: x.lat, lon: x.lon, label: me.displayName(x.veh) + ' — ' + me._fmtEventDateTime(x.ts) });
+            points.push({ lat: x.lat, lon: x.lon, label: me.displayName(x.veh) + ' — ' + me._fmtEventDateTime(x.startTs) });
         });
         return {
             points: points,
