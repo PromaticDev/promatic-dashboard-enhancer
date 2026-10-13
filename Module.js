@@ -5,7 +5,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.16',
+    version: '0.26.17',
     moduleBuild: '2026-10-13-1713',
 
     statics: {
@@ -1247,6 +1247,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // (endpoint/type): la primera es para el usuario final, la segunda es
         // trazabilidad, útil para verificar y fácil de quitar del modal.
         var desc = '<p class="desc">' + l('Alarmas de eventos de posible colisión detectadas por el acelerómetro. Cada fila es una alerta generada de un potencial accidente real, sin agregar ni incluir el ruido de detección repetida. La columna Calibrado indica si el sensor completó su calibración al momento de la detección. "Abrir informe en PILOT" lleva al informe nativo Crash detection de ese vehículo y día. Total: ' + rows.length + '.') + '</p>' +
+            '<p class="desc"><b>' + l('El informe de PILOT de cada accidente se publica unas 4 horas después del aviso: hasta entonces el botón "Abrir informe en PILOT" aparece deshabilitado.') + '</b></p>' +
             '<p class="desc">' + l('Fuente: events.php type=4911') + '</p>';
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
