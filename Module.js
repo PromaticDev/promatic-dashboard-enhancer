@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.5',
-    moduleBuild: '2026-10-13-1323',
+    version: '0.26.6',
+    moduleBuild: '2026-10-13-1342',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -3148,11 +3148,31 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         setInterval(tick, 1000);
     },
 
+    /**
+     * Logo propio de la cuenta, entregado por la config remota
+     * (branding.logoSrc). Solo se acepta una imagen en línea (data URI png,
+     * jpeg o webp) de tamaño acotado: nunca una URL externa, para que un
+     * perfil no pueda hacer que el navegador pida recursos a terceros. Si no
+     * cumple, se usa el logo por defecto. La imagen vive en Supabase y no en
+     * este repo, que es público.
+     * @return {String|null} el data URI válido o null.
+     */
+    brandingLogoSrc: function () {
+        var cfg = this.config && this.config.branding;
+        var src = cfg && cfg.logoSrc;
+        if (typeof src !== 'string' || src.length > 150000) { return null; }
+        return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(src) ? src : null;
+    },
+
     renderLogo: function () {
+        var custom = this.brandingLogoSrc();
+        this._logoSrcShown = custom;
         this.updateCardBody('logo', Ext.DomHelper.markup({
-            cls: 'promatic_dashboard_enhancer-logo',
+            cls: 'promatic_dashboard_enhancer-logo' + (custom ? ' promatic_dashboard_enhancer-logo--custom' : ''),
             cn: [
-                { tag: 'img', src: this.getModuleBaseUrl() + 'img/dashboard-enhancer-resized-small.jpg', alt: 'Dashboard Enhancer' },
+                custom
+                    ? { tag: 'img', src: custom, alt: 'Logo' }
+                    : { tag: 'img', src: this.getModuleBaseUrl() + 'img/dashboard-enhancer-resized-small.jpg', alt: 'Dashboard Enhancer' },
                 {
                     tag: 'span',
                     cls: 'promatic_dashboard_enhancer-version',
@@ -9274,6 +9294,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 // Si la config (local o remota) llegó después del primer
                 // render, la vista puede ser distinta de la que se aplicó.
                 if (me._activePreset && me.effectiveUiPreset() !== me._activePreset) { me.applyViewPreset(); }
+                // El logo se pinta al montar el panel, normalmente antes de
+                // que llegue la config remota: se repinta si trae uno propio.
+                if (me._logoSrcShown !== undefined && me.brandingLogoSrc() !== me._logoSrcShown) { me.renderLogo(); }
             });
     },
 

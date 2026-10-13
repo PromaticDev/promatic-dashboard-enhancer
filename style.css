@@ -780,6 +780,16 @@
     max-width: 210px;
 }
 
+/* Logo propio de la cuenta (config remota, branding.logoSrc): más ancho que
+   alto y sin el relleno del logo por defecto; el tope de alto evita que
+   crezca por encima de la tarjeta. */
+.promatic_dashboard_enhancer-logo--custom img {
+    width: 90%;
+    max-width: 230px;
+    max-height: 64px;
+    object-fit: contain;
+}
+
 /* Versión visible bajo el logo (moduleBuild + SemVer) — evita tener que
    ir a comparar contra el repo público / borrar caché a ciegas para saber
    si el navegador ya cargó el último build. Pedido del usuario, 4 sep. */
