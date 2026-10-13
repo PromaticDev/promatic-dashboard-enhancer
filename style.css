@@ -2226,3 +2226,9 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     color: var(--g5);
     font-size: 0.7rem;
 }
+
+/* Tarjeta oculta por config (ui.hiddenWidgets): sigue montada para que sus datos
+   se carguen, pero no se muestra. */
+.promatic_dashboard_enhancer-widget-hidden {
+    display: none !important;
+}

@@ -14,7 +14,8 @@
     "maxVehicles": 1500
   },
   "ui": {
-    "preset": "rac"
+    "preset": "rac",
+    "hiddenWidgets": ["violations"]
   },
   "clock": {
     "timeZone": "America/Santiago",

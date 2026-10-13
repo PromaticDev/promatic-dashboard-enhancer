@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.14',
-    moduleBuild: '2026-10-13-1655',
+    version: '0.26.15',
+    moduleBuild: '2026-10-13-1700',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -60,7 +60,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // anterior (el mismo merge por sección que ya hace loadConfig). Hoy
         // solo existe la capa base (este objeto + config.json) y el preset
         // `ui.preset` hace de capa "Unidad"; no hay lectura de roles.
-        ui: { preset: 'rac' },
+        // hiddenWidgets: ids de tarjetas que no se muestran (se ocultan, no
+        // se dejan de cargar: el widget Conducción de LOP reutiliza los datos
+        // del reporte de infracciones). El perfil remoto puede vaciarla.
+        ui: { preset: 'rac', hiddenWidgets: ['violations'] },
         // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
         clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' },
         // Ventana del Fleet ECO report. idleThresholdMin: minutos de ralentí
@@ -1821,18 +1824,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     noFooter: true,
                     skeleton: 'chips'
                 }),
+                this.cardMarkup('flota', {
+                    title: l('Estado de Flota'),
+                    hint: l('Vehículos seleccionados en el panel "Principal": activos, en movimiento, estacionados y sin conexión. Se actualiza en vivo con el árbol Online.'),
+                    noFooter: true,
+                    skeleton: 'donut'
+                }),
                 this.cardMarkup('top5km', {
                     title: l('Vehículos con Exceso de Kilometraje'),
                     hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: /api/v3/vehicles/trips, con respaldo al reporte de kilometraje.'),
                     footerLabel: l('Abrir reporte de kilometraje'),
                     footerIcon: true,
                     skeleton: 'ranking'
-                }),
-                this.cardMarkup('flota', {
-                    title: l('Estado de Flota'),
-                    hint: l('Vehículos seleccionados en el panel "Principal": activos, en movimiento, estacionados y sin conexión. Se actualiza en vivo con el árbol Online.'),
-                    noFooter: true,
-                    skeleton: 'donut'
                 }),
                 this.cardMarkup('violations', {
                     title: l('Tendencia de Infracciones de Manejo'),
@@ -2301,8 +2304,25 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
+    VIEW_HIDDEN_CLS: 'promatic_dashboard_enhancer-widget-hidden',
+
+    /** true si la config (ui.hiddenWidgets) pide ocultar la tarjeta en todas las vistas. */
+    isWidgetHidden: function (cardId) {
+        var cfg = (this.config && this.config.ui) || this.DEFAULT_CONFIG.ui || {};
+        return (cfg.hiddenWidgets || []).indexOf(cardId) !== -1;
+    },
+
+    /** Aplica o quita la clase de oculto en las tarjetas ya montadas (la config remota llega después del primer render). */
+    syncHiddenWidgets: function () {
+        for (var i = 0; i < this.VIEW_WIDGETS.length; i++) {
+            var el = Ext.get('promatic_dashboard_enhancer-card-' + this.VIEW_WIDGETS[i].id);
+            if (el) { el[this.isWidgetHidden(this.VIEW_WIDGETS[i].id) ? 'addCls' : 'removeCls'](this.VIEW_HIDDEN_CLS); }
+        }
+    },
+
     /** Clase que oculta la card en la vista donde su estado es 'off'. */
     viewVisibilityCls: function (cardId) {
+        if (this.isWidgetHidden(cardId)) { return ' ' + this.VIEW_HIDDEN_CLS; }
         for (var i = 0; i < this.VIEW_WIDGETS.length; i++) {
             var w = this.VIEW_WIDGETS[i];
             if (w.id !== cardId) { continue; }
@@ -2349,6 +2369,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (root) { root[preset === 'lop' ? 'addCls' : 'removeCls'](this.VIEW_LOP_CLS); }
         this._activePreset = preset;
         this.syncViewSwitch();
+        this.syncHiddenWidgets();
         if (preset === 'rac') { this.buildHotspotsMapPanel(); }
         var panel = Ext.getCmp('promatic_dashboard_enhancer-panel-root');
         if (panel && panel.updateLayout) { panel.updateLayout(); }
@@ -2431,12 +2452,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     /** Tabla de widgets de la vista elegida (vista previa, sin aplicar). */
     _controlsWidgetsHtml: function (preset) {
         var esc = Ext.String.htmlEncode;
-        var label = { on: l('Activo'), dev: l('En desarrollo') };
+        var label = { on: l('Activo'), dev: l('En desarrollo'), hidden: l('Oculto') };
         var rows = '';
         for (var i = 0; i < this.VIEW_WIDGETS.length; i++) {
             var w = this.VIEW_WIDGETS[i];
             var st = w[preset];
             if (st === 'off') { continue; }
+            if (this.isWidgetHidden(w.id)) { st = 'hidden'; }
             rows += '<tr><td>' + esc(l(w.title)) + '</td><td class="promatic_dashboard_enhancer-ctl__st promatic_dashboard_enhancer-ctl__st--' + st + '">' + esc(label[st]) + '</td></tr>';
         }
         return '<table class="promatic_dashboard_enhancer-ctl__table">' + rows + '</table>';
@@ -9570,6 +9592,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 // Si la config (local o remota) llegó después del primer
                 // render, la vista puede ser distinta de la que se aplicó.
                 if (me._activePreset && me.effectiveUiPreset() !== me._activePreset) { me.applyViewPreset(); }
+                me.syncHiddenWidgets();
                 // El logo se pinta al montar el panel, normalmente antes de
                 // que llegue la config remota: se repinta si trae uno propio.
                 if (me._logoSrcShown !== undefined && me.brandingLogoSrc() !== me._logoSrcShown) { me.renderLogo(); }
