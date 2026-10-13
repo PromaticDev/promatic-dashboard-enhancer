@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.11',
-    moduleBuild: '2026-10-13-1526',
+    version: '0.26.12',
+    moduleBuild: '2026-10-13-1536',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -3660,21 +3660,38 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var ids = (agentIds || []).filter(function (x) { return x != null; });
         var sig = ids.slice().sort().join(',');
         var prev = this._alertRalentiEvents;
-        if (!ids.length) { this._alertRalentiEvents = null; return; }
-        if (prev && prev.sig === sig && Date.now() - prev.at < 600000) { return; }
+        if (!ids.length) { this._alertRalentiEvents = null; return Promise.resolve(); }
+        if (prev && prev.sig === sig && Date.now() - prev.at < 600000) { return Promise.resolve(); }
+        if (this._idleInflight && this._idleInflightSig === sig) { return this._idleInflight; }
 
         var cfg = (this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore;
         var stop = new Date();
         var start = new Date();
         start.setDate(start.getDate() - (cfg.windowDays || 8));
-        this._fetchEventsInChunks(sig, function (csv) { return me._fetchIdleChunk(csv, start, stop); })
+        this._idleInflightSig = sig;
+        this._idleInflight = this._fetchEventsInChunks(sig, function (csv) { return me._fetchIdleChunk(csv, start, stop); })
             .then(function (rows) {
                 me._alertRalentiEvents = { sig: sig, at: Date.now(), rows: rows, error: null };
             })
             .catch(function (err) {
                 me.widgetErrorCode('ALERT-IDLE-EVENTS', err);
                 me._alertRalentiEvents = { sig: sig, at: Date.now(), rows: [], error: String((err && err.message) || err) };
-            });
+            })
+            .then(function () { me._idleInflight = null; });
+        return this._idleInflight;
+    },
+
+    /**
+     * Página de espera de un modal de detalle que aún no tiene datos: un
+     * aviso con indicador de actividad. Se reemplaza solo cuando llegan.
+     */
+    buildLoadingReport: function (title, message) {
+        var esc = Ext.String.htmlEncode;
+        return '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title>' + this._reportStyles() +
+            '<style>.wait{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:240px;color:#475569}' +
+            '.spin{width:34px;height:34px;border:4px solid #cbd5e1;border-top-color:#0a67a0;border-radius:50%;animation:spin .9s linear infinite}' +
+            '@keyframes spin{to{transform:rotate(360deg)}}</style></head><body>' +
+            '<h1>' + esc(title) + '</h1><div class="wait"><div class="spin"></div><div>' + esc(message) + '</div></div></body></html>';
     },
 
     /** Una consulta plana a events.php type=16; msg "Idle|<segundos>". */
@@ -3774,7 +3791,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
             body += '<h2>' + l('Avisos de ralentí (día, hora y lugar)') + '</h2>';
             if (!ev) {
-                body += '<p>' + l('Cargando los avisos de ralentí… vuelve a abrir este detalle en unos segundos.') + '</p>';
+                body += '<p>' + l('Los avisos de ralentí aún no están disponibles.') + '</p>';
             } else if (ev.error) {
                 body += '<p>' + l('No se pudieron leer los avisos de ralentí de PILOT.') + '</p>';
             } else if (!haveEvents) {
@@ -9374,9 +9391,23 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // Ralentí excesivo: tabla propia con los vehículos sobre el umbral.
             if (a.hasCls && a.hasCls('promatic_dashboard_enhancer-stat-card--clickable') &&
                 a.dom && a.dom.querySelector('.pde_alert-ralenti')) {
-                var idleMap = me.ralentiMapSetup();
-                me.openReportModal(me.buildRalentiReport(), l('Detalle Ralentí Excesivo'), null,
-                    idleMap.points, idleMap.opts);
+                var openIdle = function () {
+                    var idleMap = me.ralentiMapSetup();
+                    me.openReportModal(me.buildRalentiReport(), l('Detalle Ralentí Excesivo'), null,
+                        idleMap.points, idleMap.opts);
+                };
+                if (me._alertRalentiEvents || !(me._alertRalentiIds || []).length) {
+                    openIdle();
+                } else {
+                    // Los avisos aún se están pidiendo: se abre un modal de
+                    // espera y se reemplaza al llegar. Si el usuario lo cerró
+                    // mientras tanto, no se vuelve a abrir.
+                    me.openReportModal(me.buildLoadingReport(l('Detalle Ralentí Excesivo'),
+                        l('Generando el reporte de ralentí… puede tardar unos segundos.')), l('Detalle Ralentí Excesivo'), null);
+                    me.loadIdleEvents(me._alertRalentiIds).then(function () {
+                        if (document.getElementById('promatic_dashboard_enhancer-report-modal')) { openIdle(); }
+                    });
+                }
                 return;
             }
 
