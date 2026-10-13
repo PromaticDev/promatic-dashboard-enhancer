@@ -1548,52 +1548,14 @@
 /* ===== Vehículos con más KM (card 'top5km') — barra apilada + ranking ===== */
 .promatic_dashboard_enhancer-km-widget-body {
     display: flex;
-    gap: 0.75em;
+    flex-direction: column;
+    gap: 0.5em;
     height: 100%;
-}
-
-/* width/height de la barra apilada quedan en px — geometría fija del
-   gráfico, no debe escalar (ver nota general en .panel). */
-.promatic_dashboard_enhancer-km-stack-wrap {
-    flex-shrink: 0;
-    width: 40px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.375em;
-}
-
-.promatic_dashboard_enhancer-km-stack-total {
-    font-size: 0.5625em;
-    color: var(--g5);
-    text-align: center;
-}
-
-.promatic_dashboard_enhancer-km-stack-total b {
-    display: block;
-    color: var(--g6);
-    font-size: 0.8rem;
-}
-
-.promatic_dashboard_enhancer-stacked-track--v {
-    display: flex;
-    flex-direction: column;
-    width: 28px;
-    height: 110px;
-    border-radius: 0.25em;
-    overflow: hidden;
-}
-
-.promatic_dashboard_enhancer-stacked-seg {
-    width: 100%;
 }
 
 .promatic_dashboard_enhancer-km-top5 {
     flex: 1;
     min-width: 0;
-    border-left: 1px solid var(--g2);
-    padding-left: 0.625em;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -1687,20 +1649,49 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     opacity: 1;
 }
 
-.promatic_dashboard_enhancer-km-color-legend {
+/* Resumen inferior del Top KM: máximo, media y mínimo. */
+.promatic_dashboard_enhancer-km-summary {
     display: flex;
-    align-items: center;
-    gap: 0.375em;
-    margin-top: 0.25em;
+    align-items: flex-end;
+    gap: 1em;
+    padding-top: 0.5em;
+    border-top: 1px solid var(--g2);
+}
+
+.promatic_dashboard_enhancer-km-summary__cell {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.promatic_dashboard_enhancer-km-summary__lbl {
+    font-size: 0.53125em;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--g5);
+}
+
+.promatic_dashboard_enhancer-km-summary__cell b {
+    font-size: 0.8rem;
+    color: var(--g6);
+    font-variant-numeric: tabular-nums;
+}
+
+.promatic_dashboard_enhancer-km-summary__n {
+    margin-left: auto;
     font-size: 0.53125em;
     color: var(--g5);
 }
 
-.promatic_dashboard_enhancer-km-legend-grad {
-    width: 36px;
-    height: 0.5em;
-    border-radius: 0.125em;
-    background: linear-gradient(to right, var(--g5), var(--g1));
+/* Pie con ícono "abrir detalle" en lugar del chevrón de texto. */
+.promatic_dashboard_enhancer-footer-link--icon::after {
+    content: "";
+    display: inline-block;
+    width: 0.95em;
+    height: 0.95em;
+    margin-left: 0.4em;
+    vertical-align: -0.15em;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 362.67 362.67'%3E%3Cpath fill='%232563EB' d='M128 63.999V106.666H42.667V320H256V234.666H298.667V362.667H0V64H128V63.999ZM362.667 0V170.667H320V72.835L143.085 249.752L112.915 219.582L289.83 42.666L192 42.667V0H362.667Z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 /* Barra de controles del pie del dashboard (ADR-014) */

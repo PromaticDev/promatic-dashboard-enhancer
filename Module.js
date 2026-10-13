@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.8',
-    moduleBuild: '2026-10-13-1445',
+    version: '0.26.9',
+    moduleBuild: '2026-10-13-1452',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -358,7 +358,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // en PILOT": no hay nada nativo a lo que enlazar.
         if (!opts.noFooter) {
             cn.push({ cls: 'promatic_dashboard_enhancer-card__footer', cn: [
-                { tag: 'a', href: '#', html: (opts.footerLabel || l('Ver en PILOT')) + ' ›' }
+                opts.footerIcon
+                    ? { tag: 'a', href: '#', cls: 'promatic_dashboard_enhancer-footer-link--icon', html: opts.footerLabel || l('Ver en PILOT') }
+                    : { tag: 'a', href: '#', html: (opts.footerLabel || l('Ver en PILOT')) + ' ›' }
             ] });
         }
 
@@ -1803,6 +1805,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     title: l('Vehículos con Exceso de Kilometraje'),
                     hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: /api/v3/vehicles/trips, con respaldo al reporte de kilometraje.'),
                     footerLabel: l('Abrir reporte de kilometraje'),
+                    footerIcon: true,
                     skeleton: 'ranking'
                 }),
                 this.cardMarkup('flota', {
@@ -8863,27 +8866,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var startMs = startDate.getTime();
         var stopMs = stopDate.getTime();
 
-        // Barra apilada: un segmento por vehículo, alto = % del total
-        // mostrado. Los colores fijos g2/g1/g3/g4/g5 van en orden ascendente
-        // de km; con más de 5 vehículos el ramp no alcanza y se cae a un tono
-        // único (--g4) para no repetir colores.
-        var segColors = ['var(--g2)', 'var(--g1)', 'var(--g3)', 'var(--g4)', 'var(--g5)'];
-        var flatColor = top5.length > segColors.length;
-        var total = 0;
-        for (var s = 0; s < top5.length; s++) {
-            total += top5[s].km;
-        }
-        var ascending = top5.slice().reverse();
-        var segments = [];
-        for (var a = 0; a < ascending.length; a++) {
-            var segPct = total > 0 ? (ascending[a].km / total * 100) : 0;
-            segments.push({
-                cls: 'promatic_dashboard_enhancer-stacked-seg',
-                style: 'height:' + segPct.toFixed(1) + '%;background:' +
-                    (flatColor ? 'var(--g4)' : segColors[a % segColors.length]),
-                title: Ext.String.htmlEncode(this.displayName(ascending[a].name)) + ' — ' + ascending[a].km.toFixed(0) + 'km'
-            });
-        }
+        // Resumen del ranking (barra inferior): máximo, media y mínimo de los
+        // vehículos con km > 0 que se consultaron. Con la fuente trips-v3 son
+        // los vehículos consultados (tripsMaxVehicles), no toda la flota.
+        var withKm = ranked.filter(function (x) { return x.km > 0; });
+        var kmSum = 0;
+        for (var s2 = 0; s2 < withKm.length; s2++) { kmSum += withKm[s2].km; }
+        var kmStats = withKm.length ? {
+            max: withKm[0].km,
+            avg: kmSum / withKm.length,
+            min: withKm[withKm.length - 1].km
+        } : null;
+        var fmtKm = function (n) { return Math.round(n).toLocaleString('es-CL'); };
+        var statCell = function (label, val) {
+            return { cls: 'promatic_dashboard_enhancer-km-summary__cell', cn: [
+                { tag: 'span', cls: 'promatic_dashboard_enhancer-km-summary__lbl', html: label },
+                { tag: 'b', html: fmtKm(val) + ' km' }
+            ] };
+        };
 
         var maxKm = top5[0].km || 1;
         var rankRows = [];
@@ -8951,22 +8951,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this.updateCardBody('top5km', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-km-widget-body',
             cn: [
-                { cls: 'promatic_dashboard_enhancer-km-stack-wrap', cn: [
-                    { cls: 'promatic_dashboard_enhancer-stacked-track promatic_dashboard_enhancer-stacked-track--v', cn: segments },
-                    { cls: 'promatic_dashboard_enhancer-km-stack-total', cn: [
-                        { tag: 'b', html: total.toFixed(0) },
-                        { html: 'km &middot; ' + l('top') + ' ' + top5.length }
-                    ] }
-                ] },
                 { cls: 'promatic_dashboard_enhancer-km-top5', cn: [
                     { cls: 'promatic_dashboard_enhancer-km-date-range', html: dateFmt(startDate) + ' — ' + dateFmt(stopDate) }
-                ].concat(rankRows).concat([
-                    { cls: 'promatic_dashboard_enhancer-km-color-legend', cn: [
-                        { tag: 'span', cls: 'promatic_dashboard_enhancer-km-legend-grad' },
-                        { html: l('Oscuro = más km · Claro = menos km') }
-                    ] }
-                ]) }
-            ]
+                ].concat(rankRows) },
+                kmStats ? { cls: 'promatic_dashboard_enhancer-km-summary', cn: [
+                    statCell(l('Máx'), kmStats.max),
+                    statCell(l('Media'), kmStats.avg),
+                    statCell(l('Mín'), kmStats.min),
+                    { tag: 'span', cls: 'promatic_dashboard_enhancer-km-summary__n',
+                      html: withKm.length + ' ' + l('vehículos consultados') }
+                ] } : null
+            ].filter(Boolean)
         }));
 
         // El link del pie lleva al informe de kilómetros de TODOS los
