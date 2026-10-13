@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.10',
-    moduleBuild: '2026-10-13-1522',
+    version: '0.26.11',
+    moduleBuild: '2026-10-13-1526',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -1066,7 +1066,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var lines = [];
         var modelYear = [field('model'), field('year')].filter(Boolean).join(' ');
         if (modelYear) { lines.push(modelYear); }
-        if (field('vin')) { lines.push('VIN ' + field('vin')); }
         if (field('driver')) { lines.push(l('Conductor') + ': ' + field('driver')); }
         if (field('group')) { lines.push(l('Carpeta') + ': ' + field('group')); }
         return lines;
@@ -1319,7 +1318,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var specs = [];
             var modelYear = [field('model'), field('year')].filter(Boolean).join(' ');
             if (modelYear) { specs.push(modelYear); }
-            if (field('vin')) { specs.push('VIN ' + field('vin')); }
             if (field('driver')) { specs.push(l('Conductor') + ': ' + field('driver')); }
             if (field('group')) { specs.push(l('Carpeta') + ': ' + field('group')); }
             var specCell = specs.length ? specs.join('<br>') : l('N/D');
@@ -3645,40 +3643,123 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this._alertRalentiIds = ids;
         this._alertRalentiRows = rows;
         this.renderAlertasGenerales();
+        this.loadIdleEvents(ids);
+    },
+
+    /**
+     * Avisos de ralentí excesivo (events.php type=16, "Idle|<segundos>") de
+     * los vehículos que superan el umbral: dan el día, la hora y el lugar de
+     * cada ralentí, que el reporte 223 no entrega (solo el acumulado). Son
+     * pocos vehículos, así que es 1 consulta. Si falla o no hay datos (la
+     * cuenta puede no tener el aviso configurado) el modal lo indica y sigue
+     * mostrando el acumulado. Se vuelve a pedir solo si cambió el conjunto
+     * de vehículos o pasaron 10 min.
+     */
+    loadIdleEvents: function (agentIds) {
+        var me = this;
+        var ids = (agentIds || []).filter(function (x) { return x != null; });
+        var sig = ids.slice().sort().join(',');
+        var prev = this._alertRalentiEvents;
+        if (!ids.length) { this._alertRalentiEvents = null; return; }
+        if (prev && prev.sig === sig && Date.now() - prev.at < 600000) { return; }
+
+        var cfg = (this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore;
+        var stop = new Date();
+        var start = new Date();
+        start.setDate(start.getDate() - (cfg.windowDays || 8));
+        this._fetchEventsInChunks(sig, function (csv) { return me._fetchIdleChunk(csv, start, stop); })
+            .then(function (rows) {
+                me._alertRalentiEvents = { sig: sig, at: Date.now(), rows: rows, error: null };
+            })
+            .catch(function (err) {
+                me.widgetErrorCode('ALERT-IDLE-EVENTS', err);
+                me._alertRalentiEvents = { sig: sig, at: Date.now(), rows: [], error: String((err && err.message) || err) };
+            });
+    },
+
+    /** Una consulta plana a events.php type=16; msg "Idle|<segundos>". */
+    _fetchIdleChunk: function (vehIdsCsv, startDate, stopDate) {
+        var isoNoMs = function (d) { return d.toISOString().slice(0, 19); };
+        var qs = 'cmd=search&veh=' + encodeURIComponent(vehIdsCsv) + '&type=16' +
+            '&date_start=' + encodeURIComponent(isoNoMs(startDate)) +
+            '&date_stop=' + encodeURIComponent(isoNoMs(stopDate)) +
+            '&limit=1000&page=1&start=0';
+        var ctrl = new AbortController();
+        var to = setTimeout(function () { ctrl.abort(); }, 30000);
+        return fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include', signal: ctrl.signal })
+            .then(function (resp) {
+                if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                return resp.json();
+            })
+            .then(function (data) {
+                var items = (data && data.items) || [];
+                var out = [];
+                for (var i = 0; i < items.length; i++) {
+                    var it = items[i] || {};
+                    var m = /^Idle\|(\d+)/.exec(String(it.msg || ''));
+                    var lat = Number(it.lat), lon = Number(it.lon);
+                    out.push({
+                        agentId: it.agent_id != null ? Number(it.agent_id) : null,
+                        veh: it.veh != null ? String(it.veh) : '',
+                        ts: it.ts != null ? Number(it.ts) : null,
+                        sec: m ? Number(m[1]) : null,
+                        msg: String(it.msg || ''),
+                        lat: isFinite(lat) && lat !== 0 ? lat : null,
+                        lon: isFinite(lon) && lon !== 0 ? lon : null
+                    });
+                }
+                return out;
+            })
+            .finally(function () { clearTimeout(to); });
     },
 
     /**
      * Modal de detalle de "Ralentí excesivo": los vehículos que superan el
      * umbral (ecoScore.idleThresholdMin) de ralentí acumulado en la ventana
-     * del Fleet ECO report (report_type=223, columna Excess Idle). Ese
-     * reporte entrega solo el acumulado por vehículo: cuándo y dónde ocurrió
-     * cada ralentí no está en esta fuente, así que la posición que se
-     * muestra es la actual y no la del ralentí.
+     * del Fleet ECO report (report_type=223, columna Excess Idle) con su
+     * promedio diario, y debajo cada aviso de ralentí (día, hora, duración y
+     * lugar) de events.php type=16. El promedio diario es acumulado ÷ días de
+     * la ventana: no distingue días sin uso. Los avisos dependen de que la
+     * cuenta tenga configurado el aviso de ralentí en PILOT.
      */
     buildRalentiReport: function () {
         var me = this;
         var esc = Ext.String.htmlEncode;
         var rows = this._alertRalentiRows || [];
+        var ev = this._alertRalentiEvents;
+        var episodes = (ev && ev.rows) || [];
         var cfg = (this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore;
         var days = cfg.windowDays || 8;
         var idleMin = cfg.idleThresholdMin || 120;
         var title = l('Detalle Ralentí Excesivo');
         var byId = this._onlineRecordsByAgent();
 
-        var fmtIdle = function (sec) {
+        var fmtDur = function (sec) {
             var m = Math.round(sec / 60);
             var mm = m % 60;
-            return Math.floor(m / 60) + ' h ' + (mm < 10 ? '0' : '') + mm + ' min';
+            return m >= 60 ? Math.floor(m / 60) + ' h ' + (mm < 10 ? '0' : '') + mm + ' min' : m + ' min';
         };
+        var dayKey = function (ts) {
+            var d = new Date(ts * 1000);
+            return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+        };
+        // Días con aviso por vehículo, para la columna "Días con ralentí".
+        var daysByAgent = {};
+        for (var e0 = 0; e0 < episodes.length; e0++) {
+            var ep0 = episodes[e0];
+            if (ep0.agentId == null || ep0.ts == null) { continue; }
+            (daysByAgent[ep0.agentId] = daysByAgent[ep0.agentId] || {})[dayKey(ep0.ts)] = 1;
+        }
+        var haveEvents = episodes.length > 0;
+
         var rowHtml = function (r) {
             var rec = r.agentId != null ? byId[r.agentId] : null;
-            var cur = rec ? me._recordLatLon(rec) : null;
-            var posCell = cur
-                ? me._iconFocusBtn(cur[0], cur[1], me.displayName(r.name), l('Ver posición actual'), me._SVG_TARGET)
-                : l('N/D');
             var sheet = me._vehicleSheetLines(rec).map(esc).join('<br>') || esc(r.group || '') || l('N/D');
+            var nDays = r.agentId != null && daysByAgent[r.agentId] ? Object.keys(daysByAgent[r.agentId]).length : 0;
+            var daysCell = haveEvents ? (nDays + ' ' + l('de') + ' ' + days) : l('N/D');
             return '<tr><td>' + esc(me.displayName(r.name)) + '</td><td>' + sheet + '</td><td>' +
-                esc(fmtIdle(r.idleSec)) + '</td><td>' + Math.round(r.km) + ' km</td><td>' + posCell + '</td></tr>';
+                esc(fmtDur(r.idleSec)) + '</td><td>' + esc(fmtDur(r.idleSec / days)) + '</td><td>' +
+                daysCell + '</td><td>' + Math.round(r.km) + ' km</td></tr>';
         };
 
         var body;
@@ -3686,13 +3767,39 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             body = '<p>' + l('Ningún vehículo supera el umbral de ralentí.') + '</p>';
         } else {
             body = '<table id="promatic_dashboard_enhancer-ralenti-table"><tr><th>' + l('Vehículo') + '</th><th>' + l('Ficha') +
-                '</th><th>' + l('Ralentí acumulado') + '</th><th>' + l('Distancia') + '</th><th>' + l('Posición actual') + '</th></tr>';
+                '</th><th>' + l('Ralentí acumulado') + '</th><th>' + l('Promedio diario') + '</th><th>' + l('Días con ralentí') +
+                '</th><th>' + l('Distancia') + '</th></tr>';
             for (var i = 0; i < rows.length; i++) { body += rowHtml(rows[i]); }
             body += '</table>';
+
+            body += '<h2>' + l('Avisos de ralentí (día, hora y lugar)') + '</h2>';
+            if (!ev) {
+                body += '<p>' + l('Cargando los avisos de ralentí… vuelve a abrir este detalle en unos segundos.') + '</p>';
+            } else if (ev.error) {
+                body += '<p>' + l('No se pudieron leer los avisos de ralentí de PILOT.') + '</p>';
+            } else if (!haveEvents) {
+                body += '<p>' + l('PILOT no registró avisos de ralentí para estos vehículos en el período (el aviso puede no estar configurado en la cuenta).') + '</p>';
+            } else {
+                var sorted = episodes.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+                body += '<table id="promatic_dashboard_enhancer-ralenti-events"><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
+                    '</th><th>' + l('Duración') + '</th><th>' + l('Lugar') + '</th></tr>';
+                for (var k = 0; k < sorted.length; k++) {
+                    var x = sorted[k];
+                    var lbl = me.displayName(x.veh) + ' — ' + me._fmtEventDateTime(x.ts);
+                    var link = x.lat != null ? me._mapsLink(x.lat, x.lon) : null;
+                    var place = x.lat != null
+                        ? me._iconFocusBtn(x.lat, x.lon, lbl, l('Ver en mapa interno'), me._SVG_PIN) +
+                          (link ? me._iconExtLink(link, l('Ver en mapa externo')) : '')
+                        : l('N/D');
+                    body += '<tr><td>' + esc(me._fmtEventDateTime(x.ts)) + '</td><td>' + esc(me.displayName(x.veh)) + '</td><td>' +
+                        (x.sec != null ? esc(fmtDur(x.sec)) : esc(x.msg)) + '</td><td>' + place + '</td></tr>';
+                }
+                body += '</table>';
+            }
         }
 
-        var desc = '<p class="desc">' + l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período, ordenados de mayor a menor. El reporte entrega el acumulado: el momento y el lugar exactos de cada ralentí no están disponibles en esta fuente, por eso se muestra la posición actual. Total: ' + rows.length + '.') + '</p>' +
-            '<p class="desc">' + l('Fuente: reports.php report_type=223 (Fleet ECO report)') + '</p>';
+        var desc = '<p class="desc">' + l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en los últimos ' + days + ' días, de mayor a menor. El promedio diario es el acumulado dividido en los ' + days + ' días del período. Total: ' + rows.length + '.') + '</p>' +
+            '<p class="desc">' + l('Fuente: reports.php report_type=223 (acumulado) y events.php type=16 (avisos)') + '</p>';
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
             '</title>' + this._reportStyles() + '</head><body>' +
@@ -3702,19 +3809,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '</div>' + this._modalActionsScript() + '</body></html>';
     },
 
-    /** Posiciones actuales de los vehículos con ralentí excesivo, para el mini-mapa del modal. */
+    /** Lugares de los avisos de ralentí, para el mini-mapa del modal. */
     ralentiMapSetup: function () {
         var me = this;
-        var byId = this._onlineRecordsByAgent();
+        var ev = this._alertRalentiEvents;
         var points = [];
-        (this._alertRalentiRows || []).forEach(function (r) {
-            var rec = r.agentId != null ? byId[r.agentId] : null;
-            var cur = rec ? me._recordLatLon(rec) : null;
-            if (cur) { points.push({ lat: cur[0], lon: cur[1], label: me.displayName(r.name) }); }
+        ((ev && ev.rows) || []).forEach(function (x) {
+            if (x.lat == null) { return; }
+            points.push({ lat: x.lat, lon: x.lon, label: me.displayName(x.veh) + ' — ' + me._fmtEventDateTime(x.ts) });
         });
         return {
             points: points,
-            opts: { notice: points.length ? l('Mostrando la posición actual de los vehículos con ralentí excesivo') : '' }
+            opts: { notice: points.length ? l('Mostrando dónde ocurrieron los avisos de ralentí') : '' }
         };
     },
 
