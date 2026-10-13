@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.6',
-    moduleBuild: '2026-10-13-1342',
+    version: '0.26.7',
+    moduleBuild: '2026-10-13-1400',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -8343,6 +8343,46 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * Suma el km de todos los tramos de una respuesta de fetchVehicleTripsV3.
      * kmField: 'gps' (default) | 'can'. data ausente o [] → 0.
      */
+    /**
+     * Días calendario (hora local) entre startDate y stopDate, ambos
+     * incluidos. `key` identifica el día sin depender del huso del servidor.
+     * @return {Array<{key:String, date:Date}>}
+     */
+    _calendarDays: function (startDate, stopDate) {
+        var out = [];
+        var d = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+        var last = new Date(stopDate.getFullYear(), stopDate.getMonth(), stopDate.getDate());
+        while (d <= last && out.length < 45) {
+            out.push({ key: d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(), date: new Date(d) });
+            d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+        }
+        return out;
+    },
+
+    /**
+     * Km por día de un vehículo a partir de los tramos de trips-v3: cada
+     * tramo se asigna al día en que empieza (ts, Unix en segundos). Un tramo
+     * que cruza la medianoche cuenta completo en su día de inicio.
+     * @param {Array} dayList resultado de _calendarDays.
+     * @return {Array<Number>} km por día, alineado con dayList.
+     */
+    dailyTripsKm: function (tripsResponse, kmField, dayList) {
+        var field = kmField || 'gps';
+        var idx = {};
+        for (var i = 0; i < dayList.length; i++) { idx[dayList[i].key] = i; }
+        var out = [];
+        for (var z = 0; z < dayList.length; z++) { out.push(0); }
+        var tramos = (tripsResponse && tripsResponse.data) || [];
+        for (var t = 0; t < tramos.length; t++) {
+            var ts = Number(tramos[t].ts);
+            if (!ts) { continue; }
+            var d = new Date(ts * 1000);
+            var k = idx[d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate()];
+            if (k !== undefined) { out[k] += Number(tramos[t][field]) || 0; }
+        }
+        return out;
+    },
+
     sumTripsKm: function (tripsResponse, kmField) {
         var field = kmField || 'gps';
         var tramos = (tripsResponse && tripsResponse.data) || [];
@@ -8667,6 +8707,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         for (var nm in nameToId) {
             if (nameToId.hasOwnProperty(nm)) { idToName[Number(nameToId[nm])] = nm; }
         }
+        var dayList = me._calendarDays(startDate, stopDate);
 
         var results = [];
         var queue = vehIds.slice();
@@ -8681,7 +8722,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 return me.fetchVehicleTripsV3(id, tsUnix, teUnix, 8000)
                     .then(function (resp) {
                         consecutiveFails = 0;
-                        results.push({ id: id, km: me.sumTripsKm(resp, kmField) });
+                        results.push({ id: id, km: me.sumTripsKm(resp, kmField), daily: me.dailyTripsKm(resp, kmField, dayList) });
                     })
                     .catch(function (err) {
                         consecutiveFails++;
@@ -8707,7 +8748,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 return {
                     name: idToName[Number(r.id)] || String(r.id),
                     km: r.km,
-                    id: r.id
+                    id: r.id,
+                    daily: r.daily || null
                 };
             });
             ranked.sort(function (a, b) { return b.km - a.km; });
@@ -8844,6 +8886,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var maxKm = top5[0].km || 1;
         var rankRows = [];
+        var dayList = this._calendarDays(startDate, stopDate);
+        var dayWeek = [l('dom'), l('lun'), l('mar'), l('mié'), l('jue'), l('vie'), l('sáb')];
+        var dateFmt = function (d) {
+            var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+            return pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear();
+        };
         for (var j = 0; j < top5.length; j++) {
             var item = top5[j];
             var hasId = item.id !== undefined && item.id !== null && item.id !== '';
@@ -8869,12 +8917,35 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 row['data-km-stop'] = String(stopMs);
             }
             rankRows.push(row);
+            // Km de cada día del período bajo el vehículo (solo con la
+            // fuente trips-v3, que trae los tramos con su hora de inicio).
+            // También abre el informe por días.
+            if (item.daily && item.daily.length === dayList.length) {
+                var peak = 0;
+                for (var pk = 1; pk < item.daily.length; pk++) { if (item.daily[pk] > item.daily[peak]) { peak = pk; } }
+                var dayCells = [];
+                for (var dd = 0; dd < dayList.length; dd++) {
+                    var dayKm = Math.round(item.daily[dd]);
+                    dayCells.push({
+                        cls: 'promatic_dashboard_enhancer-rank-day' + (dayKm === 0 ? ' promatic_dashboard_enhancer-rank-day--zero' : '') +
+                            (dd === peak && dayKm > 0 ? ' promatic_dashboard_enhancer-rank-day--peak' : ''),
+                        title: dayWeek[dayList[dd].date.getDay()] + ' ' + dateFmt(dayList[dd].date) + ' — ' + item.daily[dd].toFixed(1) + ' km',
+                        cn: [
+                            { tag: 'span', cls: 'promatic_dashboard_enhancer-rank-day__lbl',
+                              html: dayWeek[dayList[dd].date.getDay()] + ' ' + dayList[dd].date.getDate() },
+                            { tag: 'span', cls: 'promatic_dashboard_enhancer-rank-day__km', html: dayKm === 0 ? '–' : String(dayKm) }
+                        ]
+                    });
+                }
+                var daysRow = { cls: 'promatic_dashboard_enhancer-rank-days', cn: dayCells };
+                if (hasId) {
+                    daysRow['data-km-report'] = String(item.id);
+                    daysRow['data-km-start'] = String(startMs);
+                    daysRow['data-km-stop'] = String(stopMs);
+                }
+                rankRows.push(daysRow);
+            }
         }
-
-        var dateFmt = function (d) {
-            var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
-            return pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear();
-        };
 
         this.updateCardBody('top5km', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-km-widget-body',
@@ -8943,6 +9014,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
+    /**
+     * Abre el informe nativo de kilómetros (report_type=4) dividido por día,
+     * para ver cuánto recorrió cada vehículo cada jornada y no solo el total
+     * del período.
+     */
     openKmReport: function (vehicleIds, startDate, stopDate) {
         if (!vehicleIds || !vehicleIds.length) { return; }
         var me = this;
@@ -8953,7 +9029,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
             Ext.defer(function () {
                 try {
-                    me.runNativeReport(4, vehicleIds, startDate, stopDate);
+                    me.runNativeReport(4, vehicleIds, startDate, stopDate, { split: 'day' });
                 } catch (e) {
                     console.warn('[promatic_dashboard_enhancer] runNativeReport falló:', e);
                 }
@@ -8994,7 +9070,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * adaptada a método). Requiere que el panel de Informes ya esté activo
      * (ver activateReportsTab).
      */
-    runNativeReport: function (reportType, vehicleIds, startDate, stopDate) {
+    runNativeReport: function (reportType, vehicleIds, startDate, stopDate, opts) {
         var me = this;
         var reports = window.skeleton && skeleton.navigation && skeleton.navigation.reports;
         if (!reports || !reports.down) {
@@ -9036,8 +9112,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var explodeCombo = reports.down('#explode_combo');
             if (explodeCombo && explodeCombo.getStore) {
                 var explodeStore = explodeCombo.getStore();
-                var noSplit = explodeStore && explodeStore.findRecord(
-                    'name', /no dividir|don't split|do not split|не разбивать/i, 0, false, false, false);
+                // opts.split === 'day': se elige la división por día en lugar
+                // de "No dividir". Se busca por etiqueta; las etiquetas
+                // disponibles quedan en el log de depuración por si la
+                // cuenta usa otro texto. Si no se encuentra, sigue "No dividir".
+                var dayOpt = null;
+                if (opts && opts.split === 'day' && explodeStore) {
+                    dayOpt = explodeStore.findRecord('name', /^(por )?d[ií]as?$|^(per )?days?$|^дн/i, 0, false, false, false);
+                    var optNames = [];
+                    explodeStore.each(function (r) { optNames.push(r.get('name')); });
+                    Store.promatic_dashboard_enhancer.Module.debugLog('informe por día: opciones de "Dividir"', optNames);
+                }
+                var noSplit = dayOpt || (explodeStore && explodeStore.findRecord(
+                    'name', /no dividir|don't split|do not split|не разбивать/i, 0, false, false, false));
                 // Fallback: "No dividir" es la última opción del store (abbr
                 // más alto) en todas las cuentas vistas.
                 if (!noSplit && explodeStore && explodeStore.getCount()) {

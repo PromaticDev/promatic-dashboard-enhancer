@@ -1047,6 +1047,49 @@
     box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
 }
 
+/* Km por día bajo cada vehículo del Top KM: una celda por día con la
+   inicial/día arriba y los km abajo; el día de mayor recorrido resalta. */
+.promatic_dashboard_enhancer-rank-days {
+    display: flex;
+    gap: 2px;
+    margin: -0.2em 0 0.5em;
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-rank-day {
+    flex: 1 1 0;
+    min-width: 0;
+    text-align: center;
+    line-height: 1.2;
+    border-radius: 0.2em;
+    padding: 0.1em 0;
+}
+
+.promatic_dashboard_enhancer-rank-day__lbl {
+    display: block;
+    font-size: 0.5625em;
+    color: var(--g5);
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.promatic_dashboard_enhancer-rank-day__km {
+    display: block;
+    font-size: 0.6875em;
+    font-weight: 600;
+    color: var(--g7);
+    font-variant-numeric: tabular-nums;
+}
+
+.promatic_dashboard_enhancer-rank-day--zero .promatic_dashboard_enhancer-rank-day__km {
+    color: var(--g4);
+    font-weight: 400;
+}
+
+.promatic_dashboard_enhancer-rank-day--peak {
+    background: var(--g0);
+}
+
 /* Rótulo "ver más" abajo a la derecha de las tarjetas clicables: texto
    corto con un "+" dentro de un círculo de borde (SVG en línea, sin
    requests). Lo agrega renderAlertasGenerales solo a las clicables. */
