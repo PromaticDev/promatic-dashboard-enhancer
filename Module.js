@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.17',
-    moduleBuild: '2026-10-13-1713',
+    version: '0.26.18',
+    moduleBuild: '2026-10-13-1737',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -1130,10 +1130,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }, 200);
     },
 
-    // Segundos que tarda PILOT en publicar el informe nativo de un accidente
-    // (Crash detection, report_type=254) tras el aviso de events.php.
-    ACC_NATIVE_REPORT_DELAY_SEC: 14400,
-
     // Íconos de las acciones de ubicación de los modales (trazo, heredan el
     // color del botón): mapa interno, mapa externo y posición actual.
     _SVG_PIN: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
@@ -1201,16 +1197,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 : l('N/D');
             var sheet = me._vehicleSheetLines(rec).map(esc).join('<br>') || l('N/D');
             var calCell = r.calibrated === false ? l('No') : l('Sí');
-            // El informe nativo de PILOT (Crash detection) aparece unas 4 h
-            // después del aviso: antes de eso el botón queda deshabilitado
-            // con la hora desde la que estará disponible.
-            var readyAt = r.ts != null ? r.ts + me.ACC_NATIVE_REPORT_DELAY_SEC : 0;
-            var notReady = readyAt > Math.floor(Date.now() / 1000);
+            // El informe nativo de PILOT (Crash detection) llega vacío para
+            // los accidentes del día en curso (se midió hasta 7 h después del
+            // aviso, con una ventana de fechas correcta) y sí abre los de
+            // días anteriores. Por eso el botón se deshabilita para los de hoy.
+            var notReady = r.ts != null && me._eventDayKey(r.ts) === me._eventDayKey(Math.floor(Date.now() / 1000));
             var nativeCell = r.agentId != null
                 ? '<button type="button" class="promatic_dashboard_enhancer-native-btn" data-native-report="254" data-native-agent="' +
                   r.agentId + '" data-native-ts="' + (r.ts != null ? r.ts : '') + '"' +
-                  (notReady ? ' disabled title="' + esc(l('Informe disponible desde') + ' ' + me._fmtEventDateTime(readyAt) +
-                      ' (' + l('PILOT lo publica unas 4 h después del aviso') + ')') + '"' : '') + '>' +
+                  (notReady ? ' disabled title="' + esc(l('Informe aún no disponible: PILOT lo publica con una demora de varias horas, a veces hasta el día siguiente')) + '"' : '') + '>' +
                   l('Abrir informe en PILOT') + '</button>'
                 : l('N/D');
             return '<tr><td>' + esc(me._fmtEventDateTime(r.ts)) + '</td><td>' +
@@ -1247,7 +1242,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // (endpoint/type): la primera es para el usuario final, la segunda es
         // trazabilidad, útil para verificar y fácil de quitar del modal.
         var desc = '<p class="desc">' + l('Alarmas de eventos de posible colisión detectadas por el acelerómetro. Cada fila es una alerta generada de un potencial accidente real, sin agregar ni incluir el ruido de detección repetida. La columna Calibrado indica si el sensor completó su calibración al momento de la detección. "Abrir informe en PILOT" lleva al informe nativo Crash detection de ese vehículo y día. Total: ' + rows.length + '.') + '</p>' +
-            '<p class="desc"><b>' + l('El informe de PILOT de cada accidente se publica unas 4 horas después del aviso: hasta entonces el botón "Abrir informe en PILOT" aparece deshabilitado.') + '</b></p>' +
+            '<p class="desc"><b>' + l('PILOT publica el informe de cada accidente con una demora de varias horas, a veces hasta el día siguiente: para los accidentes de hoy el botón "Abrir informe en PILOT" aparece deshabilitado.') + '</b></p>' +
             '<p class="desc">' + l('Fuente: events.php type=4911') + '</p>';
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
