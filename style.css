@@ -366,6 +366,43 @@
     border-color: var(--g7);
 }
 
+/* Selector de vista RAC | LOP (tarjeta Controles): dos botones pegados, el
+   activo relleno con el mismo color que el botón primario. */
+.promatic_dashboard_enhancer-viewswitch {
+    display: flex;
+}
+
+.promatic_dashboard_enhancer-viewswitch__btn {
+    flex: 1 1 0;
+    font-size: 0.75em;
+    font-weight: 700;
+    color: var(--g6);
+    background: #fff;
+    border: 1px solid var(--g4);
+    padding: 0.375em 0.625em;
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-viewswitch__btn:first-child {
+    border-radius: 0.3125em 0 0 0.3125em;
+}
+
+.promatic_dashboard_enhancer-viewswitch__btn:last-child {
+    border-radius: 0 0.3125em 0.3125em 0;
+    border-left-width: 0;
+}
+
+.promatic_dashboard_enhancer-viewswitch__btn:hover {
+    background: var(--g0);
+}
+
+.promatic_dashboard_enhancer-viewswitch__btn--active,
+.promatic_dashboard_enhancer-viewswitch__btn--active:hover {
+    background: var(--g6);
+    border-color: var(--g6);
+    color: #fff;
+}
+
 /* ===== Modal de reporte (Exportar / Golden Report) ===== */
 .promatic_dashboard_enhancer-report-modal {
     position: fixed;

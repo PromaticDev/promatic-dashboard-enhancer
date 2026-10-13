@@ -40,7 +40,10 @@
     "windowDays": 30,
     "minGapSeconds": 120,
     "shortGapMinSeconds": 10,
-    "shortGapMaxSeconds": 90
+    "shortGapMaxSeconds": 90,
+    "excludeBranches": true,
+    "excludeGroupPatterns": ["sucursal", "base"],
+    "excludeGroupNames": []
   },
   "fuel": {
     "enabled": true,

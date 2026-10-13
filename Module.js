@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.4',
-    moduleBuild: '2026-10-13-1301',
+    version: '0.26.5',
+    moduleBuild: '2026-10-13-1323',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -107,7 +107,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // "Intermitencias breves" (candidatos a túnel/subterráneo). El
         // request usa siempre el piso más bajo para traer ambas capas en una
         // sola llamada.
-        hotspots: { windowDays: 30, minGapSeconds: 120, shortGapMinSeconds: 10, shortGapMaxSeconds: 90 },
+        // excludeBranches: descarta del heatmap los cortes que caen dentro de
+        // una geocerca de sucursal/base: un vehículo apagado y estacionado
+        // ahí no es una zona de mala señal y domina el mapa. Cuenta como
+        // sucursal/base el grupo cuyo nombre contenga algún
+        // excludeGroupPatterns, esté en excludeGroupNames (exacto) o figure en
+        // branches.clientMap. false apaga el filtro.
+        hotspots: { windowDays: 30, minGapSeconds: 120, shortGapMinSeconds: 10, shortGapMaxSeconds: 90,
+            excludeBranches: true, excludeGroupPatterns: ['sucursal', 'base'], excludeGroupNames: [] },
         // Alertas de combustible (cargas/drenajes calculados sobre el
         // reporte de sensor, ver loadFuelAlerts). loadMinPct/drainMinPct son
         // % del nivel máximo observado, no litros: el reporte no declara la
@@ -452,12 +459,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 },
                 {
                     cls: 'promatic_dashboard_enhancer-export-card',
-                    cn: [{
-                        tag: 'button', type: 'button',
-                        id: 'promatic_dashboard_enhancer-controls-btn',
-                        cls: 'promatic_dashboard_enhancer-export-card__btn',
-                        html: l('Controles') + ' ›'
-                    }]
+                    cn: [
+                        { cls: 'promatic_dashboard_enhancer-export-card__title', html: l('Vista') },
+                        this.viewSwitchMarkup(),
+                        {
+                            tag: 'button', type: 'button',
+                            id: 'promatic_dashboard_enhancer-controls-btn',
+                            cls: 'promatic_dashboard_enhancer-export-card__btn',
+                            html: l('Controles') + ' ›'
+                        }
+                    ]
                 }
             ]
         };
@@ -476,6 +487,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 var which = sel ? sel.value : 'flota';
                 me.openReportModal(me.buildWidgetReport(which), me._widgetReportName(which),
                     me._safe(function () { return me.buildWidgetPdfDoc(which); }));
+                return;
+            }
+            var vsw = e.getTarget('.promatic_dashboard_enhancer-viewswitch__btn', 3, true);
+            if (vsw) {
+                e.preventDefault();
+                var view = vsw.dom.getAttribute('data-view');
+                if (view !== me.effectiveUiPreset()) {
+                    me.setUiPresetOverride(view);
+                    me.applyViewPreset();
+                }
                 return;
             }
             if (e.getTarget('#promatic_dashboard_enhancer-controls-btn', 3, true)) {
@@ -1827,7 +1848,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 }),
                 this.cardMarkup('hotspots', {
                     title: l('Hotspots de Pérdida de Conexión'),
-                    hint: l('Puntos de calor con el historial de cortes de señal GPS (últimos 30 días) — dónde tiende a perderse la conexión con más frecuencia. "Cortes largos" son vehículos apagados/fuera de cobertura por mucho tiempo; "Intermitencias breves" son cortes cortos típicos de túneles y pasos subterráneos. El menú de carpeta filtra por selección del panel "Principal".'),
+                    hint: l('Puntos de calor con el historial de cortes de señal GPS (últimos 30 días) — dónde tiende a perderse la conexión con más frecuencia. Se excluyen los cortes dentro de geocercas de sucursal o base (vehículos estacionados). "Cortes largos" son vehículos apagados/fuera de cobertura por mucho tiempo; "Intermitencias breves" son cortes cortos típicos de túneles y pasos subterráneos. El menú de carpeta filtra por selección del panel "Principal".'),
                     noFooter: true,
                     skeleton: 'map',
                     headExtra: {
@@ -2304,6 +2325,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var root = Ext.get('promatic_dashboard_enhancer-panel-root');
         if (root) { root[preset === 'lop' ? 'addCls' : 'removeCls'](this.VIEW_LOP_CLS); }
         this._activePreset = preset;
+        this.syncViewSwitch();
         if (preset === 'rac') { this.buildHotspotsMapPanel(); }
         var panel = Ext.getCmp('promatic_dashboard_enhancer-panel-root');
         if (panel && panel.updateLayout) { panel.updateLayout(); }
@@ -2322,6 +2344,34 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (me._fleetMap && me._fleetMap.checkResize) { me._fleetMap.checkResize(); }
             if (me._hotspotsMap && me._hotspotsMap.checkResize) { me._hotspotsMap.checkResize(); }
         }, 200);
+    },
+
+    /**
+     * Selector RAC | LOP de la tarjeta Controles: cambia la vista en vivo sin
+     * abrir el modal. Comparte el mecanismo del modal (override en
+     * localStorage + applyViewPreset), así que ambos quedan en sincronía.
+     */
+    viewSwitchMarkup: function () {
+        var current = this.effectiveUiPreset();
+        var btn = function (view) {
+            return {
+                tag: 'button', type: 'button', 'data-view': view,
+                cls: 'promatic_dashboard_enhancer-viewswitch__btn' +
+                    (view === current ? ' promatic_dashboard_enhancer-viewswitch__btn--active' : ''),
+                html: view.toUpperCase()
+            };
+        };
+        return { cls: 'promatic_dashboard_enhancer-viewswitch', cn: [btn('rac'), btn('lop')] };
+    },
+
+    /** Marca como activo el botón de la vista vigente (también tras Guardar en Controles). */
+    syncViewSwitch: function () {
+        var current = this.effectiveUiPreset();
+        var btns = document.querySelectorAll('.promatic_dashboard_enhancer-viewswitch__btn');
+        for (var i = 0; i < btns.length; i++) {
+            var on = btns[i].getAttribute('data-view') === current;
+            btns[i].classList[on ? 'add' : 'remove']('promatic_dashboard_enhancer-viewswitch__btn--active');
+        }
     },
 
     /** Cierra el modal Controles si está abierto. */
@@ -5378,6 +5428,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             start.setDate(start.getDate() - windowDays);
 
             me.fetchConnectionLostPoints(csv, start, stop, shortMin)
+                .then(function (allPoints) { return me._dropBranchCuts(allPoints); })
                 .then(function (rawPoints) {
                     var bucketsLong = {}, bucketsShort = {};
                     var countLong = 0, countShort = 0;
@@ -5419,6 +5470,69 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me._showHotspotsMapLoading(false);
                     me.widgetErrorCode('FLEETMAP-HEATMAP-FETCH', err);
                 });
+        });
+    },
+
+    /**
+     * true si `name` (group_name de una geocerca) cuenta como sucursal/base
+     * para el filtro de Hotspots: patrón de nombre, nombre exacto de la
+     * config o grupo de branches.clientMap.
+     */
+    _isBranchGroupName: function (name, cfg) {
+        if (!name) { return false; }
+        var lower = String(name).toLowerCase();
+        var patterns = cfg.excludeGroupPatterns || [];
+        for (var i = 0; i < patterns.length; i++) {
+            if (lower.indexOf(String(patterns[i]).toLowerCase()) !== -1) { return true; }
+        }
+        if ((cfg.excludeGroupNames || []).indexOf(name) !== -1) { return true; }
+        var bcfg = (this.config && this.config.branches) || (this.DEFAULT_CONFIG.branches || {});
+        var map = bcfg.clientMap || [];
+        for (var m = 0; m < map.length; m++) {
+            if ((map[m].groupNames || []).indexOf(name) !== -1) { return true; }
+        }
+        return false;
+    },
+
+    /**
+     * Quita de los cortes de conexión los que caen dentro de una geocerca de
+     * sucursal/base (ver DEFAULT_CONFIG.hotspots). Si las geocercas no
+     * cargan o ningún grupo coincide, devuelve los cortes sin tocar: un
+     * filtro que falla no debe dejar el mapa vacío.
+     *
+     * @param {Array} points [lat, lon, duración] por corte.
+     * @return {Promise<Array>} los cortes que quedan.
+     */
+    _dropBranchCuts: function (points) {
+        var me = this;
+        var cfg = (this.config && this.config.hotspots) || this.DEFAULT_CONFIG.hotspots || {};
+        if (cfg.excludeBranches === false || !points || !points.length) { return Promise.resolve(points); }
+
+        var ensure = new Promise(function (resolve) {
+            if (me._lastGeofences) { resolve(); } else { me.loadBranchGeofences(function () { resolve(); }); }
+        });
+        return ensure.then(function () {
+            var zones = (me._lastGeofences || []).filter(function (g) { return me._isBranchGroupName(g.group_name, cfg); });
+            if (!zones.length) {
+                Store.promatic_dashboard_enhancer.Module.debugLog('hotspots desconexión: sin geocercas de sucursal/base, no se filtran cortes');
+                return points;
+            }
+            // Los cortes se repiten en el mismo punto: se resuelve una vez
+            // por celda de ~10 m.
+            var memo = {}, kept = [];
+            for (var i = 0; i < points.length; i++) {
+                var k = points[i][0].toFixed(4) + ',' + points[i][1].toFixed(4);
+                if (memo[k] === undefined) {
+                    memo[k] = false;
+                    for (var z = 0; z < zones.length; z++) {
+                        if (me._pointInGeofence(points[i][0], points[i][1], zones[z])) { memo[k] = true; break; }
+                    }
+                }
+                if (!memo[k]) { kept.push(points[i]); }
+            }
+            Store.promatic_dashboard_enhancer.Module.debugLog('hotspots desconexión: ' + (points.length - kept.length) +
+                ' cortes dentro de ' + zones.length + ' geocercas de sucursal/base descartados de ' + points.length);
+            return kept;
         });
     },
 
