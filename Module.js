@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.7',
-    moduleBuild: '2026-10-13-1400',
+    version: '0.26.8',
+    moduleBuild: '2026-10-13-1445',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -4681,13 +4681,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             accCard.cls += ' promatic_dashboard_enhancer-stat-card--clickable';
         }
 
-        // Rótulo "ver más" en las tarjetas que abren un detalle: el cursor y
-        // el borde al pasar el mouse no bastan para que se note en pantalla
-        // grande. Se agrega a cualquier tarjeta marcada como clicable, sea
-        // cual sea la rama que la haya habilitado.
+        // Ícono de "abrir detalle" en las tarjetas clicables: el cursor y el
+        // borde al pasar el mouse no bastan para que se note en pantalla
+        // grande. Solo ícono (un rótulo con texto desordenaba las tarjetas
+        // angostas). Se agrega a cualquier tarjeta marcada como clicable,
+        // sea cual sea la rama que la haya habilitado.
         var addMore = function (spec) {
             if (spec && spec.cls && spec.cls.indexOf('stat-card--clickable') !== -1 && spec.cn) {
-                spec.cn = spec.cn.concat([{ tag: 'span', cls: 'promatic_dashboard_enhancer-stat-card__more', html: l('ver más') }]);
+                spec.cn = spec.cn.concat([{ tag: 'span', cls: 'promatic_dashboard_enhancer-stat-card__more' }]);
             }
             return spec;
         };
