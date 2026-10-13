@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.15',
-    moduleBuild: '2026-10-13-1700',
+    version: '0.26.16',
+    moduleBuild: '2026-10-13-1713',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -835,6 +835,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '.promatic_dashboard_enhancer-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;margin-right:4px;padding:0;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#0a67a0;text-decoration:none;cursor:pointer;vertical-align:middle}' +
             '.promatic_dashboard_enhancer-icon-btn:hover{background:#e8f1f8;border-color:#0a67a0}' +
             '.promatic_dashboard_enhancer-icon-btn svg{width:15px;height:15px}' +
+            '.promatic_dashboard_enhancer-native-btn[disabled]{background:#cbd5e1;color:#64748b;cursor:not-allowed}' +
             '.promatic_dashboard_enhancer-native-btn{font:inherit;font-size:11px;color:#fff;background:#0a67a0;border:0;border-radius:4px;padding:3px 8px;cursor:pointer}' +
             '@media print{.promatic_dashboard_enhancer-native-btn{display:none}body{padding:14mm}h2{page-break-after:avoid}table,.grid,.guide{page-break-inside:avoid}}' +
             '</style>';
@@ -1098,7 +1099,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             'window.parent.postMessage({type: "promatic_dashboard_enhancer_focus_point", lat: lat, lon: lon, label: b.getAttribute("data-focus-label") || ""}, "*");' +
             'return; }' +
             'var n = e.target.closest(".promatic_dashboard_enhancer-native-btn");' +
-            'if (!n) { return; }' +
+            'if (!n || n.disabled) { return; }' +
             'window.parent.postMessage({type: "promatic_dashboard_enhancer_open_native_report", reportType: n.getAttribute("data-native-report"), agentId: n.getAttribute("data-native-agent"), ts: n.getAttribute("data-native-ts")}, "*");' +
             '});' +
             '<\/script>';
@@ -1128,6 +1129,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }, 200);
     },
+
+    // Segundos que tarda PILOT en publicar el informe nativo de un accidente
+    // (Crash detection, report_type=254) tras el aviso de events.php.
+    ACC_NATIVE_REPORT_DELAY_SEC: 14400,
 
     // Íconos de las acciones de ubicación de los modales (trazo, heredan el
     // color del botón): mapa interno, mapa externo y posición actual.
@@ -1196,9 +1201,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 : l('N/D');
             var sheet = me._vehicleSheetLines(rec).map(esc).join('<br>') || l('N/D');
             var calCell = r.calibrated === false ? l('No') : l('Sí');
+            // El informe nativo de PILOT (Crash detection) aparece unas 4 h
+            // después del aviso: antes de eso el botón queda deshabilitado
+            // con la hora desde la que estará disponible.
+            var readyAt = r.ts != null ? r.ts + me.ACC_NATIVE_REPORT_DELAY_SEC : 0;
+            var notReady = readyAt > Math.floor(Date.now() / 1000);
             var nativeCell = r.agentId != null
                 ? '<button type="button" class="promatic_dashboard_enhancer-native-btn" data-native-report="254" data-native-agent="' +
-                  r.agentId + '" data-native-ts="' + (r.ts != null ? r.ts : '') + '">' + l('Abrir informe en PILOT') + '</button>'
+                  r.agentId + '" data-native-ts="' + (r.ts != null ? r.ts : '') + '"' +
+                  (notReady ? ' disabled title="' + esc(l('Informe disponible desde') + ' ' + me._fmtEventDateTime(readyAt) +
+                      ' (' + l('PILOT lo publica unas 4 h después del aviso') + ')') + '"' : '') + '>' +
+                  l('Abrir informe en PILOT') + '</button>'
                 : l('N/D');
             return '<tr><td>' + esc(me._fmtEventDateTime(r.ts)) + '</td><td>' +
                 esc(me.displayName(r.veh)) + '</td><td>' + sheet + '</td><td>' + calCell + '</td><td>' +
