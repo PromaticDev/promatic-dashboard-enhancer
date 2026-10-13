@@ -45,8 +45,8 @@
   "fuel": {
     "enabled": true,
     "windowDays": 3,
-    "loadMinPct": 10,
-    "drainMinPct": 6,
+    "loadMinPct": 20,
+    "drainMinPct": 50,
     "windowMin": 30,
     "maxGapMin": 360,
     "stopSpeedKmh": 3,

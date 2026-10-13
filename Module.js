@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.3',
-    moduleBuild: '2026-10-09-1918',
+    version: '0.26.4',
+    moduleBuild: '2026-10-13-1301',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -118,7 +118,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // sobre PILOT: consultas por lotes chicos con pausa, y como mucho
         // maxVehicles nuevas por ciclo (cacheMinutes evita repetirlas).
         fuel: {
-            enabled: true, windowDays: 3, loadMinPct: 10, drainMinPct: 6, windowMin: 30, maxGapMin: 360,
+            enabled: true, windowDays: 3, loadMinPct: 20, drainMinPct: 50, windowMin: 30, maxGapMin: 360,
             stopSpeedKmh: 3, minSamples: 5, capacityHint: 0, agentIds: [],
             batchSize: 3, pauseMs: 1000, maxVehicles: 60, cacheMinutes: 30,
             catalogBatch: 20, catalogCacheHours: 24, debugRawMax: 3
@@ -814,7 +814,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     _widgetDescriptions: {
         flota: 'Distribución de la flota seleccionada por estado operativo en el momento de la consulta: vehículos activos (con señal en las últimas horas), en movimiento, estacionados con motor detenido, y sin conexión al servidor. Se calcula a partir del árbol Online de PILOT, sin generar reportes.',
         gps: 'Vehículos sin comunicación con el servidor, agrupados por el tiempo transcurrido desde su última señal recibida. Sirve para detectar equipos caídos, con problemas de antena, o vehículos guardados hace días. Un vehículo puede estar "sin señal" por batería baja, zona sin cobertura, o manipulación del equipo.',
-        alertas: 'Conteo de incidencias por categoría en el período. Accidentes: eventos de colisión detectados por el acelerómetro (últimos 30 días). Ralentí excesivo: vehículos con tiempo de motor encendido detenido sobre el umbral configurado. Requiere mantención: vehículos con inspección o servicio vencido/pendiente según el módulo Técnico-Operacional de PILOT.',
+        alertas: 'Conteo de incidencias por categoría en el período. Accidentes: eventos de colisión detectados por el acelerómetro, hoy y ayer (el histórico de la semana está en el detalle). Ralentí excesivo: vehículos con tiempo de motor encendido detenido sobre el umbral configurado. Requiere mantención: vehículos con inspección o servicio vencido/pendiente según el módulo Técnico-Operacional de PILOT.',
         top5km: 'Ranking de vehículos por kilómetros recorridos en el período. Útil para identificar los vehículos con mayor desgaste, planificar mantenciones por kilometraje, y detectar uso fuera de lo esperado. La distancia se calcula por GPS tramo a tramo (fuente: /api/v3/vehicles/trips).',
         eco: 'Puntaje de conducción segura por vehículo (0-100) del Fleet ECO report de PILOT, que penaliza ralentí excesivo, exceso de velocidad, frenadas y aceleraciones bruscas. Se muestra el rating actual y el del período anterior para ver la tendencia. Un rating negativo indica una cantidad muy alta de infracciones.'
     },
@@ -943,7 +943,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     (typeof v === 'number' ? v : l('N/D')) + '</td></tr>';
             };
             body = '<table><tr><th>' + l('Categoría') + '</th><th>' + l('Incidencias') + '</th></tr>' +
-                mk(l('Accidentes'), this._alertAccidentes) +
+                mk(l('Accidentes (hoy y ayer)'), this._alertAccidentes) +
                 mk(l('Requiere mantención'), this._alertMantencion) +
                 mk(l('Ralentí excesivo'), this._alertRalenti) +
                 this._fuelRowsHtml() +
@@ -1119,7 +1119,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var me = this;
         var esc = Ext.String.htmlEncode;
         var rows = this._alertAccidentesRows || [];
-        var days = 30;
+        var days = this.ACC_HISTORY_DAYS;
         var title = l('Detalle Alarma de Posibles Accidentes');
         var byId = this._onlineRecordsByAgent();
 
@@ -1179,7 +1179,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 body += '<h2>' + l('Recientes (hoy y ayer)') + '</h2>' + tableHtml(recent);
             }
             if (historic.length) {
-                body += '<h2>' + l('Histórico del mes') + '</h2>' + tableHtml(historic);
+                body += '<h2>' + l('Histórico de la semana') + '</h2>' + tableHtml(historic);
             }
         }
 
@@ -1370,7 +1370,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // Alertas
         s += '<h2>' + l('Alertas Generales') + '</h2><table><tr><th>' + l('Categoría') + '</th><th>' + l('Incidencias') + '</th></tr>';
         var row = function (lbl, v) { return '<tr><td>' + lbl + '</td><td class="n">' + (typeof v === 'number' ? v : l('N/D')) + '</td></tr>'; };
-        s += row(l('Accidentes'), this._alertAccidentes) + row(l('Requiere mantención'), this._alertMantencion) +
+        s += row(l('Accidentes (hoy y ayer)'), this._alertAccidentes) + row(l('Requiere mantención'), this._alertMantencion) +
             row(l('Ralentí excesivo'), this._alertRalenti) + this._fuelRowsHtml() + '</table>';
 
         // Top KM
@@ -1521,7 +1521,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         } else if (which === 'alertas') {
             var v = function (x) { return typeof x === 'number' ? String(x) : l('N/D'); };
             C.push(this._pdfTable([l('Categoría'), l('Incidencias')], [
-                [l('Accidentes'), { text: v(this._alertAccidentes), alignment: 'right' }],
+                [l('Accidentes (hoy y ayer)'), { text: v(this._alertAccidentes), alignment: 'right' }],
                 [l('Requiere mantención'), { text: v(this._alertMantencion), alignment: 'right' }],
                 [l('Ralentí excesivo'), { text: v(this._alertRalenti), alignment: 'right' }]
             ].concat(this._fuelRowsPdf())));
@@ -1558,7 +1558,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     buildAccidentesPdfDoc: function () {
-        var doc = this._pdfBase(l('Detalle Alarma de Posibles Accidentes'), this._pdfRange(30));
+        var doc = this._pdfBase(l('Detalle Alarma de Posibles Accidentes'), this._pdfRange(this.ACC_HISTORY_DAYS));
         var rows = this._alertAccidentesRows || [];
         var name = this.displayName.bind(this);
         var C = doc.content;
@@ -1708,7 +1708,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         C.push({ text: l('Alertas Generales'), style: 'h2' });
         var av = function (x) { return typeof x === 'number' ? String(x) : l('N/D'); };
         C.push(this._pdfTable([l('Categoría'), l('Incidencias')], [
-            [l('Accidentes'), { text: av(this._alertAccidentes), alignment: 'right' }],
+            [l('Accidentes (hoy y ayer)'), { text: av(this._alertAccidentes), alignment: 'right' }],
             [l('Requiere mantención'), { text: av(this._alertMantencion), alignment: 'right' }],
             [l('Ralentí excesivo'), { text: av(this._alertRalenti), alignment: 'right' }]
         ]));
@@ -1762,7 +1762,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cn: [
                 this.cardMarkup('alertas_generales', {
                     title: l('Alertas Generales'),
-                    hint: l('Accidentes: eventos de los últimos 30 días. Requiere mantención: recordatorios por vehículo configurados en PILOT. Las categorías "beta" aún no están conectadas. Cada tarjeta con incidencias abre el informe correspondiente en PILOT.'),
+                    hint: l('Accidentes: eventos de hoy y ayer (el histórico de la semana está en el detalle). Requiere mantención: recordatorios por vehículo configurados en PILOT. Las categorías "beta" aún no están conectadas. Cada tarjeta con incidencias abre el informe correspondiente en PILOT.'),
                     noFooter: true,
                     skeleton: 'stats'
                 })
@@ -3120,8 +3120,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     /**
      * Alertas Generales (card 'alertas_generales'), 2 categorías
      * independientes:
-     * - Accidentes: events.php type=4911 ("Crash Detection Alert"), ventana
-     *   de 30 días. Ver fetchAccidentVehicles.
+     * - Accidentes: events.php type=4911 ("Crash Detection Alert"). Se
+     *   consultan ACC_HISTORY_DAYS días (modal con histórico), pero la tarjeta cuenta solo
+     *   hoy y ayer. Ver fetchAccidentVehicles.
      * - Requiere mantención: dashboard.php cmd=ptm (recordatorios); se
      *   cuentan los ligados a vehículo (link_type != 'drivers'). El shape de
      *   ptm no está confirmado en una cuenta con datos; el log de depuración
@@ -3138,16 +3139,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // minuto era ~23 veces eso. El resto del refresco (GPS, estado de flota)
     // sale del árbol en memoria y sigue cada 60 s.
     EVENTS_POLL_MS: 300000,
-    // Tras un barrido completo de 30 días, los sondeos siguientes piden solo
+    // Tras un barrido completo de la ventana de histórico, los sondeos siguientes piden solo
     // las últimas horas y se fusionan; el barrido completo se repite cada
     // ACC_FULL_SWEEP_MS o con el botón Actualizar.
+    // Días de histórico de accidentes que se consultan y se muestran en el
+    // modal (la tarjeta cuenta solo hoy y ayer). Una semana basta para
+    // operación y reduce la consulta a events.php.
+    ACC_HISTORY_DAYS: 7,
     ACC_INCREMENTAL_MS: 7200000,
     ACC_FULL_SWEEP_MS: 21600000,
 
     /**
      * Une los accidentes ya conocidos con los de un sondeo incremental, sin
      * repetidos (mismo vehículo y hora) y descartando los más viejos que la
-     * ventana de 30 días.
+     * ventana de histórico (ACC_HISTORY_DAYS).
      *
      * @param {Array} old Filas del barrido anterior.
      * @param {Array} fresh Filas del sondeo reciente.
@@ -3166,7 +3171,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     /**
      * @param {Function} [onDone] Se llama al terminar el ciclo completo.
-     * @param {Boolean} [full] true fuerza el barrido completo de 30 días
+     * @param {Boolean} [full] true fuerza el barrido completo de la ventana de histórico
      *   (botón Actualizar); si no, tras el primero se hace incremental.
      */
     loadAlertasGenerales: function (onDone, full) {
@@ -3177,7 +3182,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var csv = vehIds.join(',');
             var stop = new Date();
             var start = new Date();
-            start.setDate(start.getDate() - 30);
+            start.setDate(start.getDate() - me.ACC_HISTORY_DAYS);
             var fmt = function (d) { return d.toISOString().slice(0, 10); };
             me._alertRange = { start: start, stop: stop };
 
@@ -3192,10 +3197,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     if (incr) { rows = me._mergeAccidentRows(me._alertAccidentesRows, rows, start); }
                     else { me._accFullAt = Date.now(); }
                     me._alertAccidentesRows = rows;
+                    // Se conservan los días de histórico para el modal (tabla e
+                    // histórico), pero la tarjeta cuenta solo hoy y ayer: un
+                    // total mensual como cifra principal se lee como una
+                    // alarma vigente que no lo es.
                     me._alertAccidentesIds = rows
                         .map(function (r) { return r.agentId; })
                         .filter(function (id) { return id != null; });
-                    return rows.length;
+                    return rows.filter(function (r) { return me._isTodayOrYesterday(r.ts); }).length;
                 })
                 .catch(function (err) {
                     me.widgetErrorCode('ALERT-ACC', err);
@@ -3517,7 +3526,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
-        var n = 0, ids = [];
+        var n = 0, ids = [], rows = [];
         for (var g in resp.data) {
             if (!resp.data.hasOwnProperty(g)) { continue; }
             var vehs = resp.data[g];
@@ -3528,12 +3537,92 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     n++;
                     var id = nameToId[String(c[0] || p)];
                     if (id != null) { ids.push(Number(id)); }
+                    rows.push({
+                        name: String(c[0] || p), group: g,
+                        agentId: id != null ? Number(id) : null,
+                        idleSec: Number(c[1]) || 0, km: Number(c[5]) || 0
+                    });
                 }
             }
         }
+        rows.sort(function (x, y) { return y.idleSec - x.idleSec; });
         this._alertRalenti = n;
         this._alertRalentiIds = ids;
+        this._alertRalentiRows = rows;
         this.renderAlertasGenerales();
+    },
+
+    /**
+     * Modal de detalle de "Ralentí excesivo": los vehículos que superan el
+     * umbral (ecoScore.idleThresholdMin) de ralentí acumulado en la ventana
+     * del Fleet ECO report (report_type=223, columna Excess Idle). Ese
+     * reporte entrega solo el acumulado por vehículo: cuándo y dónde ocurrió
+     * cada ralentí no está en esta fuente, así que la posición que se
+     * muestra es la actual y no la del ralentí.
+     */
+    buildRalentiReport: function () {
+        var me = this;
+        var esc = Ext.String.htmlEncode;
+        var rows = this._alertRalentiRows || [];
+        var cfg = (this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore;
+        var days = cfg.windowDays || 8;
+        var idleMin = cfg.idleThresholdMin || 120;
+        var title = l('Detalle Ralentí Excesivo');
+        var byId = this._onlineRecordsByAgent();
+
+        var fmtIdle = function (sec) {
+            var m = Math.round(sec / 60);
+            var mm = m % 60;
+            return Math.floor(m / 60) + ' h ' + (mm < 10 ? '0' : '') + mm + ' min';
+        };
+        var rowHtml = function (r) {
+            var rec = r.agentId != null ? byId[r.agentId] : null;
+            var cur = rec ? me._recordLatLon(rec) : null;
+            var posCell = cur
+                ? '<button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + cur[0] +
+                  '" data-focus-lon="' + cur[1] + '" data-focus-label="' + esc(me.displayName(r.name)) + '">' +
+                  l('ver posición actual') + '</button><br>' + cur[0].toFixed(5) + ', ' + cur[1].toFixed(5)
+                : l('N/D');
+            var sheet = me._vehicleSheetLines(rec).map(esc).join('<br>') || esc(r.group || '') || l('N/D');
+            return '<tr><td>' + esc(me.displayName(r.name)) + '</td><td>' + sheet + '</td><td>' +
+                esc(fmtIdle(r.idleSec)) + '</td><td>' + Math.round(r.km) + ' km</td><td>' + posCell + '</td></tr>';
+        };
+
+        var body;
+        if (!rows.length) {
+            body = '<p>' + l('Ningún vehículo supera el umbral de ralentí.') + '</p>';
+        } else {
+            body = '<table id="promatic_dashboard_enhancer-ralenti-table"><tr><th>' + l('Vehículo') + '</th><th>' + l('Ficha') +
+                '</th><th>' + l('Ralentí acumulado') + '</th><th>' + l('Distancia') + '</th><th>' + l('Posición actual') + '</th></tr>';
+            for (var i = 0; i < rows.length; i++) { body += rowHtml(rows[i]); }
+            body += '</table>';
+        }
+
+        var desc = '<p class="desc">' + l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período, ordenados de mayor a menor. El reporte entrega el acumulado: el momento y el lugar exactos de cada ralentí no están disponibles en esta fuente, por eso se muestra la posición actual. Total: ' + rows.length + '.') + '</p>' +
+            '<p class="desc">' + l('Fuente: reports.php report_type=223 (Fleet ECO report)') + '</p>';
+
+        return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
+            '</title>' + this._reportStyles() + '</head><body>' +
+            this._reportHeader(title, days) + desc + body +
+            '<div class="foot">' +
+            l('Reporte generado por el Dashboard sobre datos de PILOT Telematics.') +
+            '</div>' + this._modalActionsScript() + '</body></html>';
+    },
+
+    /** Posiciones actuales de los vehículos con ralentí excesivo, para el mini-mapa del modal. */
+    ralentiMapSetup: function () {
+        var me = this;
+        var byId = this._onlineRecordsByAgent();
+        var points = [];
+        (this._alertRalentiRows || []).forEach(function (r) {
+            var rec = r.agentId != null ? byId[r.agentId] : null;
+            var cur = rec ? me._recordLatLon(rec) : null;
+            if (cur) { points.push({ lat: cur[0], lon: cur[1], label: me.displayName(r.name) }); }
+        });
+        return {
+            points: points,
+            opts: { notice: points.length ? l('Mostrando la posición actual de los vehículos con ralentí excesivo') : '' }
+        };
     },
 
     /**
@@ -3717,8 +3806,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 i++;
             }
         };
-        scan(1, o.loadMinPct || 10);
-        scan(-1, o.drainMinPct || 6);
+        scan(1, o.loadMinPct || 20);
+        scan(-1, o.drainMinPct || 50);
         res.events.sort(function (x, y) { return x.ts - y.ts; });
         return res;
     },
@@ -4508,21 +4597,44 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var idleMin = (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).idleThresholdMin) || 120;
         var gridCls = 'promatic_dashboard_enhancer-stat-card-grid';
 
+        // El conteo es de hoy y ayer; el histórico de la semana vive en el modal.
+        // Por eso la tarjeta sigue clicable aunque hoy/ayer den 0 mientras
+        // haya eventos en la ventana de histórico (card() solo la habilita con conteo > 0).
+        var accCard = card('var(--g6)',
+            l('POSIBLE ACCIDENTE') + '<span class="promatic_dashboard_enhancer-stat-card__cov">' + l('hoy y ayer') + '</span>',
+            accidentes, svgAccidente,
+            l('Posible accidente — eventos de hoy y ayer; el histórico de la semana está en el detalle'), false, 'pde_alert-accidentes',
+            this._alertAccidentesIds || [], null, true);
+        if (!accCard['data-alert-ids'] && (this._alertAccidentesIds || []).length &&
+            typeof accidentes === 'number') {
+            accCard['data-alert-ids'] = this._alertAccidentesIds.join(',');
+            accCard.cls += ' promatic_dashboard_enhancer-stat-card--clickable';
+        }
+
+        // Rótulo "ver más" en las tarjetas que abren un detalle: el cursor y
+        // el borde al pasar el mouse no bastan para que se note en pantalla
+        // grande. Se agrega a cualquier tarjeta marcada como clicable, sea
+        // cual sea la rama que la haya habilitado.
+        var addMore = function (spec) {
+            if (spec && spec.cls && spec.cls.indexOf('stat-card--clickable') !== -1 && spec.cn) {
+                spec.cn = spec.cn.concat([{ tag: 'span', cls: 'promatic_dashboard_enhancer-stat-card__more', html: l('ver más') }]);
+            }
+            return spec;
+        };
+
         this.updateCardBody('alertas_generales', Ext.DomHelper.markup({
             cls: gridCls,
             cn: [
-                card('var(--g6)', l('POSIBLE ACCIDENTE'), accidentes, svgAccidente,
-                    l('Posible accidente — eventos de los últimos 30 días'), false, 'pde_alert-accidentes',
-                    this._alertAccidentesIds || [], null, true),
+                accCard,
                 card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
                     l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion',
                     null, null, true),
-                // Ralentí no es clicable por ahora: el informe con el detalle
-                // es el "Fleet ECO report" (report_type=223 group=6), que
-                // runNativeReport no soporta (necesita group=6). Por eso no
-                // se pasa vehIds.
+                // Ralentí abre un modal propio (buildRalentiReport): el
+                // informe nativo equivalente es el "Fleet ECO report"
+                // (report_type=223 group=6), que runNativeReport no soporta.
                 card('var(--g6)', l('Ralentí excesivo'), ralenti, svgRalenti,
-                    l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti'),
+                    l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti',
+                    this._alertRalentiIds || [], null, false),
                 fuelCard('carga', 'var(--g7)', l('Inconsistencias en Carga'),
                     l('Posibles cargas de combustible: alza de nivel con el vehículo detenido, calculada sobre el sensor'), 'pde_alert-inconsistencias'),
                 fuelCard('drenaje', 'var(--g6)', l('Drenaje de Combustible'),
@@ -4538,7 +4650,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         this._alertBorderIds || [], null, true)
                     : card('var(--g6)', l('Salida de territorio nacional'), null, svgTerritorio,
                         l('Vehículo cruza la frontera — pendiente de conexión'), true, 'pde_alert-fuerazona')
-            ]
+            ].map(addMore)
         }));
     },
 
@@ -4571,6 +4683,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // solo sobrescribe group=6 y report_type=223.
             var body = me.buildReportBody(223, vehIds.join(','), start, stop)
                 .replace(/(^|&)group=1(&|$)/, '$1group=6$2');
+
+            // El "Previous Rating" (c8) lo calcula PILOT sobre
+            // pre_start_date/pre_stop_date. buildReportBody los deja iguales
+            // al período actual (válido para los otros reportes) y el rating
+            // anterior salía idéntico al actual. Aquí se pide el período
+            // previo de la misma duración, que termina donde empieza el actual.
+            var pad2 = function (n) { return n < 10 ? '0' + n : '' + n; };
+            var fmtDay = function (d) { return pad2(d.getDate()) + '.' + pad2(d.getMonth() + 1) + '.' + d.getFullYear(); };
+            var preStart = new Date(start);
+            preStart.setDate(preStart.getDate() - days);
+            body = body
+                .replace(/(^|&)pre_start_date=[^&]*/, '$1pre_start_date=' + encodeURIComponent(fmtDay(preStart)))
+                .replace(/(^|&)pre_stop_date=[^&]*/, '$1pre_stop_date=' + encodeURIComponent(fmtDay(start)));
 
             var ctrl = new AbortController();
             // 45 s y no 25 s: con fleet.maxVehicles=1500 el POST manda hasta
@@ -8900,6 +9025,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 me.openReportModal(me.buildAccidentesReport(), l('Detalle Alarma de Posibles Accidentes'),
                     me._safe(function () { return me.buildAccidentesPdfDoc(); }),
                     accMap.points, accMap.opts);
+                return;
+            }
+
+            // Ralentí excesivo: tabla propia con los vehículos sobre el umbral.
+            if (a.hasCls && a.hasCls('promatic_dashboard_enhancer-stat-card--clickable') &&
+                a.dom && a.dom.querySelector('.pde_alert-ralenti')) {
+                var idleMap = me.ralentiMapSetup();
+                me.openReportModal(me.buildRalentiReport(), l('Detalle Ralentí Excesivo'), null,
+                    idleMap.points, idleMap.opts);
                 return;
             }
 
