@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.9',
-    moduleBuild: '2026-10-13-1452',
+    version: '0.26.10',
+    moduleBuild: '2026-10-13-1522',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -829,6 +829,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '.guide ol{margin:6px 0 0;padding-left:20px}.guide li{margin:4px 0}' +
             '.foot{margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:10.5px}' +
             '.promatic_dashboard_enhancer-focus-btn{font:inherit;color:#0a67a0;background:none;border:0;padding:0;text-decoration:underline;cursor:pointer}' +
+            '.promatic_dashboard_enhancer-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;margin-right:4px;padding:0;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#0a67a0;text-decoration:none;cursor:pointer;vertical-align:middle}' +
+            '.promatic_dashboard_enhancer-icon-btn:hover{background:#e8f1f8;border-color:#0a67a0}' +
+            '.promatic_dashboard_enhancer-icon-btn svg{width:15px;height:15px}' +
             '.promatic_dashboard_enhancer-native-btn{font:inherit;font-size:11px;color:#fff;background:#0a67a0;border:0;border-radius:4px;padding:3px 8px;cursor:pointer}' +
             '@media print{.promatic_dashboard_enhancer-native-btn{display:none}body{padding:14mm}h2{page-break-after:avoid}table,.grid,.guide{page-break-inside:avoid}}' +
             '</style>';
@@ -1124,6 +1127,32 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }, 200);
     },
 
+    // Íconos de las acciones de ubicación de los modales (trazo, heredan el
+    // color del botón): mapa interno, mapa externo y posición actual.
+    _SVG_PIN: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
+    _SVG_EXT: '<svg viewBox="0 0 362.67 362.67" fill="currentColor"><path d="M128 63.999V106.666H42.667V320H256V234.666H298.667V362.667H0V64H128V63.999ZM362.667 0V170.667H320V72.835L143.085 249.752L112.915 219.582L289.83 42.666L192 42.667V0H362.667Z"/></svg>',
+    _SVG_TARGET: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
+
+    /**
+     * Botón-ícono que centra el mini-mapa del modal en (lat, lon). Reusa la
+     * clase focus-btn: el script del iframe (_modalActionsScript) la
+     * escucha. Las coordenadas van solo en el tooltip, no como texto.
+     */
+    _iconFocusBtn: function (lat, lon, label, tip, svg) {
+        var esc = Ext.String.htmlEncode;
+        var coords = Number(lat).toFixed(5) + ', ' + Number(lon).toFixed(5);
+        return '<button type="button" class="promatic_dashboard_enhancer-focus-btn promatic_dashboard_enhancer-icon-btn" ' +
+            'data-focus-lat="' + lat + '" data-focus-lon="' + lon + '" data-focus-label="' + esc(label || '') + '" ' +
+            'title="' + esc(tip) + ' (' + coords + ')" aria-label="' + esc(tip) + '">' + svg + '</button>';
+    },
+
+    /** Enlace-ícono a un mapa externo (se abre en otra pestaña). */
+    _iconExtLink: function (url, tip) {
+        var esc = Ext.String.htmlEncode;
+        return '<a class="promatic_dashboard_enhancer-icon-btn" href="' + esc(url) + '" target="_blank" rel="noopener" ' +
+            'title="' + esc(tip) + '" aria-label="' + esc(tip) + '">' + this._SVG_EXT + '</a>';
+    },
+
     /**
      * Detalle de accidentes reales (events.php type=4911): 1 fila por evento
      * "Real crash detected" en la ventana de loadAlertasGenerales. Sin
@@ -1146,11 +1175,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var title = l('Detalle Alarma de Posibles Accidentes');
         var byId = this._onlineRecordsByAgent();
 
-        var focusBtn = function (lat, lon, text, label) {
-            return '<button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + lat +
-                '" data-focus-lon="' + lon + '" data-focus-label="' + esc(label || '') + '">' + text + '</button>';
-        };
-
         var rowHtml = function (r) {
             var rec = r.agentId != null ? byId[r.agentId] : null;
             var cur = rec ? me._recordLatLon(rec) : null;
@@ -1158,17 +1182,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var label = me.displayName(r.veh) + ' — ' + me._fmtEventDateTime(r.ts);
             var locCell;
             if (r.lat != null && r.lon != null) {
-                locCell = r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) +
-                    ' — ' + focusBtn(r.lat, r.lon, l('ver en mapa interno'), label) +
-                    (link ? ' — <a href="' + esc(link) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '');
+                locCell = me._iconFocusBtn(r.lat, r.lon, label, l('Ver en mapa interno'), me._SVG_PIN) +
+                    (link ? me._iconExtLink(link, l('Ver en mapa externo')) : '');
             } else {
                 locCell = l('N/D');
             }
             // La posición actual va aparte del punto del choque: un vehículo
             // puede haber seguido operando (o haber sido trasladado) después.
             var curCell = cur
-                ? focusBtn(cur[0], cur[1], l('ver posición actual'), me.displayName(r.veh) + ' — ' + l('posición actual')) +
-                  '<br>' + cur[0].toFixed(5) + ', ' + cur[1].toFixed(5)
+                ? me._iconFocusBtn(cur[0], cur[1], me.displayName(r.veh) + ' — ' + l('posición actual'), l('Ver posición actual'), me._SVG_TARGET)
                 : l('N/D');
             var sheet = me._vehicleSheetLines(rec).map(esc).join('<br>') || l('N/D');
             var calCell = r.calibrated === false ? l('No') : l('Sí');
@@ -3652,9 +3674,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var rec = r.agentId != null ? byId[r.agentId] : null;
             var cur = rec ? me._recordLatLon(rec) : null;
             var posCell = cur
-                ? '<button type="button" class="promatic_dashboard_enhancer-focus-btn" data-focus-lat="' + cur[0] +
-                  '" data-focus-lon="' + cur[1] + '" data-focus-label="' + esc(me.displayName(r.name)) + '">' +
-                  l('ver posición actual') + '</button><br>' + cur[0].toFixed(5) + ', ' + cur[1].toFixed(5)
+                ? me._iconFocusBtn(cur[0], cur[1], me.displayName(r.name), l('Ver posición actual'), me._SVG_TARGET)
                 : l('N/D');
             var sheet = me._vehicleSheetLines(rec).map(esc).join('<br>') || esc(r.group || '') || l('N/D');
             return '<tr><td>' + esc(me.displayName(r.name)) + '</td><td>' + sheet + '</td><td>' +
