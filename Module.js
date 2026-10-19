@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.19',
-    moduleBuild: '2026-10-19-1706',
+    version: '0.26.20',
+    moduleBuild: '2026-10-19-1735',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -392,6 +392,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      */
     updateCardBody: function (id, html, attempt, optional) {
         attempt = attempt || 0;
+        // Algunos callers pasan un spec de Ext.DomHelper (p. ej. _lopNote) en
+        // vez de HTML: setHtml lo mostraría como "[object Object]".
+        if (html && typeof html === 'object') { html = Ext.DomHelper.markup(html); }
         var el = Ext.get('promatic_dashboard_enhancer-card-body-' + id);
         if (el) {
             el.setHtml(html);
@@ -6868,6 +6871,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         this._lopHeavyBusy = true;
         var done = function () { me._lopHeavyBusy = false; };
         var delay = this._lopCfg('batch').startDelayMs;
+        // Durante el retardo de arranque, y mientras el combustible carga
+        // primero, las cards pesadas muestran su skeleton en vez de quedar vacías.
+        if (!this._lopFuel) { this._lopShowLoading(this.LOP_CARD_IDS.combustible, 'ranking', l('Preparando combustible…')); }
+        if (!this._lopTag) { this._lopShowLoading(this.LOP_CARD_IDS.tag, 'ranking', l('Peajes: en espera de que termine el combustible…')); }
         Ext.defer(function () {
             me.loadLopFuel(force)
                 .then(function () { return me.loadLopTag(force); })
@@ -7640,15 +7647,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         start.setDate(start.getDate() - cfg.windowDays);
         var plan = { queried: cand.ids.length, scope: cand.scope };
 
+        if (!me._lopFuel) { me._lopShowLoading(id, 'ranking', l('Cargando combustible…'), 0, cand.ids.length); }
         return this._lopRunBatches(cand.ids, function (slice) {
             return me._lopFetchReport(6, slice.join(','), start, stop, bcfg.batchTimeoutMs, cfg.explode);
         }, {
             batchSize: bcfg.batchSize, pauseMs: bcfg.batchPauseMs,
             isStale: function () { return nonce !== me._lopFuelNonce; },
             onProgress: function (done, total) {
-                if (!me._lopFuel) {
-                    me.updateCardBody(id, me._lopNote(l('Cargando combustible…') + ' ' + done + '/' + total), 0, true);
-                }
+                if (!me._lopFuel) { me._lopShowLoading(id, 'ranking', l('Cargando combustible…'), done, total); }
             }
         }).then(function (res) {
             if (nonce !== me._lopFuelNonce) { return; }
@@ -7806,15 +7812,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var start = new Date();
         start.setDate(start.getDate() - cfg.windowDays);
 
+        if (!me._lopTag) { me._lopShowLoading(id, 'ranking', l('Cargando peajes…'), 0, cand.ids.length); }
         return this._lopRunBatches(cand.ids, function (slice) {
             return me._lopFetchReport(96, slice.join(','), start, stop, bcfg.batchTimeoutMs, cfg.explode);
         }, {
             batchSize: bcfg.batchSize, pauseMs: bcfg.batchPauseMs,
             isStale: function () { return nonce !== me._lopTagNonce; },
             onProgress: function (done, total) {
-                if (!me._lopTag) {
-                    me.updateCardBody(id, me._lopNote(l('Cargando peajes…') + ' ' + done + '/' + total), 0, true);
-                }
+                if (!me._lopTag) { me._lopShowLoading(id, 'ranking', l('Cargando peajes…'), done, total); }
             }
         }).then(function (res) {
             if (nonce !== me._lopTagNonce) { return; }
@@ -8121,6 +8126,27 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     _lopNote: function (text) {
         return { cls: 'promatic_dashboard_enhancer-lop-note', html: text };
+    },
+
+    /**
+     * Estado de carga de una card LOP pesada: skeleton con la forma del
+     * contenido y una línea de avance. El skeleton se pinta una sola vez
+     * (repintarlo en cada lote reiniciaría la animación); las llamadas
+     * siguientes solo cambian el texto. done y total son opcionales.
+     */
+    _lopShowLoading: function (id, kind, text, done, total) {
+        var noteId = 'promatic_dashboard_enhancer-lop-progress-' + id;
+        var msg = text + (total ? ' ' + done + '/' + total + ' ' + l('vehículos') : '');
+        var el = Ext.get(noteId);
+        if (el) { el.setHtml(msg); return; }
+        // El skeleton no cuenta como pintado real para el refresco general.
+        this._paintingSkeleton = true;
+        try {
+            this.updateCardBody(id, Ext.DomHelper.markup(this.skeletonSpec(kind)) +
+                Ext.DomHelper.markup({ id: noteId, cls: 'promatic_dashboard_enhancer-lop-note', html: msg }), 0, true);
+        } finally {
+            this._paintingSkeleton = false;
+        }
     },
 
     _lopBox: function (value, label, mod) {
