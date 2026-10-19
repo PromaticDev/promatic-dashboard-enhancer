@@ -23,12 +23,12 @@
     "label": "Hora Oficial"
   },
   "ecoScore": {
-    "windowDays": 8,
+    "windowDays": 7,
     "idleThresholdMin": 120
   },
   "borderAlert": {
     "eventType": null,
-    "windowDays": 30,
+    "windowDays": 7,
     "since": ""
   },
   "branches": {

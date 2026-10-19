@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.18',
-    moduleBuild: '2026-10-13-1737',
+    version: '0.26.19',
+    moduleBuild: '2026-10-19-1706',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -66,10 +66,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         ui: { preset: 'rac', hiddenWidgets: ['violations'] },
         // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
         clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' },
-        // Ventana del Fleet ECO report. idleThresholdMin: minutos de ralentí
-        // acumulado en la ventana sobre los cuales un vehículo cuenta como
-        // "ralentí excesivo" en Alertas Generales.
-        ecoScore: { windowDays: 8, idleThresholdMin: 120 },
+        // Ventana del Fleet ECO report: una semana. Una ventana corta acorta
+        // la respuesta de un reporte que ya es pesado con flota completa y
+        // hace que las cifras se lean como actividad reciente y no como un
+        // acumulado. idleThresholdMin: minutos de ralentí acumulado en la
+        // ventana sobre los cuales un vehículo cuenta como "ralentí
+        // excesivo" en Alertas Generales.
+        ecoScore: { windowDays: 7, idleThresholdMin: 120 },
         // Alerta "Salida de territorio nacional" (Alertas Generales): eventos
         // de una notificación creada por la cuenta en PILOT que se dispara
         // cuando un vehículo se detiene en una geocerca de paso fronterizo.
@@ -77,11 +80,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // sin él la tarjeta queda en "EN DESARROLLO". since (fecha-hora ISO
         // sin zona, hora local del navegador) descarta eventos anteriores,
         // por si la regla se reconfiguró y quedaron eventos de otra versión.
-        borderAlert: { eventType: null, windowDays: 30, since: '' },
+        // windowDays: una semana, para que el conteo se lea como actividad
+        // reciente y no como una alarma vigente de hace un mes.
+        borderAlert: { eventType: null, windowDays: 7, since: '' },
         // El reporte de infracciones responde msg "Coming soon" pero con
         // success:true y data completa: msg es un texto heredado sin relación
-        // con la disponibilidad real del dato.
-        violations: { windowDays: 8 },
+        // con la disponibilidad real del dato. Misma ventana que ecoScore: el
+        // widget Conducción de LOP combina ambos reportes.
+        violations: { windowDays: 7 },
         // Match sucursal/base para el tooltip del mapa de flota. El mapeo es
         // EXPLÍCITO por cliente, sin inferencia por nombre: no hay señal de
         // texto confiable para deducir qué geocercas son sucursal de qué
@@ -994,7 +1000,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (kr.length === 0) { body = '<p>' + l('Sin datos de kilometraje cargados. Abre el dashboard y espera a que el widget cargue.') + '</p>'; }
         } else if (which === 'eco') {
             title = l('Safety Score (ECO)');
-            days = ((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 8;
+            days = ((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 7;
             var er = this._lastEcoRows || [];
             if (er.length === 0) {
                 body = '<p>' + l('Sin datos del Fleet ECO report cargados.') + '</p>';
@@ -1552,7 +1558,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     buildWidgetPdfDoc: function (which) {
         var lopModel = this._lopIsExport(which) ? this._lopExportModel(which) : null;
         var doc = this._pdfBase(this._widgetReportName(which),
-            this._pdfRange(lopModel ? lopModel.days : (which === 'eco' ? (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 8) : 7)));
+            this._pdfRange(lopModel ? lopModel.days : (which === 'eco' ? (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 7) : 7)));
         var desc = lopModel ? lopModel.desc : this._widgetDescriptions[which];
         if (desc) { doc.content.push({ text: l(desc), style: 'desc' }); }
         var C = doc.content;
@@ -3349,7 +3355,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             me._alertBorderRows = [];
             if (me._alertBorderEnabled) {
                 var bStart = new Date();
-                bStart.setDate(bStart.getDate() - (bcfg.windowDays || 30));
+                bStart.setDate(bStart.getDate() - (bcfg.windowDays || 7));
                 var sinceMs = bcfg.since ? Date.parse(bcfg.since) : NaN;
                 border = me.fetchBorderStopRows(csv, bStart, stop, bcfg.eventType, isNaN(sinceMs) ? 0 : sinceMs)
                     .then(function (rows) {
@@ -3698,7 +3704,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var cfg = (this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore;
         var stop = new Date();
         var start = new Date();
-        start.setDate(start.getDate() - (cfg.windowDays || 8));
+        start.setDate(start.getDate() - (cfg.windowDays || 7));
         this._idleInflightSig = sig;
         this._idleInflight = this._fetchEventsInChunks(sig, function (csv) { return me._fetchIdleChunk(csv, start, stop); })
             .then(function (rows) {
@@ -3805,7 +3811,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var ev = this._alertRalentiEvents;
         var episodes = (ev && ev.rows) || [];
         var cfg = (this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore;
-        var days = cfg.windowDays || 8;
+        var days = cfg.windowDays || 7;
         var idleMin = cfg.idleThresholdMin || 120;
         var title = l('Detalle Ralentí Excesivo');
         var byId = this._onlineRecordsByAgent();
@@ -4956,7 +4962,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     loadEcoScore: function () {
         var me = this;
         var cfg = (me.config && me.config.ecoScore) || (me.DEFAULT_CONFIG.ecoScore || {});
-        var days = cfg.windowDays || 8;
+        var days = cfg.windowDays || 7;
 
         this.withFleetVehicleIds(function (vehIds) {
             var stop = new Date();
@@ -5213,7 +5219,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     loadViolationsTrend: function () {
         var me = this;
         var cfg = (me.config && me.config.violations) || (me.DEFAULT_CONFIG.violations || {});
-        var days = cfg.windowDays || 8;
+        var days = cfg.windowDays || 7;
 
         this.withFleetVehicleIds(function (vehIds) {
             var stop = new Date();
@@ -8209,7 +8215,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 rows: b.rows.map(function (r) { return [r.name, String(r.present), String(r.parked), String(r.moving), String(r.offline), r.pct + '%']; }) });
         } else if (which === 'lop_conduccion') {
             m.desc = l('Frenadas, aceleraciones y curvas bruscas y excesos de velocidad por vehículo, con índice de eventos cada 100 km. Fuentes: Fleet ECO report e infracciones de manejo.');
-            m.days = ((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 8;
+            m.days = ((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 7;
             var rows = this._lopDrivingRows();
             if (rows.length === 0) { m.notes.push(l('Sin datos de conducción cargados.')); return m; }
             var cfg = this._lopCfg('driving');
