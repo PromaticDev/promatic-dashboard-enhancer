@@ -2070,6 +2070,12 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     font-variant-numeric: tabular-nums;
 }
 
+/* La columna de mapas es la más ancha: ahí el nombre de sucursal o vehículo
+   (Conducción, sucursales, combustible) no necesita cortarse a 11em. */
+.promatic_dashboard_enhancer-area-map .promatic_dashboard_enhancer-lop-table td:first-child {
+    max-width: 20em;
+}
+
 .promatic_dashboard_enhancer-lop-hl {
     font-weight: 700;
     color: var(--g6);

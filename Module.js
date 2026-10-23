@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.26.20',
-    moduleBuild: '2026-10-19-1735',
+    version: '0.27.0',
+    moduleBuild: '2026-10-23-1357',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -461,7 +461,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         { cls: 'promatic_dashboard_enhancer-export-card__title', html: l('Golden Report') },
                         {
                             cls: 'promatic_dashboard_enhancer-export-card__hint',
-                            html: l('Resumen semanal de todo el panel + guía para ver la información al detalle en PILOT')
+                            html: l('Resumen de todo el panel según el período de cada widget + guía para ver la información al detalle en PILOT')
                         },
                         {
                             tag: 'button', type: 'button',
@@ -521,8 +521,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var gb = e.getTarget('#promatic_dashboard_enhancer-golden-btn', 3, true);
             if (gb) {
                 e.preventDefault();
+                // El mini-mapa del modal da destino a los íconos de ubicación
+                // de "Sin Señal GPS" (el iframe no tiene acceso al mapa).
+                var goldenMap = me._safe(function () { return me.goldenMapSetup(); }) || { points: [], opts: {} };
                 me.openReportModal(me.buildGoldenReport(), 'Golden Report',
-                    me._safe(function () { return me.buildGoldenPdfDoc(); }));
+                    me._safe(function () { return me.buildGoldenPdfDoc(); }),
+                    goldenMap.points, goldenMap.opts);
             }
         });
     },
@@ -627,6 +631,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 me._focusReportModalMapPoint(data.lat, data.lon, data.label);
             } else if (data.type === 'promatic_dashboard_enhancer_open_native_report') {
                 me._openNativeReportFromModal(Number(data.reportType), Number(data.agentId), Number(data.ts));
+            } else if (data.type === 'promatic_dashboard_enhancer_open_alert_detail') {
+                me._openAlertDetail(String(data.kind || ''));
             }
         };
         window.addEventListener('message', me._reportModalMsgHandler);
@@ -871,9 +877,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             l('generado') + ' ' + this.chileTime() + '</div>';
     },
 
+    // Cortes de las bandas de color del Safety Score: la tarjeta del widget
+    // usa los mismos (verde desde ECO_GREEN_MIN, rojo bajo ECO_RED_BELOW,
+    // naranja entre ambos).
+    ECO_GREEN_MIN: 75,
+    ECO_RED_BELOW: 45,
+    ECO_BAND_COLOR: { good: '#238a4c', mid: '#a34d00', bad: '#ad1100' },
+
     _scoreMod: function (sc) {
-        if (sc >= 75) { return 'good'; }
-        if (sc >= 45) { return 'mid'; }
+        if (sc >= this.ECO_GREEN_MIN) { return 'good'; }
+        if (sc >= this.ECO_RED_BELOW) { return 'mid'; }
         return 'bad';
     },
 
@@ -1107,6 +1120,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             'if (isNaN(lat) || isNaN(lon)) { return; }' +
             'window.parent.postMessage({type: "promatic_dashboard_enhancer_focus_point", lat: lat, lon: lon, label: b.getAttribute("data-focus-label") || ""}, "*");' +
             'return; }' +
+            'var d = e.target.closest(".promatic_dashboard_enhancer-detail-btn");' +
+            'if (d) {' +
+            'window.parent.postMessage({type: "promatic_dashboard_enhancer_open_alert_detail", kind: d.getAttribute("data-alert-detail") || ""}, "*");' +
+            'return; }' +
             'var n = e.target.closest(".promatic_dashboard_enhancer-native-btn");' +
             'if (!n || n.disabled) { return; }' +
             'window.parent.postMessage({type: "promatic_dashboard_enhancer_open_native_report", reportType: n.getAttribute("data-native-report"), agentId: n.getAttribute("data-native-agent"), ts: n.getAttribute("data-native-ts")}, "*");' +
@@ -1144,6 +1161,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     _SVG_PIN: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
     _SVG_EXT: '<svg viewBox="0 0 362.67 362.67" fill="currentColor"><path d="M128 63.999V106.666H42.667V320H256V234.666H298.667V362.667H0V64H128V63.999ZM362.667 0V170.667H320V72.835L143.085 249.752L112.915 219.582L289.83 42.666L192 42.667V0H362.667Z"/></svg>',
     _SVG_TARGET: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
+    // "Abrir detalle": lista con flecha, para los resúmenes que enlazan a su modal de detalle.
+    _SVG_DETAIL: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h9"/><path d="M17 15l3 3-3 3"/></svg>',
 
     /**
      * Botón-ícono que centra el mini-mapa del modal en (lat, lon). Reusa la
@@ -1400,64 +1419,349 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '</div>' + focusScript + '</body></html>';
     },
 
-    buildGoldenReport: function () {
-        var esc = Ext.String.htmlEncode;
-        var f = this._lastFleetCounts || {};
-        var g = this._lastGpsBuckets || {};
-        var er = this._lastEcoRows || [];
-        var kr = this._lastTop5Ranked || [];
+    /** "dd/mm/aaaa" de un Date, en la hora local del navegador. */
+    _fmtDay: function (d) {
+        var p = function (n) { return (n < 10 ? '0' : '') + n; };
+        return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear();
+    },
 
-        var ecoAvg = 0;
-        if (er.length) { for (var i = 0; i < er.length; i++) { ecoAvg += er[i].cur; } ecoAvg = Math.round(ecoAvg / er.length); }
+    /**
+     * Estilos propios del Golden Report, encima de _reportStyles: cifras
+     * grandes de alertas, variación con color, listas de patentes y textos de
+     * apoyo en gris más claro. Los botones de ubicación y detalle no se
+     * imprimen: en papel no hacen nada.
+     */
+    _goldenStyles: function () {
+        return '<style>' +
+            '.hint{color:#64748b;font-size:12px;margin:2px 0 10px;max-width:52em}' +
+            '.alerts td{vertical-align:middle}' +
+            '.big{font-size:30px;font-weight:700;line-height:1.1;color:#0a3d5c;font-variant-numeric:tabular-nums}' +
+            '.big.nd{font-size:15px;font-weight:600;color:#94a3b8}' +
+            'td.incid{white-space:nowrap}td.incid .promatic_dashboard_enhancer-icon-btn{margin:0 10px 0 0}' +
+            '.trend{font-size:15px;font-weight:700;white-space:nowrap}' +
+            '.trend.up{color:#ad1100}.trend.down{color:#238a4c}.trend.flat,.none{color:#64748b}' +
+            '.tramo{margin:10px 0 12px}' +
+            '.tramo-h{font-size:12.5px;font-weight:600;color:#334155}' +
+            '.tramo-h .cnt{display:inline-block;min-width:1.7em;margin-right:6px;padding:1px 7px;border-radius:10px;background:#0a3d5c;color:#fff;text-align:center}' +
+            '.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}' +
+            '.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #cbd5e1;border-radius:14px;background:#f8fafc;padding:2px 8px 2px 10px;font-size:12px}' +
+            '.chip .t{color:#64748b;font-size:10.5px}' +
+            '.chip .promatic_dashboard_enhancer-icon-btn{width:22px;height:22px;margin:0}' +
+            '@media print{.promatic_dashboard_enhancer-icon-btn,.noprint{display:none}.chip{break-inside:avoid}}' +
+            '</style>';
+    },
+
+    _goldenHeader: function () {
+        return '<h1>Golden Report — ' + l('Resumen de Flota') + '</h1><div class="sub">' +
+            l('Generado el') + ' ' + this._fmtEventDateTime(Math.floor(Date.now() / 1000)) + '</div>';
+    },
+
+    /**
+     * Sin Señal GPS para el Golden Report: un grupo por tramo con sus
+     * vehículos, el de señal más antigua primero. null si el widget aún no
+     * cargó, que no es lo mismo que "ningún vehículo sin señal". Las filas
+     * (veh, ts de la última señal, lat/lon de la última posición) las deja
+     * cacheadas el cálculo del widget, sin consultas nuevas.
+     */
+    _goldenGpsGroups: function () {
+        var g = this._lastGpsBuckets;
+        if (!g) { return null; }
+        var oldestFirst = function (a, b) {
+            if (a.ts == null || b.ts == null) { return (a.ts == null ? 1 : 0) - (b.ts == null ? 1 : 0); }
+            return a.ts - b.ts;
+        };
+        return [
+            { label: l('Menos de 24h'), rows: g.rows24 },
+            { label: l('Entre 24 y 48h'), rows: g.rows48 },
+            { label: l('Más de 48h'), rows: g.rowsMore },
+            { label: l('Sin dato'), rows: g.rowsNoData, nodata: true }
+        ].map(function (grp) {
+            grp.rows = (grp.rows || []).slice().sort(oldestFirst);
+            return grp;
+        });
+    },
+
+    /**
+     * Puntos del mini-mapa del modal del Golden Report: la última ubicación
+     * conocida de los vehículos sin señal. Es el destino de los íconos de
+     * ubicación del reporte, que vive en un iframe sin acceso al mapa.
+     */
+    goldenMapSetup: function () {
+        var me = this, points = [];
+        (this._goldenGpsGroups() || []).forEach(function (grp) {
+            grp.rows.forEach(function (r) {
+                if (r.lat != null && r.lon != null) {
+                    points.push({ lat: r.lat, lon: r.lon, label: me.displayName(r.veh) });
+                }
+            });
+        });
+        return {
+            points: points,
+            opts: { notice: points.length ? l('Última ubicación conocida de los vehículos sin señal GPS. El ícono de ubicación de cada patente la centra aquí.') : '' }
+        };
+    },
+
+    /**
+     * Accidentes de hoy vs. ayer, contados de las mismas filas que alimentan
+     * la tarjeta. null si esas filas no están (la consulta falló o aún no
+     * termina): sin dato de ayer no se muestra variación. "Hoy" es el día en
+     * curso, así que se compara contra un día parcial.
+     * @return {{today: number, yesterday: number, delta: number}|null}
+     */
+    _accidentDayTrend: function () {
+        var rows = this._alertAccidentesRows;
+        if (typeof this._alertAccidentes !== 'number' || !Array.isArray(rows)) { return null; }
+        var now = Math.floor(Date.now() / 1000);
+        var kToday = this._eventDayKey(now), kYest = this._eventDayKey(now - 86400);
+        if (!kToday || !kYest) { return null; }
+        var t = 0, y = 0;
+        for (var i = 0; i < rows.length; i++) {
+            var k = this._eventDayKey(rows[i].ts);
+            if (k === kToday) { t++; } else if (k === kYest) { y++; }
+        }
+        return { today: t, yesterday: y, delta: t - y };
+    },
+
+    /**
+     * Filas de Alertas Generales del Golden Report (HTML y PDF). value: número
+     * o null si no hay dato (se muestra N/D). detail: clave de _openAlertDetail
+     * o null si la categoría no tiene modal de detalle. trend: variación vs.
+     * ayer, solo donde existe el dato del día anterior (hoy, accidentes).
+     * Ralentí, mantención y combustible son acumulados de su ventana o un
+     * estado actual, sin serie diaria, así que quedan sin variación.
+     */
+    _goldenAlertRows: function () {
+        var me = this;
+        var num = function (v) { return typeof v === 'number' ? v : null; };
+        var rows = [
+            { label: l('Accidentes (hoy y ayer)'), value: num(this._alertAccidentes), detail: 'accidentes', trend: this._accidentDayTrend() },
+            { label: l('Requiere mantención'), value: num(this._alertMantencion), detail: null, trend: null },
+            { label: l('Ralentí excesivo'), value: num(this._alertRalenti), detail: 'ralenti', trend: null }
+        ];
+        [['carga', l('Posibles inconsistencias en carga')], ['drenaje', l('Posible drenaje de combustible')]].forEach(function (k) {
+            var sm = me._fuelSummary(k[0]);
+            rows.push({ label: k[1], cov: sm.cov, value: num(sm.count), detail: k[0], trend: null });
+        });
+        return rows;
+    },
+
+    /** Variación vs. ayer en HTML: flecha con color (más incidencias = peor) y los dos valores. */
+    _goldenTrendHtml: function (t) {
+        if (!t) { return '<span class="trend flat" title="' + Ext.String.htmlEncode(l('Sin dato del día anterior')) + '">—</span>'; }
+        var cls = t.delta > 0 ? 'up' : (t.delta < 0 ? 'down' : 'flat');
+        var mark = t.delta > 0 ? '▲ +' : (t.delta < 0 ? '▼ −' : '= ');
+        return '<span class="trend ' + cls + '">' + mark + Math.abs(t.delta) + '</span>' +
+            '<div class="sub">' + l('hoy') + ' ' + t.today + ' · ' + l('ayer') + ' ' + t.yesterday + '</div>';
+    },
+
+    /** Variación vs. ayer en pdfMake: palabras y ASCII, porque la fuente del PDF no trae las flechas. */
+    _goldenTrendPdf: function (t) {
+        if (!t) { return { text: '—', color: '#64748b' }; }
+        var color = t.delta > 0 ? '#ad1100' : (t.delta < 0 ? '#238a4c' : '#64748b');
+        var word = t.delta > 0 ? '+' + t.delta + ' (' + l('sube') + ')'
+            : (t.delta < 0 ? '-' + (-t.delta) + ' (' + l('baja') + ')' : l('Sin cambio'));
+        return { stack: [
+            { text: word, bold: true, fontSize: 10, color: color },
+            { text: l('hoy') + ' ' + t.today + ' · ' + l('ayer') + ' ' + t.yesterday, fontSize: 7.5, color: '#64748b' }
+        ] };
+    },
+
+    /** Segunda línea de la descripción del ranking de km: las fechas reales de la consulta del widget. */
+    _goldenKmWindowText: function () {
+        var w = this._lastTop5Window;
+        if (w && w.start && w.stop) {
+            return l('Fecha de inicio') + ': ' + this._fmtDay(w.start) + ' · ' + l('Fecha de término') + ': ' + this._fmtDay(w.stop) + '.';
+        }
+        var days = ((this.config && this.config.top5km) || this.DEFAULT_CONFIG.top5km).windowDays || 7;
+        return l('Ventana de consulta') + ': ' + l('últimos') + ' ' + days + ' ' + l('días') + '.';
+    },
+
+    /**
+     * Safety Score para el Golden Report: % de vehículos por banda de color
+     * (los cortes de _scoreMod, los mismos de la tarjeta del widget) y los 10
+     * de menor puntaje. Un puntaje negativo significa una cantidad muy alta de
+     * infracciones; aquí se muestra acotado a 0 (clamped avisa si hubo alguno).
+     * @return {Object|null} null si no hay filas del Fleet ECO report.
+     */
+    _goldenEcoModel: function () {
+        var me = this;
+        var rows = (this._lastEcoRows || []).filter(function (r) { return isFinite(r.cur); });
+        if (!rows.length) { return null; }
+        var clamped = false;
+        var floor0 = function (v) { if (v < 0) { clamped = true; return 0; } return v; };
+        var counts = { good: 0, mid: 0, bad: 0 }, sum = 0;
+        rows.forEach(function (r) { counts[me._scoreMod(r.cur)]++; sum += r.cur; });
+        var pct = function (k) { return Math.round(counts[k] / rows.length * 100); };
+        var worst = rows.slice().sort(function (a, b) { return a.cur - b.cur; }).slice(0, 10).map(function (r) {
+            return { name: r.name, cur: floor0(r.cur), prev: isFinite(r.prev) ? floor0(r.prev) : null };
+        });
+        var avg = floor0(Math.round(sum / rows.length));
+        return {
+            total: rows.length, counts: counts,
+            pctGood: pct('good'), pctMid: pct('mid'), pctBad: pct('bad'),
+            avg: avg, worst: worst, clamped: clamped,
+            days: ((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).windowDays || 7,
+            labels: {
+                good: l('En verde') + ' (' + this.ECO_GREEN_MIN + ' ' + l('o más') + ')',
+                mid: l('Intermedio') + ' (' + this.ECO_RED_BELOW + ' - ' + (this.ECO_GREEN_MIN - 1) + ')',
+                bad: l('En rojo') + ' (' + l('menos de') + ' ' + this.ECO_RED_BELOW + ')'
+            }
+        };
+    },
+
+    /**
+     * Abre el modal de detalle de una categoría de Alertas Generales, a pedido
+     * del ícono de detalle del Golden Report (llega por postMessage desde el
+     * iframe). Abrir otro modal reemplaza al Golden Report. Misma apertura que
+     * el clic de la tarjeta en bindAlertReportLinks. Una clave desconocida se
+     * ignora.
+     * @param {String} kind 'accidentes' | 'ralenti' | 'carga' | 'drenaje'
+     */
+    _openAlertDetail: function (kind) {
+        var me = this;
+        if (kind === 'accidentes') {
+            var acc = this.accidentesMapSetup();
+            this.openReportModal(this.buildAccidentesReport(), l('Detalle Alarma de Posibles Accidentes'),
+                this._safe(function () { return me.buildAccidentesPdfDoc(); }), acc.points, acc.opts);
+        } else if (kind === 'ralenti') {
+            var title = l('Detalle Ralentí Excesivo');
+            var openIdle = function () {
+                var idleMap = me.ralentiMapSetup();
+                me.openReportModal(me.buildRalentiReport(), title, null, idleMap.points, idleMap.opts);
+            };
+            if (this._alertRalentiEvents || !(this._alertRalentiIds || []).length) {
+                openIdle();
+            } else {
+                // Los avisos de ralentí aún se están pidiendo: modal de espera
+                // que se reemplaza al llegar, salvo que el usuario lo cierre.
+                this.openReportModal(this.buildLoadingReport(title,
+                    l('Generando el reporte de ralentí… puede tardar unos segundos.')), title, null);
+                this.loadIdleEvents(this._alertRalentiIds).then(function () {
+                    if (document.getElementById('promatic_dashboard_enhancer-report-modal')) { openIdle(); }
+                });
+            }
+        } else if (kind === 'carga' || kind === 'drenaje') {
+            this.openFuelAlertModal(kind);
+        }
+    },
+
+    buildGoldenReport: function () {
+        var me = this;
+        var esc = Ext.String.htmlEncode;
+        var f = this._lastFleetCounts;
+        var kr = this._lastTop5Ranked || [];
+        var eco = null;
+        try { eco = this._goldenEcoModel(); } catch (errEco) { this.widgetErrorCode('GOLDEN-ECO', errEco); }
+
+        // Cada sección se arma aparte: un dato inesperado en una no debe
+        // dejar el reporte sin abrir.
+        var sec = function (code, title, build) {
+            var body;
+            try { body = build(); }
+            catch (err) {
+                me.widgetErrorCode('GOLDEN-' + code, err);
+                body = '<p class="sub">' + l('Sin datos: no se pudo armar esta sección.') + '</p>';
+            }
+            return '<h2>' + title + '</h2>' + body;
+        };
+        var noData = function (msg) { return '<p class="sub">' + msg + '</p>'; };
 
         var s = '<!doctype html><html><head><meta charset="utf-8"><title>Golden Report</title>' +
-            this._reportStyles() + '</head><body>' +
-            this._reportHeader('Golden Report — ' + l('Resumen semanal de flota'), 7);
+            this._reportStyles() + this._goldenStyles() + '</head><body>' + this._goldenHeader();
 
-        s += '<p class="lead">' + l('Este documento resume el estado de la flota de la última semana en una sola vista: disponibilidad operativa, conectividad, alertas, kilometraje y conducción segura. Al final incluye una guía para ver la información al detalle desde los paneles de PILOT.') + '</p>';
+        s += '<p class="lead">' + l('Este documento entrega un resumen de los datos de la flota según el período configurado para cada widget: disponibilidad operativa, conectividad, alertas, kilometraje y conducción segura. Al final incluye una guía para ver la información al detalle desde los paneles de PILOT.') + '</p>';
 
         // Resumen ejecutivo en cajas
-        s += '<h2>' + l('Resumen') + '</h2>' +
-            '<p class="desc">' + l('Fotografía de la flota en el momento de generar el reporte.') + '</p>' +
-            '<div class="grid">' +
-            '<div class="box neutral"><div class="v">' + (f.total || 0) + '</div><div class="l">' + l('Vehículos') + '</div></div>' +
-            '<div class="box good"><div class="v">' + (f.moving || 0) + '</div><div class="l">' + l('En movimiento') + '</div></div>' +
-            '<div class="box bad"><div class="v">' + (f.offline || 0) + '</div><div class="l">' + l('Sin conexión') + '</div></div>' +
-            (er.length ? '<div class="box ' + this._scoreMod(ecoAvg) + '"><div class="v">' + ecoAvg + '</div><div class="l">' + l('Safety Score') + '</div></div>' : '') +
-            '</div>';
+        s += sec('RESUMEN', l('Resumen'), function () {
+            if (!f) { return noData(l('Sin datos de la flota cargados todavía.')); }
+            return '<p class="desc">' + l('Fotografía de la flota en el momento de generar el reporte.') + '</p>' +
+                '<div class="grid">' +
+                '<div class="box neutral"><div class="v">' + (f.total || 0) + '</div><div class="l">' + l('Vehículos') + '</div></div>' +
+                '<div class="box good"><div class="v">' + (f.moving || 0) + '</div><div class="l">' + l('En movimiento') + '</div></div>' +
+                '<div class="box bad"><div class="v">' + (f.offline || 0) + '</div><div class="l">' + l('Sin conexión') + '</div></div>' +
+                (eco ? '<div class="box ' + me._scoreMod(eco.avg) + '"><div class="v">' + eco.avg + '</div><div class="l">' + l('Safety Score') + '</div></div>' : '') +
+                '</div>';
+        });
 
-        // Sin Señal GPS
-        s += '<h2>' + l('Sin Señal GPS') + '</h2><table>' +
-            '<tr><th>' + l('Menos de 24h') + '</th><th>' + l('Entre 24 y 48h') + '</th><th>' + l('Más de 48h') + '</th><th>' + l('Sin dato') + '</th></tr>' +
-            '<tr><td class="n">' + (g.b24 || 0) + '</td><td class="n">' + (g.b48 || 0) + '</td><td class="n">' + (g.bMore || 0) + '</td><td class="n">' + (g.bNoData || 0) + '</td></tr></table>';
+        // Sin Señal GPS: qué patentes hay en cada tramo y dónde quedó cada una.
+        s += sec('GPS', l('Sin Señal GPS'), function () {
+            var groups = me._goldenGpsGroups();
+            if (!groups) { return noData(l('Sin datos de conectividad cargados todavía.')); }
+            var chip = function (r) {
+                var plate = me.displayName(r.veh);
+                var when = r.ts != null ? me._fmtEventDateTime(r.ts) : '';
+                var link = r.lat != null && r.lon != null ? me._mapsLink(r.lat, r.lon) : null;
+                var label = plate + (when ? ' — ' + when : '');
+                return '<span class="chip"><b>' + (esc(plate) || '—') + '</b>' +
+                    (when ? '<span class="t">' + esc(when) + '</span>' : '') +
+                    (r.lat != null && r.lon != null
+                        ? me._iconFocusBtn(r.lat, r.lon, label, l('Ver última ubicación en PILOT'), me._SVG_PIN) : '') +
+                    (link ? me._iconExtLink(link, l('Ver última ubicación en mapa externo')) : '') + '</span>';
+            };
+            var out = '<p class="hint">' + l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal; se indica la fecha de esa última señal.') + '</p>' +
+                '<p class="hint noprint">' + l('Los íconos de cada patente muestran su última ubicación conocida en el mapa de esta ventana o en un mapa externo.') + '</p>';
+            groups.forEach(function (grp) {
+                // Los tramos por tiempo se muestran siempre (el cero también
+                // informa); "Sin dato" solo cuando tiene vehículos.
+                if (grp.nodata && !grp.rows.length) { return; }
+                out += '<div class="tramo"><div class="tramo-h"><span class="cnt">' + grp.rows.length + '</span>' + grp.label + '</div>' +
+                    (grp.rows.length
+                        ? '<div class="chips">' + grp.rows.map(chip).join('') + '</div>'
+                        : '<div class="none">' + l('Ninguno') + '</div>') + '</div>';
+            });
+            return out;
+        });
 
-        // Alertas
-        s += '<h2>' + l('Alertas Generales') + '</h2><table><tr><th>' + l('Categoría') + '</th><th>' + l('Incidencias') + '</th></tr>';
-        var row = function (lbl, v) { return '<tr><td>' + lbl + '</td><td class="n">' + (typeof v === 'number' ? v : l('N/D')) + '</td></tr>'; };
-        s += row(l('Accidentes (hoy y ayer)'), this._alertAccidentes) + row(l('Requiere mantención'), this._alertMantencion) +
-            row(l('Ralentí excesivo'), this._alertRalenti) + this._fuelRowsHtml() + '</table>';
+        // Alertas Generales: cifra grande, ícono de detalle si no es cero y
+        // variación vs. ayer donde hay dato.
+        s += sec('ALERTAS', l('Alertas Generales'), function () {
+            var out = '<p class="hint">' + l('Incidencias por categoría en el período configurado de cada widget; accidentes cuenta hoy y ayer. La variación compara hoy con el día anterior.') + '</p>' +
+                '<table class="alerts"><tr><th>' + l('Categoría') + '</th><th>' + l('Incidencias') + '</th><th>' + l('Variación vs. ayer') + '</th></tr>';
+            me._goldenAlertRows().forEach(function (r) {
+                var has = typeof r.value === 'number';
+                var detail = has && r.value > 0 && r.detail
+                    ? '<button type="button" class="promatic_dashboard_enhancer-icon-btn promatic_dashboard_enhancer-detail-btn" data-alert-detail="' + r.detail +
+                      '" title="' + esc(l('Abrir el detalle')) + '" aria-label="' + esc(l('Abrir el detalle')) + '">' + me._SVG_DETAIL + '</button>'
+                    : '';
+                out += '<tr><td>' + r.label + (r.cov ? ' <span class="sub">(' + esc(r.cov) + ')</span>' : '') + '</td>' +
+                    '<td class="n incid">' + detail + '<span class="big' + (has ? '' : ' nd') + '">' + (has ? r.value : l('N/D')) + '</span></td>' +
+                    '<td>' + me._goldenTrendHtml(r.trend) + '</td></tr>';
+            });
+            return out + '</table><p class="sub">' +
+                l('N/D: PILOT no entregó el dato (por ejemplo, vehículos sin sensor de combustible). "—" en la variación: no hay dato del día anterior.') + '</p>';
+        });
 
         // Top KM
-        if (kr.length) {
-            s += '<h2>' + l('Vehículos con Exceso de Kilometraje') + '</h2><table><tr><th>#</th><th>' +
-                l('Vehículo') + '</th><th>' + l('Kilómetros') + '</th></tr>';
+        s += sec('KM', l('Vehículos con Exceso de Kilometraje'), function () {
+            var out = '<p class="hint">' + l('Ranking de los vehículos que han recorrido más kilómetros en la ventana de consulta del widget.') +
+                '<br>' + me._goldenKmWindowText() + '</p>';
+            if (!kr.length) { return out + noData(l('Sin datos de kilometraje cargados.')); }
+            out += '<table><tr><th>#</th><th>' + l('Vehículo') + '</th><th>' + l('Kilómetros') + '</th></tr>';
             for (var k = 0; k < Math.min(kr.length, 10); k++) {
-                s += '<tr><td>' + (k + 1) + '</td><td>' + esc(this.displayName(kr[k].name)) + '</td><td class="n">' + Math.round(kr[k].km) + ' km</td></tr>';
+                out += '<tr><td>' + (k + 1) + '</td><td>' + esc(me.displayName(kr[k].name)) + '</td><td class="n">' + Math.round(kr[k].km) + ' km</td></tr>';
             }
-            s += '</table>';
-        }
+            return out + '</table>';
+        });
 
-        // Safety Score detalle
-        if (er.length) {
-            var sorted = er.slice().sort(function (a, b) { return b.cur - a.cur; });
-            s += '<h2>' + l('Safety Score — ranking') + '</h2><table><tr><th>' + l('Vehículo') + '</th><th>' +
-                l('Actual') + '</th><th>' + l('Anterior') + '</th></tr>';
-            for (var e2 = 0; e2 < sorted.length; e2++) {
-                s += '<tr><td>' + esc(this.displayName(sorted[e2].name)) + '</td><td class="n">' + sorted[e2].cur +
-                    '</td><td class="n">' + (isFinite(sorted[e2].prev) ? sorted[e2].prev : '—') + '</td></tr>';
-            }
-            s += '</table>';
-        }
+        // Safety Score: reparto por bandas de color y los 10 peores.
+        s += sec('ECO', l('Safety Score — Ranking'), function () {
+            if (!eco) { return noData(l('Sin datos del Fleet ECO report cargados.')); }
+            var out = '<p class="hint">' + l('Porcentaje de vehículos por banda de puntaje en los últimos') + ' ' + eco.days + ' ' + l('días') +
+                ' (' + eco.total + ' ' + l('vehículos con datos') + ').</p>' +
+                '<div class="grid">' +
+                '<div class="box good"><div class="v">' + eco.pctGood + '%</div><div class="l">' + esc(eco.labels.good) + ' · ' + eco.counts.good + ' ' + l('vehículos') + '</div></div>' +
+                '<div class="box bad"><div class="v">' + eco.pctBad + '%</div><div class="l">' + esc(eco.labels.bad) + ' · ' + eco.counts.bad + ' ' + l('vehículos') + '</div></div>' +
+                '</div><p class="sub">' + esc(eco.labels.mid) + ': ' + eco.pctMid + '% · ' + eco.counts.mid + ' ' + l('vehículos') + '.</p>' +
+                '<h3 style="font-size:12.5px;margin:14px 0 2px;color:#334155">' + l('Los 10 vehículos con menor puntaje') + '</h3>' +
+                '<table><tr><th>#</th><th>' + l('Vehículo') + '</th><th>' + l('Actual') + '</th><th>' + l('Anterior') + '</th></tr>';
+            eco.worst.forEach(function (r, i) {
+                out += '<tr><td>' + (i + 1) + '</td><td>' + esc(me.displayName(r.name)) + '</td><td class="n" style="font-weight:700;color:' +
+                    me.ECO_BAND_COLOR[me._scoreMod(r.cur)] + '">' + r.cur + '</td><td class="n">' + (r.prev != null ? r.prev : '—') + '</td></tr>';
+            });
+            out += '</table>';
+            if (eco.clamped) { out += '<p class="sub">' + l('Los puntajes negativos (muchas infracciones) se muestran como 0.') + '</p>'; }
+            return out;
+        });
 
         s += this._lopGoldenHtml();
 
@@ -1467,11 +1771,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '<li>' + l('En PILOT, abre el panel lateral') + ' <em>' + l('Informes') + '</em>.</li>' +
             '<li>' + l('Selecciona los vehículos o la carpeta en el árbol de objetos.') + '</li>' +
             '<li>' + l('Tipo de informe') + ': <em>' + l('Informe de kilometraje') + '</em>. ' +
-            l('Rango: última semana. División: "No dividir".') + '</li>' +
+            l('Rango: el mismo período del widget (por defecto, la última semana). División: "No dividir".') + '</li>' +
             '<li>' + l('Genera y usa el botón de exportar a Excel de la barra del informe.') + '</li></ol></div>' +
             '<div class="guide"><strong>Fleet ECO report (Safety Score)</strong><ol>' +
             '<li>' + l('Panel') + ' <em>' + l('Informes') + '</em> → ' + l('tipo') + ' <em>Fleet ECO report</em>.</li>' +
-            '<li>' + l('Selecciona el grupo/carpeta de vehículos y el rango semanal.') + '</li>' +
+            '<li>' + l('Selecciona el grupo/carpeta de vehículos y el mismo período del widget.') + '</li>' +
             '<li>' + l('Genera; la tabla trae Ralentí, Exceso de velocidad, Frenadas/Aceleradas bruscas, Distancia, Duración y Rating actual/anterior por vehículo.') + '</li>' +
             '<li>' + l('Exporta a Excel desde la barra del informe.') + '</li></ol></div>' +
             '<div class="guide"><strong>' + l('Alertas / eventos') + '</strong><ol>' +
@@ -1479,8 +1783,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             l('para el detalle por evento (desconexión, ralentí, conducción brusca), filtrando por tipo y rango.') + '</li></ol></div>';
 
         s += '<div class="foot">' +
-            l('Golden Report generado por el Dashboard sobre datos de PILOT Telematics. Los valores corresponden a la selección de vehículos activa y a la ventana de la última semana.') +
-            '</div></body></html>';
+            l('Golden Report generado por el Dashboard sobre datos de PILOT Telematics. Los valores corresponden a la selección de vehículos activa y al período configurado para cada widget.') +
+            '</div>' + this._modalActionsScript() + '</body></html>';
         return s;
     },
 
@@ -1747,54 +2051,108 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     buildGoldenPdfDoc: function () {
-        var doc = this._pdfBase('Golden Report — ' + l('Resumen semanal de flota'), this._pdfRange(7));
+        var me = this;
+        var doc = this._pdfBase('Golden Report — ' + l('Resumen de Flota'),
+            l('Generado el') + ' ' + this._fmtEventDateTime(Math.floor(Date.now() / 1000)));
         var C = doc.content;
         var name = this.displayName.bind(this);
-        var f = this._lastFleetCounts || {}, g = this._lastGpsBuckets || {};
-        var er = this._lastEcoRows || [], kr = this._lastTop5Ranked || [];
-        var ecoAvg = 0; if (er.length) { for (var i = 0; i < er.length; i++) { ecoAvg += er[i].cur; } ecoAvg = Math.round(ecoAvg / er.length); }
+        var f = this._lastFleetCounts;
+        var kr = this._lastTop5Ranked || [];
+        var eco = null;
+        try { eco = this._goldenEcoModel(); } catch (errEco) { this.widgetErrorCode('GOLDEN-ECO', errEco); }
 
-        C.push({ text: l('Este documento resume el estado de la flota de la última semana: disponibilidad, conectividad, alertas, kilometraje y conducción segura.'), style: 'desc' });
+        var hint = function (t) { return { text: t, fontSize: 8, color: '#64748b', margin: [0, 0, 0, 6] }; };
+        var noData = function (t) { return { text: t, style: 'sub' }; };
+        // Cada sección se arma en un arreglo aparte: si falla a medias no deja
+        // contenido suelto y el PDF sigue generándose.
+        var sec = function (code, title, build) {
+            var part = [{ text: title, style: 'h2' }];
+            try { build(part); }
+            catch (err) {
+                me.widgetErrorCode('GOLDEN-PDF-' + code, err);
+                part = [{ text: title, style: 'h2' }, noData(l('Sin datos: no se pudo armar esta sección.'))];
+            }
+            C.push.apply(C, part);
+        };
 
-        C.push({ text: l('Resumen'), style: 'h2' });
-        var boxes = [
-            { v: f.total || 0, l: l('Vehículos'), color: '#0a67a0' },
-            { v: f.moving || 0, l: l('En movimiento'), color: '#238a4c' },
-            { v: f.offline || 0, l: l('Sin conexión'), color: '#ad1100' }
-        ];
-        if (er.length) { boxes.push({ v: ecoAvg, l: l('Safety Score'), color: this._pdfScoreColor(ecoAvg) }); }
-        C.push(this._pdfBoxes(boxes));
+        C.push({ text: l('Este documento entrega un resumen de los datos de la flota según el período configurado para cada widget: disponibilidad, conectividad, alertas, kilometraje y conducción segura.'), style: 'desc' });
 
-        C.push({ text: l('Sin Señal GPS'), style: 'h2' });
-        C.push(this._pdfTable([l('Menos de 24h'), l('Entre 24 y 48h'), l('Más de 48h'), l('Sin dato')],
-            [[{ text: String(g.b24 || 0), alignment: 'right' }, { text: String(g.b48 || 0), alignment: 'right' }, { text: String(g.bMore || 0), alignment: 'right' }, { text: String(g.bNoData || 0), alignment: 'right' }]]));
+        sec('RESUMEN', l('Resumen'), function (P) {
+            if (!f) { P.push(noData(l('Sin datos de la flota cargados todavía.'))); return; }
+            var boxes = [
+                { v: f.total || 0, l: l('Vehículos'), color: '#0a67a0' },
+                { v: f.moving || 0, l: l('En movimiento'), color: '#238a4c' },
+                { v: f.offline || 0, l: l('Sin conexión'), color: '#ad1100' }
+            ];
+            if (eco) { boxes.push({ v: eco.avg, l: l('Safety Score'), color: me.ECO_BAND_COLOR[me._scoreMod(eco.avg)] }); }
+            P.push(me._pdfBoxes(boxes));
+        });
 
-        C.push({ text: l('Alertas Generales'), style: 'h2' });
-        var av = function (x) { return typeof x === 'number' ? String(x) : l('N/D'); };
-        C.push(this._pdfTable([l('Categoría'), l('Incidencias')], [
-            [l('Accidentes (hoy y ayer)'), { text: av(this._alertAccidentes), alignment: 'right' }],
-            [l('Requiere mantención'), { text: av(this._alertMantencion), alignment: 'right' }],
-            [l('Ralentí excesivo'), { text: av(this._alertRalenti), alignment: 'right' }]
-        ]));
+        // Las patentes con ubicación llevan un enlace a un mapa externo (el
+        // PDF no tiene el mapa de PILOT).
+        sec('GPS', l('Sin Señal GPS'), function (P) {
+            var groups = me._goldenGpsGroups();
+            if (!groups) { P.push(noData(l('Sin datos de conectividad cargados todavía.'))); return; }
+            P.push(hint(l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal; se indica la fecha de esa última señal. Las patentes en azul abren su última ubicación conocida en un mapa externo.')));
+            groups.forEach(function (grp) {
+                if (grp.nodata && !grp.rows.length) { return; }
+                P.push({ text: grp.label + ' — ' + grp.rows.length, bold: true, margin: [0, 6, 0, 2] });
+                if (!grp.rows.length) { P.push({ text: l('Ninguno'), color: '#64748b' }); return; }
+                var parts = [];
+                grp.rows.forEach(function (r, i) {
+                    if (i) { parts.push({ text: '  ·  ', color: '#94a3b8' }); }
+                    var label = (name(r.veh) || '—') + (r.ts != null ? ' (' + me._fmtEventDateTime(r.ts) + ')' : '');
+                    var url = r.lat != null && r.lon != null ? me._mapsLink(r.lat, r.lon) : null;
+                    parts.push(url ? { text: label, link: url, color: '#0a67a0' } : { text: label });
+                });
+                P.push({ text: parts, fontSize: 8.5, lineHeight: 1.3 });
+            });
+        });
 
-        if (kr.length) {
-            C.push({ text: l('Vehículos con Exceso de Kilometraje'), style: 'h2' });
-            C.push(this._pdfTable(['#', l('Vehículo'), l('Kilómetros')],
+        // Sin ícono de detalle: el PDF es estático.
+        sec('ALERTAS', l('Alertas Generales'), function (P) {
+            P.push(hint(l('Incidencias por categoría en el período configurado de cada widget; accidentes cuenta hoy y ayer. La variación compara hoy con el día anterior; "—" indica que no hay dato del día anterior.')));
+            P.push(me._pdfTable([l('Categoría'), l('Incidencias'), l('Variación vs. ayer')],
+                me._goldenAlertRows().map(function (r) {
+                    var has = typeof r.value === 'number';
+                    return [r.label + (r.cov ? ' (' + r.cov + ')' : ''),
+                        { text: has ? String(r.value) : l('N/D'), alignment: 'right', bold: has, fontSize: has ? 16 : 9, color: has ? '#0a3d5c' : '#94a3b8' },
+                        me._goldenTrendPdf(r.trend)];
+                })));
+        });
+
+        sec('KM', l('Vehículos con Exceso de Kilometraje'), function (P) {
+            P.push(hint(l('Ranking de los vehículos que han recorrido más kilómetros en la ventana de consulta del widget.') + '\n' + me._goldenKmWindowText()));
+            if (!kr.length) { P.push(noData(l('Sin datos de kilometraje cargados.'))); return; }
+            P.push(me._pdfTable(['#', l('Vehículo'), l('Kilómetros')],
                 kr.slice(0, 10).map(function (r, i) { return [String(i + 1), name(r.name), { text: Math.round(r.km) + ' km', alignment: 'right' }]; })));
-        }
-        if (er.length) {
-            C.push({ text: l('Safety Score — ranking'), style: 'h2' });
-            var sorted = er.slice().sort(function (a, b) { return b.cur - a.cur; });
-            C.push(this._pdfTable([l('Vehículo'), l('Actual'), l('Anterior')],
-                sorted.map(function (r) { return [name(r.name), { text: String(r.cur), alignment: 'right' }, { text: isFinite(r.prev) ? String(r.prev) : '—', alignment: 'right' }]; })));
-        }
+        });
+
+        sec('ECO', l('Safety Score — Ranking'), function (P) {
+            if (!eco) { P.push(noData(l('Sin datos del Fleet ECO report cargados.'))); return; }
+            P.push(hint(l('Porcentaje de vehículos por banda de puntaje en los últimos') + ' ' + eco.days + ' ' + l('días') +
+                ' (' + eco.total + ' ' + l('vehículos con datos') + ').'));
+            P.push(me._pdfBoxes([
+                { v: eco.pctGood + '%', l: eco.labels.good + ' · ' + eco.counts.good + ' ' + l('vehículos'), color: me.ECO_BAND_COLOR.good },
+                { v: eco.pctBad + '%', l: eco.labels.bad + ' · ' + eco.counts.bad + ' ' + l('vehículos'), color: me.ECO_BAND_COLOR.bad }
+            ]));
+            P.push(noData(eco.labels.mid + ': ' + eco.pctMid + '% · ' + eco.counts.mid + ' ' + l('vehículos') + '.'));
+            P.push({ text: l('Los 10 vehículos con menor puntaje'), bold: true, margin: [0, 8, 0, 2] });
+            P.push(me._pdfTable(['#', l('Vehículo'), l('Actual'), l('Anterior')],
+                eco.worst.map(function (r, i) {
+                    return [String(i + 1), name(r.name),
+                        { text: String(r.cur), alignment: 'right', bold: true, color: me.ECO_BAND_COLOR[me._scoreMod(r.cur)] },
+                        { text: r.prev != null ? String(r.prev) : '—', alignment: 'right' }];
+                })));
+            if (eco.clamped) { P.push(noData(l('Los puntajes negativos (muchas infracciones) se muestran como 0.'))); }
+        });
 
         this._lopGoldenPdf(C);
 
         C.push({ text: l('Para ver la información al detalle en PILOT'), style: 'h2' });
         C.push({ ul: [
-            l('Kilometraje: panel Informes → "Informe de kilometraje", selecciona vehículos/carpeta y el rango semanal, exporta a Excel.'),
-            l('Safety Score: panel Informes → "Fleet ECO report", selecciona el grupo y el rango, exporta a Excel.'),
+            l('Kilometraje: panel Informes → "Informe de kilometraje", selecciona vehículos/carpeta y el mismo período del widget, exporta a Excel.'),
+            l('Safety Score: panel Informes → "Fleet ECO report", selecciona el grupo y el mismo período del widget, exporta a Excel.'),
             l('Accidentes y eventos: panel Mensajes / Eventos, filtra por tipo y rango para el detalle por evento (fecha, hora, posición).')
         ], fontSize: 8.5, margin: [0, 4, 0, 0] });
 
@@ -2295,8 +2653,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         { id: 'hotspots', title: 'Hotspots de Pérdida de Conexión', rac: 'on', lop: 'off' },
         // lopKey enlaza con lopWidgetCards(): ahí vive la card real de cada
         // widget LOP. Sin lopKey (o sin card real) se pinta el placeholder.
-        { id: 'lop_conduccion', title: 'Conducción', rac: 'off', lop: 'on', slot: 'mid', lopKey: 'conduccion' },
-        { id: 'lop_estacionados', title: '% de Vehículos Estacionados por Sucursal', rac: 'off', lop: 'on', slot: 'mid', lopKey: 'estacionados' },
+        // Conducción va en el slot 'map', debajo de los mapas: su tabla es ancha
+        // y en la columna 'mid' queda apretada. El orden dentro de un slot es
+        // el de este arreglo.
+        { id: 'lop_conduccion', title: 'Conducción', rac: 'off', lop: 'on', slot: 'map', lopKey: 'conduccion' },
+        // El % de estacionados es una columna de lop_sucursales (misma lista de
+        // vehículos por sucursal). La card se conserva pero oculta en ambas
+        // vistas para no mostrar el mismo dato dos veces.
+        { id: 'lop_estacionados', title: '% de Vehículos Estacionados por Sucursal', rac: 'off', lop: 'off', slot: 'mid', lopKey: 'estacionados' },
         { id: 'lop_mantencion', title: 'Kilometraje para Mantención', rac: 'off', lop: 'on', slot: 'mid', lopKey: 'mantencion' },
         { id: 'lop_rutas', title: 'Vehículos fuera de Rutas preestablecidas', rac: 'off', lop: 'dev', slot: 'mid', lopKey: 'rutas' },
         { id: 'lop_sucursales', title: 'Vehículos disponibles por Sucursal', rac: 'off', lop: 'on', slot: 'map', lopKey: 'sucursales' },
@@ -2344,6 +2708,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         for (var i = 0; i < this.VIEW_WIDGETS.length; i++) {
             var w = this.VIEW_WIDGETS[i];
             if (w.id !== cardId) { continue; }
+            // 'off' en ambas vistas = card retirada. Las dos clases juntas la
+            // ocultan siempre; VIEW_HIDDEN_CLS no sirve porque
+            // syncHiddenWidgets la quita al aplicar la vista.
+            if (w.rac === 'off' && w.lop === 'off') { return ' promatic_dashboard_enhancer-only-rac promatic_dashboard_enhancer-only-lop'; }
             if (w.lop === 'off') { return ' promatic_dashboard_enhancer-only-rac'; }
             if (w.rac === 'off') { return ' promatic_dashboard_enhancer-only-lop'; }
         }
@@ -4264,10 +4632,36 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      */
     _fuelLevelText: function (e, ref) {
         var f1 = function (x) { return (x == null || !isFinite(x)) ? null : x.toFixed(1); };
-        var pct = e.pct != null ? e.pct : (ref > 0 ? Math.abs(e.delta) / ref * 100 : null);
+        var pct = this._fuelEventPct(e, ref);
         var head = (f1(e.from) != null && f1(e.to) != null) ? f1(e.from) + ' → ' + f1(e.to) : l('nivel previo N/D');
         var tail = (e.delta > 0 ? '+' : '') + f1(e.delta) + (pct != null ? ' · ' + pct.toFixed(0) + '% ' + l('del máximo') : '');
         return { head: head, tail: tail };
+    },
+
+    /**
+     * Variación de nivel de un evento como % del nivel máximo observado del
+     * vehículo. Los eventos nativos de PILOT no traen el porcentaje: se
+     * deriva de los litros y la referencia. null si no hay referencia.
+     */
+    _fuelEventPct: function (e, ref) {
+        if (e.pct != null) { return e.pct; }
+        return (ref > 0 && e.delta != null) ? Math.abs(e.delta) / ref * 100 : null;
+    },
+
+    /**
+     * Deja solo las cargas con variación de nivel mayor a `minPct` (% del
+     * nivel máximo). El detector propio ya respeta ese umbral, pero las
+     * cargas nativas de PILOT llegan de cualquier tamaño (sloshing, recargas
+     * mínimas) y sin filtrar inflaban tarjeta y detalle. Una carga cuyo
+     * porcentaje no se puede calcular (sin referencia de nivel) no se puede
+     * afirmar que supere el umbral, así que se descarta.
+     */
+    _fuelLoadsAbove: function (loads, ref, minPct) {
+        var me = this;
+        return (loads || []).filter(function (e) {
+            var pct = me._fuelEventPct(e, ref);
+            return pct != null && pct > minPct;
+        });
     },
 
     /**
@@ -4514,12 +4908,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     var entry = { at: Date.now(), status: parsed.status, events: [], n: 0, sensor: parsed.sensor || '', ref: 0, speedKnown: false };
                     if (parsed.status === 'ok') {
                         var det = me._detectFuelEvents(parsed.samples, cfg);
+                        // Se filtran antes del merge: una carga nativa chica
+                        // que quedara en la lista descartaría, por cercanía,
+                        // a una carga grande del detector propio.
+                        var nat = parsed.native && {
+                            loads: me._fuelLoadsAbove(parsed.native.loads, det.ref, cfg.loadMinPct || 20),
+                            drains: parsed.native.drains
+                        };
                         // Los eventos que PILOT ya detectó mandan; los del
                         // detector propio solo suman los que PILOT no vio.
                         // Ventana de 2 h como mínimo: con el vehículo estacionado el sensor
                         // reporta cada hora y el detector propio ubica el salto antes
                         // que PILOT, que fecha el evento al final del proceso.
-                        entry.events = me._mergeFuelEvents(parsed.native, det.events, Math.max((cfg.windowMin || 30) * 60, 7200));
+                        entry.events = me._mergeFuelEvents(nat, det.events, Math.max((cfg.windowMin || 30) * 60, 7200));
                         entry.n = det.n; entry.ref = det.ref; entry.speedKnown = det.speedKnown;
                         if (det.n < cfg.minSamples && !entry.events.length) { entry.status = 'nodata'; }
                     }
@@ -4607,7 +5008,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     /**
      * Resumen para tarjetas, reportes y exportador. `kind`: 'carga' o
      * 'drenaje'. count es número solo si hay datos reales (state 'ok');
-     * `cov` es el texto de cobertura ("N de M con sensor").
+     * `cov` es el texto de cobertura ("N de M con sensor"). Las cargas se
+     * cuentan por evento, que es lo que lista el detalle fila a fila; los
+     * drenajes, por vehículo.
      * @return {{state:string, count:(number|null), cov:string, ids:Array}}
      */
     _fuelSummary: function (kind) {
@@ -4622,14 +5025,119 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var ids = kind === 'carga' ? (f.loadIds || []) : (f.drainIds || []);
         return {
             state: f.state, withSensor: withSensor, analyzed: f.counts.ok, cov: cov, ids: ids,
-            count: f.state === 'ok' ? ids.length : null
+            count: f.state === 'ok' ? (kind === 'carga' ? (f.loadEvents || 0) : ids.length) : null
         };
     },
 
     /**
+     * Eventos de combustible de un tipo, de todos los vehículos analizados,
+     * del más reciente al más antiguo.
+     * @param {String} kind 'carga' o 'drenaje'.
+     * @return {Array<{id:Number, e:Object, ref:Number}>}
+     */
+    _fuelEventList: function (kind) {
+        var me = this;
+        var events = [];
+        Object.keys(this._fuelPerVeh || {}).forEach(function (id) {
+            var c = me._fuelPerVeh[id];
+            if (!c || c.status !== 'ok') { return; }
+            c.events.forEach(function (e) {
+                if (e.kind === kind) { events.push({ id: Number(id), e: e, ref: c.ref }); }
+            });
+        });
+        events.sort(function (a, b) { return b.e.ts - a.e.ts; });
+        return events;
+    },
+
+    /** Día de calendario legible ("Viernes, 23 de octubre de 2026") en la zona horaria configurada. */
+    _fmtEventDay: function (ts) {
+        var cfg = this.clockConfig();
+        try {
+            var txt = new Intl.DateTimeFormat(cfg.locale, {
+                timeZone: cfg.timeZone, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+            }).format(new Date(ts * 1000));
+            return txt.charAt(0).toUpperCase() + txt.slice(1);
+        } catch (e) {
+            return this._eventDayKey(ts) || '—';
+        }
+    },
+
+    /**
+     * Agrupa eventos por día de calendario conservando el orden de entrada
+     * (el llamador los pasa del más reciente al más antiguo, así que los días
+     * también salen del más reciente al más antiguo).
+     * @param {Array<{e:Object}>} list Elementos de _fuelEventList.
+     * @return {Array<{key:String, label:String, items:Array}>}
+     */
+    _fuelGroupByDay: function (list) {
+        var me = this, groups = [], byKey = {};
+        list.forEach(function (x) {
+            var k = me._eventDayKey(x.e.ts) || '';
+            if (!byKey[k]) {
+                byKey[k] = { key: k, label: k ? me._fmtEventDay(x.e.ts) : l('Sin fecha'), items: [] };
+                groups.push(byKey[k]);
+            }
+            byKey[k].items.push(x);
+        });
+        return groups;
+    },
+
+    /**
+     * Sucursal donde ocurrió una carga: cruza el punto del evento con las
+     * geocercas de los grupos de sucursal del cliente del vehículo (mismo
+     * mapeo y mismas geocercas que el mapa de flota). Un evento estimado por
+     * el detector propio no trae coordenadas: sin punto no hay cruce posible
+     * y queda "N/D" en vez de inferir un lugar.
+     *
+     * @param {Ext.data.Model} rec Registro del vehículo en el online_tree (puede ser null).
+     * @param {Object} e Evento de carga (lat, lon).
+     * @return {String} Nombre de la geocerca, "Fuera de sucursal" o el motivo por el que no se pudo determinar.
+     */
+    _fuelBranchLabel: function (rec, e) {
+        var geofences = this._lastGeofences;
+        if (e.lat == null || e.lon == null || !geofences) { return l('N/D'); }
+        var entry = this._clientMapEntryForRecord(rec);
+        if (!entry || !entry.groupNames || !entry.groupNames.length) { return l('Sucursales no configuradas'); }
+        for (var i = 0; i < geofences.length; i++) {
+            var g = geofences[i];
+            if (g && g.group_name && entry.groupNames.indexOf(g.group_name) !== -1 && this._pointInGeofence(e.lat, e.lon, g)) {
+                return g.name || g.group_name;
+            }
+        }
+        return l('Fuera de sucursal');
+    },
+
+    /**
+     * Comprobante de pago (guía o factura) asociado a una carga, para
+     * contrastarlo con el nivel que midió el sensor. Todavía no hay una fuente
+     * conectada: devuelve null y el detalle muestra "Pendiente". Cuando exista,
+     * es el único punto a completar.
+     *
+     * @param {Object} e Evento de carga (ts, lat, lon).
+     * @return {({type:String, number:String}|null)} type: 'Guía' o 'Factura'.
+     */
+    _fuelVoucherFor: function (e) {
+        return null;
+    },
+
+    /**
+     * Origen del evento y las salvedades que bajan su confianza, en una
+     * línea de texto plano (el llamador escapa para HTML).
+     */
+    _fuelEventNote: function (e) {
+        var parts = [];
+        if (!e.speedKnown) { parts.push(l('sin dato de velocidad (confianza baja)')); }
+        if (e.viaGap) { parts.push(l('el equipo no reportó entre ambas lecturas')); }
+        parts.push(e.source === 'pilot' ? l('detectado por PILOT') : l('estimado por el Dashboard'));
+        return parts.join(' · ');
+    },
+
+    /**
      * Detalle de posibles cargas ('carga') o drenajes ('drenaje') de
-     * combustible: 1 fila por evento, con ficha del vehículo y posición
-     * actual (online_tree), más la cobertura por estado del sensor.
+     * combustible: 1 fila por evento, con ficha del vehículo (online_tree),
+     * más la cobertura por estado del sensor. Los drenajes llevan además la
+     * posición actual del vehículo. Las cargas se agrupan por día y llevan en
+     * su lugar la sucursal donde ocurrieron y el comprobante de pago.
      */
     buildFuelAlertsReport: function (kind) {
         var me = this;
@@ -4642,16 +5150,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var nameById = {};
         Object.keys(byId).forEach(function (id) { nameById[id] = byId[id].get('name'); });
 
-        var events = [];
-        Object.keys(this._fuelPerVeh || {}).forEach(function (id) {
-            var c = me._fuelPerVeh[id];
-            if (!c || c.status !== 'ok') { return; }
-            c.events.forEach(function (e) {
-                if (e.kind === kind) { events.push({ id: Number(id), e: e, ref: c.ref }); }
-            });
-        });
-        events.sort(function (a, b) { return b.e.ts - a.e.ts; });
+        var events = this._fuelEventList(kind);
         var shown = events.slice(0, 300);
+        var capNote = events.length > shown.length
+            ? '<p class="sub">' + l('Se muestran los 300 más recientes de') + ' ' + events.length + '.</p>' : '';
 
         var rowHtml = function (x) {
             var rec = byId[x.id];
@@ -4681,6 +5183,31 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 ')</td><td>' + (conf || l('vehículo detenido')) + '<br>' + esc(src) + where + '</td><td>' + curCell + '</td></tr>';
         };
 
+        // Carga: se ubica el evento en una sucursal (con los íconos de mapa de
+        // los demás detalles) y se reserva la columna del comprobante de pago.
+        // La posición actual del vehículo no aporta a una carga pasada.
+        var loadRowHtml = function (x) {
+            var rec = byId[x.id];
+            var name = rec ? rec.get('name') : String(x.id);
+            var sheet = me._vehicleSheetLines(rec).map(esc).join('<br>') || l('N/D');
+            var e = x.e;
+            var lv = me._fuelLevelText(e, x.ref);
+            var place = esc(me._fuelBranchLabel(rec, e));
+            if (e.lat != null && e.lon != null) {
+                var link = me._mapsLink(e.lat, e.lon);
+                place += '<br>' + me._iconFocusBtn(e.lat, e.lon, me.displayName(name) + ' — ' + me._fmtEventDateTime(e.ts), l('Ver en PILOT'), me._SVG_PIN) +
+                    (link ? me._iconExtLink(link, l('Ver en mapa externo')) : '');
+            }
+            var vch = me._fuelVoucherFor(e);
+            var vchCell = vch
+                ? esc(vch.type + ' N° ' + vch.number)
+                : '<span style="color:#64748b" title="' + esc(l('Aún no se recupera el comprobante de pago de esta carga')) + '">' + l('Pendiente') + '</span>';
+            return '<tr><td>' + esc(me._fmtEventDateTime(e.ts)) + (e.te !== e.ts ? ' → ' + esc(me._fmtEventDateTime(e.te)) : '') +
+                '</td><td>' + esc(me.displayName(name)) + '</td><td>' + sheet + '</td><td class="n">' +
+                lv.head + '<br>(' + lv.tail + ')<br><span class="sub">' + esc(me._fuelEventNote(e)) +
+                '</span></td><td>' + place + '</td><td>' + vchCell + '</td></tr>';
+        };
+
         var body;
         if (f.state === 'unrecognized') {
             body = '<p>' + l('El reporte de sensor de combustible respondió, pero su formato aún no se reconoce: función en desarrollo. Activa el modo de depuración para volcar la respuesta cruda a la consola.') + '</p>';
@@ -4688,13 +5215,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             body = '<p>' + (f.state === 'ok'
                 ? l('Ningún vehículo con sensor muestra un evento posible en la ventana analizada.')
                 : l('Sin datos de sensor de combustible para mostrar.')) + '</p>';
+        } else if (isLoad) {
+            body = '<table id="promatic_dashboard_enhancer-fuel-table"><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
+                '</th><th>' + l('Ficha') + '</th><th>' + l('Nivel (unidad del sensor)') + '</th><th>' + l('Ubicación Carga') +
+                '</th><th>' + l('Comprobante') + '<br><span class="sub">' + l('Guía / Factura N°') + '</span></th></tr>';
+            me._fuelGroupByDay(shown).forEach(function (g) {
+                body += '<tr><th colspan="6" style="background:#e2e8f0;color:#0a3d5c;font-size:12px">' + esc(g.label) + ' — ' +
+                    g.items.length + ' ' + (g.items.length === 1 ? l('carga') : l('cargas')) + '</th></tr>';
+                g.items.forEach(function (x) { body += loadRowHtml(x); });
+            });
+            body += '</table>' + capNote;
         } else {
             body = '<table id="promatic_dashboard_enhancer-fuel-table"><tr><th>' + l('Fecha y hora') + '</th><th>' + l('Vehículo') +
                 '</th><th>' + l('Ficha') + '</th><th>' + l('Nivel (unidad del sensor)') + '</th><th>' + l('Condición') +
                 '</th><th>' + l('Posición actual') + '</th></tr>';
             for (var i = 0; i < shown.length; i++) { body += rowHtml(shown[i]); }
-            body += '</table>';
-            if (events.length > shown.length) { body += '<p class="sub">' + l('Se muestran los 300 más recientes de') + ' ' + events.length + '.</p>'; }
+            body += '</table>' + capNote;
         }
 
         var c = f.counts || {};
@@ -4707,11 +5243,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '<tr><td>' + l('Respuesta no reconocida / error') + '</td><td class="n">' + ((c.unrecognized || 0) + (c.error || 0)) + '</td></tr>' +
             '<tr><td>' + l('Vehículos en el alcance') + '</td><td class="n">' + (f.scopeTotal || 0) + '</td></tr></table>';
 
+        var loadVehicles = Object.keys(events.reduce(function (acc, x) { acc[x.id] = 1; return acc; }, {})).length;
         var desc = '<p class="desc">' + (isLoad
             ? l('Posibles cargas de combustible: alzas de nivel con el vehículo detenido, calculadas por el Dashboard sobre la serie del sensor. Son indicios, no hechos: confirma con la tarjeta de combustible o el conductor.')
             : l('Posibles drenajes de combustible: bajas bruscas de nivel con el vehículo detenido, calculadas por el Dashboard sobre la serie del sensor. Son indicios, no hechos: un sensor con ruido o un estanque en pendiente pueden imitarlos.')) +
-            '</p><p class="desc">' + l('Umbral: variación mínima de') + ' ' + (isLoad ? cfg.loadMinPct : cfg.drainMinPct) + '% ' +
-            l('del nivel máximo observado; ventana de') + ' ' + cfg.windowDays + ' ' + l('días. Fuente: reports.php report_type=16.') + '</p>';
+            '</p><p class="desc">' + (isLoad ? l('Umbral: variación mayor a') : l('Umbral: variación mínima de')) + ' ' +
+            (isLoad ? cfg.loadMinPct : cfg.drainMinPct) + '% ' +
+            l('del nivel máximo observado; ventana de') + ' ' + cfg.windowDays + ' ' + l('días. Fuente: reports.php report_type=16.') + '</p>' +
+            (isLoad ? '<p class="desc">' + l('Cargas listadas') + ': ' + events.length + ' ' + l('en') + ' ' + loadVehicles + ' ' + l('vehículos') +
+                '. ' + l('La comparación con el comprobante de pago (guía o factura) aún no está disponible: esa columna queda como Pendiente.') + '</p>' : '');
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
             '</title>' + this._reportStyles() + '</head><body>' +
@@ -4731,31 +5271,56 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var C = doc.content;
         var byId = this._onlineRecordsByAgent();
         C.push({ text: (isLoad
-            ? l('Posibles cargas: alzas de nivel con el vehículo detenido, calculadas sobre la serie del sensor (report_type=16). Son indicios, no hechos.')
+            ? l('Posibles cargas: alzas de nivel mayores a') + ' ' + cfg.loadMinPct + '% ' + l('del nivel máximo observado, con el vehículo detenido, calculadas sobre la serie del sensor (report_type=16). Son indicios, no hechos.')
             : l('Posibles drenajes: bajas bruscas de nivel con el vehículo detenido, calculadas sobre la serie del sensor (report_type=16). Son indicios, no hechos.')), style: 'desc' });
 
         var rows = [];
-        Object.keys(this._fuelPerVeh || {}).forEach(function (id) {
-            var c = me._fuelPerVeh[id];
-            if (!c || c.status !== 'ok') { return; }
-            c.events.forEach(function (e) {
-                if (e.kind !== kind) { return; }
-                var rec = byId[id];
-                rows.push([e.ts, [me._fmtEventDateTime(e.ts), me.displayName(rec ? rec.get('name') : String(id)),
-                    me._vehicleSheetLines(rec).join('\n') || l('N/D'),
-                    me._fuelLevelText(e, c.ref).head + ' (' + me._fuelLevelText(e, c.ref).tail + ')',
-                    (e.speedKnown ? l('vehículo detenido') : l('sin dato de velocidad')) + ' · ' +
-                        (e.source === 'pilot' ? l('detectado por PILOT') : l('estimado por el Dashboard'))]]);
+        if (isLoad) {
+            // Mismas columnas que el detalle en pantalla; el PDF no tiene
+            // íconos, así que el mapa externo va como enlace de texto.
+            this._fuelGroupByDay(this._fuelEventList('carga').slice(0, 300)).forEach(function (g) {
+                rows.push([{ text: g.label + ' — ' + g.items.length + ' ' + (g.items.length === 1 ? l('carga') : l('cargas')),
+                    colSpan: 6, bold: true, color: '#0a3d5c', fillColor: '#e2e8f0' }, {}, {}, {}, {}, {}]);
+                g.items.forEach(function (x) {
+                    var rec = byId[x.id];
+                    var e = x.e;
+                    var lv = me._fuelLevelText(e, x.ref);
+                    var link = (e.lat != null && e.lon != null) ? me._mapsLink(e.lat, e.lon) : null;
+                    var place = { stack: [{ text: me._fuelBranchLabel(rec, e) }] };
+                    if (link) { place.stack.push({ text: l('Ver en mapa'), link: link, color: '#0a67a0', decoration: 'underline' }); }
+                    var vch = me._fuelVoucherFor(e);
+                    rows.push([me._fmtEventDateTime(e.ts), me.displayName(rec ? rec.get('name') : String(x.id)),
+                        me._vehicleSheetLines(rec).join('\n') || l('N/D'),
+                        lv.head + ' (' + lv.tail + ')\n' + me._fuelEventNote(e),
+                        place,
+                        vch ? vch.type + ' N° ' + vch.number : { text: l('Pendiente'), color: '#64748b' }]);
+                });
             });
-        });
-        rows.sort(function (a, b) { return b[0] - a[0]; });
+        } else {
+            Object.keys(this._fuelPerVeh || {}).forEach(function (id) {
+                var c = me._fuelPerVeh[id];
+                if (!c || c.status !== 'ok') { return; }
+                c.events.forEach(function (e) {
+                    if (e.kind !== kind) { return; }
+                    var rec = byId[id];
+                    rows.push([e.ts, [me._fmtEventDateTime(e.ts), me.displayName(rec ? rec.get('name') : String(id)),
+                        me._vehicleSheetLines(rec).join('\n') || l('N/D'),
+                        me._fuelLevelText(e, c.ref).head + ' (' + me._fuelLevelText(e, c.ref).tail + ')',
+                        (e.speedKnown ? l('vehículo detenido') : l('sin dato de velocidad')) + ' · ' +
+                            (e.source === 'pilot' ? l('detectado por PILOT') : l('estimado por el Dashboard'))]]);
+                });
+            });
+            rows.sort(function (a, b) { return b[0] - a[0]; });
+        }
         if (f.state === 'unrecognized') {
             C.push({ text: l('Formato del reporte de sensor aún no reconocido: función en desarrollo.') });
         } else if (!rows.length) {
             C.push({ text: l('Ningún vehículo con sensor muestra un evento posible en la ventana analizada.') });
         } else {
-            C.push(this._pdfTable([l('Fecha y hora'), l('Vehículo'), l('Ficha'), l('Nivel (unidad del sensor)'), l('Condición')],
-                rows.slice(0, 300).map(function (r) { return r[1]; })));
+            C.push(isLoad
+                ? this._pdfTable([l('Fecha y hora'), l('Vehículo'), l('Ficha'), l('Nivel (unidad del sensor)'), l('Ubicación Carga'), l('Comprobante (Guía / Factura N°)')], rows)
+                : this._pdfTable([l('Fecha y hora'), l('Vehículo'), l('Ficha'), l('Nivel (unidad del sensor)'), l('Condición')],
+                    rows.slice(0, 300).map(function (r) { return r[1]; })));
         }
         var c = f.counts || {};
         C.push({ text: l('Cobertura de sensores'), style: 'h2' });
@@ -4770,21 +5335,60 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return doc;
     },
 
-    /** Abre el modal de detalle de combustible; el mapa muestra la posición actual de los vehículos con eventos. */
+    /**
+     * Abre el detalle de combustible. Para las cargas, la columna de
+     * sucursal necesita las geocercas: si aún no están en memoria y la cuenta
+     * tiene sucursales configuradas, se piden antes de abrir (un GET que el
+     * resto del Dashboard ya comparte vía _lastGeofences). Si falla, el
+     * modal abre igual y la sucursal queda como "N/D".
+     */
     openFuelAlertModal: function (kind) {
+        var me = this;
+        var bcfg = (me.config && me.config.branches) || (me.DEFAULT_CONFIG.branches || {});
+        if (kind === 'carga' && !me._lastGeofences && (bcfg.clientMap || []).length) {
+            // Evita pedir las geocercas dos veces si el usuario insiste mientras llegan.
+            if (me._fuelGeoLoading) { return; }
+            me._fuelGeoLoading = true;
+            me.loadBranchGeofences(function () {
+                me._fuelGeoLoading = false;
+                me._showFuelAlertModal(kind);
+            });
+            return;
+        }
+        me._showFuelAlertModal(kind);
+    },
+
+    /**
+     * Arma y muestra el modal. El mapa de las cargas dibuja el lugar de cada
+     * evento con coordenadas (los íconos de la tabla centran ahí); el de los
+     * drenajes, la posición actual de los vehículos con eventos.
+     */
+    _showFuelAlertModal: function (kind) {
         var me = this;
         var byId = this._onlineRecordsByAgent();
         var s = this._fuelSummary(kind);
         var points = [];
-        s.ids.forEach(function (id) {
-            var rec = byId[id];
-            var cur = rec ? me._recordLatLon(rec) : null;
-            if (cur) { points.push({ lat: cur[0], lon: cur[1], label: me.displayName(rec.get('name')) }); }
-        });
+        var notice = '';
+        if (kind === 'carga') {
+            this._fuelEventList('carga').slice(0, 300).forEach(function (x) {
+                if (x.e.lat == null || x.e.lon == null) { return; }
+                var rec = byId[x.id];
+                points.push({ lat: x.e.lat, lon: x.e.lon,
+                    label: me.displayName(rec ? rec.get('name') : String(x.id)) + ' — ' + me._fmtEventDateTime(x.e.ts) });
+            });
+            if (points.length) { notice = l('Mostrando el lugar de las cargas posibles'); }
+        } else {
+            s.ids.forEach(function (id) {
+                var rec = byId[id];
+                var cur = rec ? me._recordLatLon(rec) : null;
+                if (cur) { points.push({ lat: cur[0], lon: cur[1], label: me.displayName(rec.get('name')) }); }
+            });
+            if (points.length) { notice = l('Mostrando la posición actual de los vehículos con eventos posibles'); }
+        }
         var title = kind === 'carga' ? l('Detalle Posibles Inconsistencias en Carga') : l('Detalle Posible Drenaje de Combustible');
         me.openReportModal(me.buildFuelAlertsReport(kind), title,
             me._safe(function () { return me.buildFuelAlertsPdfDoc(kind); }),
-            points, { notice: points.length ? l('Mostrando la posición actual de los vehículos con eventos posibles') : '' });
+            points, { notice: notice });
     },
 
     renderAlertasGenerales: function () {
@@ -4929,7 +5533,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti',
                     this._alertRalentiIds || [], null, false),
                 fuelCard('carga', 'var(--g7)', l('Inconsistencias en Carga'),
-                    l('Posibles cargas de combustible: alza de nivel con el vehículo detenido, calculada sobre el sensor'), 'pde_alert-inconsistencias'),
+                    l('Posibles cargas de combustible: alza de nivel mayor a') + ' ' + this._fuelCfg().loadMinPct + '% ' + l('con el vehículo detenido, calculada sobre el sensor') +
+                        ' — ' + l('el número cuenta cargas, no vehículos'), 'pde_alert-inconsistencias'),
                 fuelCard('drenaje', 'var(--g6)', l('Drenaje de Combustible'),
                     l('Posibles drenajes: baja brusca de nivel con el vehículo detenido, calculada sobre el sensor'), 'pde_alert-drenaje'),
                 card('var(--g7)', l('GPS Manipulado'), null, svgGpsManual,
@@ -6815,7 +7420,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var out = {};
         out.sucursales = this.cardMarkup(ids.sucursales, {
             title: l('Vehículos disponibles por Sucursal'),
-            hint: l('Vehículos del alcance cuya última posición cae dentro de una sucursal o base del cliente (geocercas configuradas). Disponible = estacionado y en línea. Solo cuentan los vehículos de flotas con sucursales configuradas.'),
+            hint: l('Vehículos del alcance cuya última posición cae dentro de una sucursal o base del cliente (geocercas configuradas). Disponible = estacionado y en línea. % estacionados = disponibles sobre los presentes en la sucursal; un porcentaje bajo indica vehículos que están saliendo o con problemas de conexión. Solo cuentan los vehículos de flotas con sucursales configuradas.'),
             noFooter: true, skeleton: 'ranking'
         });
         out.estacionados = this.cardMarkup(ids.estacionados, {
@@ -6840,7 +7445,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
         out.tag = this.cardMarkup(ids.tag, {
             title: l('Vehículos que más consumen TAG'),
-            hint: l('Pasadas por pórticos de peaje por vehículo en el período (reporte Toll Roads de PILOT, módulo pagado aparte).'),
+            hint: l('Pasadas por pórticos de peaje en el período (reporte Toll Roads de PILOT, módulo pagado aparte). Se agrupan por vehículo cuando el reporte lo identifica; si no, por autopista.'),
             noFooter: true, skeleton: 'ranking'
         });
         out.rutas = this.cardMarkup(ids.rutas, {
@@ -7249,8 +7854,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // ---------------------------------------------------------------------
 
     /**
-     * Carga (si falta) las geocercas y pinta las dos cards de sucursales.
-     * Reutiliza el match del mapa de flota (config.branches.clientMap: qué
+     * Carga (si falta) las geocercas y pinta las cards de sucursales: la
+     * tabla visible (con la columna % estacionados) y la de barras, que
+     * sigue alimentada pero oculta. Reutiliza el match del mapa de flota (config.branches.clientMap: qué
      * carpeta de flota usa qué grupos de geocercas) y su caché
      * _lastGeofences; no hace requests propios aparte de ese GET si todavía
      * no se cargó.
@@ -7297,9 +7903,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * usa el texto de estado y no `firing`: en vehículos cuyo sensor de
      * ignición está fijo en "encendido" no distinguiría nada.
      *
-     * Devuelve { rows, totals } con una fila por geocerca con al menos un
-     * vehículo; totals separa los vehículos sin cliente mapeado, sin posición,
-     * fuera de toda sucursal y dentro de alguna.
+     * Devuelve { rows, totals, vehicles }. `vehicles` es la lista única
+     * vehículo × geocerca (un vehículo cuenta en una sola geocerca: la primera
+     * que lo contiene); `rows` (una por geocerca con al menos un vehículo) se
+     * agrega siempre desde esa lista, de modo que Presentes, Disponibles y
+     * % estacionados no pueden discrepar entre sí ni entre cards. totals
+     * separa los vehículos sin cliente mapeado, sin posición, fuera de toda
+     * sucursal y dentro de alguna.
      */
     _lopComputeBranches: function () {
         var onlineTree = this.getOnlineTree();
@@ -7318,6 +7928,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
         }
 
+        var vehicles = [];
         var perFence = {};
         var totals = { scope: 0, unmapped: 0, noCoords: 0, outside: 0, inside: 0 };
         var unmatchedSamples = [];
@@ -7346,12 +7957,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             totals.inside++;
             var online = !!this._recordField(rec, 'is_server_online');
             var moving = online && String(this._recordField(rec, 'status') || '').indexOf('movimiento') !== -1;
-            var row = perFence[hit.id] = perFence[hit.id] || {
-                id: hit.id, name: hit.name || String(hit.id), group: hit.group_name,
+            vehicles.push({
+                name: String(this._recordField(rec, 'name') || ''), lat: ll[0], lon: ll[1], fence: hit,
+                state: !online ? 'offline' : (moving ? 'moving' : 'parked')
+            });
+        }
+
+        // `state` coincide con los contadores de la fila (parked/moving/offline).
+        for (var vi = 0; vi < vehicles.length; vi++) {
+            var veh = vehicles[vi];
+            var row = perFence[veh.fence.id] = perFence[veh.fence.id] || {
+                id: veh.fence.id, name: veh.fence.name || String(veh.fence.id), group: veh.fence.group_name,
                 present: 0, parked: 0, moving: 0, offline: 0
             };
             row.present++;
-            if (!online) { row.offline++; } else if (moving) { row.moving++; } else { row.parked++; }
+            row[veh.state]++;
         }
 
         var rows = [];
@@ -7370,7 +7990,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (totals.inside === 0 && unmatchedSamples.length > 0) {
             this._lopLogNearestGeofence(unmatchedSamples, byGroup);
         }
-        return { rows: rows, totals: totals };
+        return { rows: rows, totals: totals, vehicles: vehicles };
     },
 
     /**
@@ -7442,7 +8062,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var trs = shown.map(function (r) {
             return { tag: 'tr', cn: [
                 { tag: 'td', html: esc(r.name), title: esc(r.group || '') },
-                num(r.present), num(r.parked), num(r.moving), num(r.offline)
+                num(r.present), num(r.parked), num(r.moving), num(r.offline),
+                { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n promatic_dashboard_enhancer-lop-hl',
+                    title: r.parked + ' ' + l('de') + ' ' + r.present, html: r.pct + '%' }
             ] };
         });
         this.updateCardBody(ids.sucursales, Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: [
@@ -7451,11 +8073,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     { tag: 'th', html: l('Sucursal') }, { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Presentes') },
                     { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Disponibles') },
                     { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('En ruta') },
-                    { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Sin señal') }
+                    { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Sin señal') },
+                    { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('% estacionados') }
                 ] }] },
                 { tag: 'tbody', cn: trs }
             ] }] },
-            coverage
+            coverage,
+            this._lopNote(l('Estacionado = en línea y sin movimiento, sobre los vehículos presentes en la sucursal.'))
         ] }), 0, true);
 
         var bars = data.rows.slice(0, cfg.rankCount).map(function (r) {
@@ -7759,38 +8383,193 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     // ---------------------------------------------------------------------
-    // 5. TAG / peajes (report_type=96, sin probar en este proyecto)
+    // 5. TAG / peajes (report_type=96, schema sin confirmar)
     // ---------------------------------------------------------------------
 
     /**
-     * Parser DEFENSIVO de Toll Roads: una fila = una pasada por pórtico. Se
-     * cuenta por vehículo y, si hay una columna de monto (por encabezado), se
-     * suma. Los textos pueden traer HTML residual en las columnas de pórtico
-     * (se limpia). Devuelve { recognized, reason, rows:[{name, passes,
-     * amount|null}] }.
+     * Como _lopCollectRows, pero conserva por cada fila su objeto contenedor
+     * y las claves de agrupación por las que se llegó a ella. Los reportes
+     * de PILOT agrupan `data` por rango de fechas y luego por nombre de
+     * objeto: si la fila no trae el vehículo en una columna, su nombre puede
+     * estar solo en la clave del grupo, que _lopCollectRows descarta.
+     * Devuelve [{ cells, obj, keys }] (obj es null si la fila es un array).
+     */
+    _lopCollectKeyedRows: function (node, out, depth, keys) {
+        out = out || [];
+        depth = depth || 0;
+        keys = keys || [];
+        if (depth > 6 || node === null || typeof node !== 'object') { return out; }
+        var isPrim = function (v) { return v === null || typeof v !== 'object'; };
+        var i, k;
+        if (Array.isArray(node)) {
+            if (node.length >= 2 && isPrim(node[0])) {
+                out.push({ cells: node, obj: null, keys: keys });
+                return out;
+            }
+            for (i = 0; i < node.length; i++) { this._lopCollectKeyedRows(node[i], out, depth + 1, keys); }
+            return out;
+        }
+        if (Array.isArray(node.data) && node.data.length >= 2 && isPrim(node.data[0])) {
+            out.push({ cells: node.data, obj: node, keys: keys });
+            return out;
+        }
+        for (k in node) {
+            if (node.hasOwnProperty(k)) { this._lopCollectKeyedRows(node[k], out, depth + 1, keys.concat([k])); }
+        }
+        return out;
+    },
+
+    /**
+     * Índice de la columna de autopista según su encabezado (es/en/ru), -1 si
+     * no hay. Los pórticos de entrada y salida no son la autopista.
+     */
+    _lopTollRoadCol: function (names) {
+        if (!names) { return -1; }
+        for (var i = 0; i < names.length; i++) {
+            if (/autopista|toll|road|highway|carretera|concesi|дорог|трасс|платн|шоссе/i.test(names[i]) && !/gate|p[oó]rtico|пункт/i.test(names[i])) { return i; }
+        }
+        return -1;
+    },
+
+    /**
+     * Decide de dónde sale el vehículo en las filas de Toll Roads. En este
+     * reporte la primera columna puede ser la autopista y no el vehículo, así
+     * que no se asume: se evalúan como candidatas cada columna, la propiedad
+     * `veh` de la fila y la clave del grupo, y se elige la primera (en este
+     * orden de preferencia: columna con encabezado de vehículo, `veh`, clave,
+     * otra columna) cuyos valores sean nombres de vehículos de la flota
+     * cargada en el árbol Online. Esa validación contra la flota evita
+     * depender del idioma del encabezado y descarta fuentes que no son
+     * vehículos. Si el árbol no está disponible no hay con qué validar y solo
+     * se acepta una columna con encabezado de vehículo o `veh`. Devuelve
+     * { chosen: candidata|null, cands: [...], fleetN }.
+     */
+    _lopTollVehicleSource: function (rows, names) {
+        var me = this;
+        var VEH_HDR = /patente|veh[ií]culo|vehicle|agente|agent|objeto|object|placa|plate|m[oó]vil|объект|машин|транспорт|номер/i;
+        var roadCol = this._lopTollRoadCol(names);
+        // Las claves de rango de fechas ("Tuesday, 08.09.2026 00:00 - ...") no son un objeto.
+        var DATE_KEY = /\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4}/;
+        // El prefijo '#' evita choques con claves heredadas de Object ("constructor").
+        var fleet = {}, fleetN = 0, byName = this._lopGroupByName(), nm;
+        for (nm in byName) {
+            if (byName.hasOwnProperty(nm)) { fleet['#' + String(nm).trim().toUpperCase()] = true; fleetN++; }
+        }
+        var colGetter = function (col) { return function (r) { return r.cells[col]; }; };
+        var lastKey = function (r) {
+            for (var k = r.keys.length - 1; k >= 0; k--) {
+                if (!DATE_KEY.test(r.keys[k])) { return r.keys[k]; }
+            }
+            return null;
+        };
+        var cands = [], c, hdr;
+        for (c = 0; c < rows[0].cells.length; c++) {
+            hdr = names && names[c] ? names[c] : '';
+            var named = !!hdr && c !== roadCol && VEH_HDR.test(hdr);
+            cands.push({ desc: 'columna ' + c + (hdr ? ' "' + hdr + '"' : ''), named: named, rank: named ? 0 : 3 + c / 1000, get: colGetter(c) });
+        }
+        cands.push({ desc: 'propiedad veh de la fila', named: false, rank: 1, isProp: true,
+            get: function (r) { return r.obj ? r.obj.veh : null; } });
+        cands.push({ desc: 'clave del grupo', named: false, rank: 2, get: lastKey });
+        cands.sort(function (a, b) { return a.rank - b.rank; });
+
+        // Muestra repartida (no solo las primeras filas) para no sesgarse al primer grupo.
+        var step = Math.max(1, Math.ceil(rows.length / 4000));
+        var chosen = null;
+        cands.forEach(function (cand) {
+            var seen = {}, distinct = 0, hit = 0, example = null;
+            for (var i = 0; i < rows.length; i += step) {
+                var v = cand.get(rows[i]);
+                if (v === null || v === undefined || typeof v === 'object') { continue; }
+                var s = me._lopStripTags(v);
+                if (!s) { continue; }
+                var key = '#' + s.toUpperCase();
+                if (seen[key]) { continue; }
+                seen[key] = true;
+                distinct++;
+                if (example === null) { example = s; }
+                if (fleet[key]) { hit++; }
+            }
+            cand.distinct = distinct;
+            cand.example = example;
+            cand.ratio = distinct ? hit / distinct : 0;
+            cand.ok = distinct > 0 && (fleetN > 0 ? cand.ratio >= 0.5 : (cand.named || !!cand.isProp));
+            if (!chosen && cand.ok) { chosen = cand; }
+        });
+        return { chosen: chosen, cands: cands, fleetN: fleetN };
+    },
+
+    /**
+     * Parser DEFENSIVO de Toll Roads (schema sin confirmar): una fila = una
+     * pasada por pórtico. Se agrupa por vehículo cuando _lopTollVehicleSource
+     * lo identifica con seguridad y, si no, por autopista: nunca se presenta
+     * como "vehículo" un valor que no se pudo validar. Si hay una columna de
+     * monto (por encabezado) se suma; la moneda solo se informa si el propio
+     * reporte la trae. Los textos pueden traer HTML residual (se limpia).
+     * Devuelve { recognized, reason, rows:[{name, passes, amount|null}],
+     * groupBy:'vehicle'|'road', groupHeader, currency, names, amountCol, diag }.
      */
     _lopParseTagResp: function (resps) {
-        var agg = {}, order = [], anyRows = false, amountCol = -1, names = null;
-        for (var r = 0; r < resps.length; r++) {
-            var rows = this._lopCollectRows(resps[r] && resps[r].data);
-            if (rows.length === 0) { continue; }
-            anyRows = true;
-            names = this._lopColumnNames(resps[r], rows[0].cells.length);
-            amountCol = this._lopFindCol(names, /sum|cost|amount|price|tarif|monto|importe|valor|total|fee|charge|стоим|сумм|цена/i, /count|cantidad|qty|кол/i);
-            for (var i = 0; i < rows.length; i++) {
-                var nm = this._lopStripTags(rows[i].veh);
-                if (!nm || /^(total|итого|всего)\b/i.test(nm)) { continue; }
-                if (!agg[nm]) { agg[nm] = { name: nm, passes: 0, amount: 0, hasAmount: false }; order.push(nm); }
-                agg[nm].passes++;
-                if (amountCol > 0) {
-                    var amt = this._lopNum(rows[i].cells[amountCol], true);
-                    if (amt !== null) { agg[nm].amount += amt; agg[nm].hasAmount = true; }
-                }
+        var all = [], names = null, r, i;
+        for (r = 0; r < resps.length; r++) {
+            var part = this._lopCollectKeyedRows(resps[r] && resps[r].data);
+            if (part.length === 0) { continue; }
+            names = names || this._lopColumnNames(resps[r], part[0].cells.length);
+            all = all.concat(part);
+        }
+        if (all.length === 0) { return { recognized: false, reason: 'la respuesta no trae filas', rows: [], names: null }; }
+
+        var amountCol = this._lopFindCol(names, /sum|cost|amount|price|tarif|monto|importe|valor|total|fee|charge|стоим|сумм|цена/i, /count|cantidad|qty|кол/i);
+        var src = this._lopTollVehicleSource(all, names);
+        // Sin vehículo identificable se agrupa por la columna de autopista
+        // (por encabezado; si no hay, la primera, que es la que trae PILOT).
+        var roadCol = this._lopTollRoadCol(names);
+        var groupCol = roadCol >= 0 ? roadCol : 0;
+        var agg = {}, order = [], sampleAmounts = [];
+        for (i = 0; i < all.length; i++) {
+            var row = all[i];
+            var label = src.chosen ? src.chosen.get(row) : row.cells[groupCol];
+            var nm = this._lopStripTags(label);
+            // Filas de total del reporte, no una pasada.
+            if (!nm || /^(total|итого|всего)\b/i.test(nm) || /^(total|итого|всего)\b/i.test(this._lopStripTags(row.cells[0]))) { continue; }
+            var k = '#' + nm;
+            if (!agg[k]) { agg[k] = { name: nm, passes: 0, amount: 0, hasAmount: false }; order.push(k); }
+            agg[k].passes++;
+            if (amountCol > 0) {
+                var amt = this._lopNum(row.cells[amountCol], true);
+                if (amt !== null) { agg[k].amount += amt; agg[k].hasAmount = true; }
+                if (sampleAmounts.length < 3) { sampleAmounts.push(row.cells[amountCol]); }
             }
         }
-        if (!anyRows) { return { recognized: false, reason: 'la respuesta no trae filas', rows: [], names: names }; }
-        var out = order.map(function (k) { return { name: agg[k].name, passes: agg[k].passes, amount: agg[k].hasAmount ? agg[k].amount : null }; });
-        return { recognized: out.length > 0, reason: '', rows: out, names: names, amountCol: amountCol };
+        var out = order.map(function (k2) { return { name: agg[k2].name, passes: agg[k2].passes, amount: agg[k2].hasAmount ? agg[k2].amount : null }; });
+
+        // Moneda: solo si el reporte la nombra en el encabezado o en las
+        // celdas de monto. Un "$" suelto es ambiguo (peso, dólar...), no se interpreta.
+        var currency = null;
+        var curRe = /\b(CLP|USD|EUR|UF|ARS|PEN|COP|MXN|BRL|UYU|BOB|PYG|RUB)\b/i;
+        var curText = (amountCol > 0 && names ? String(names[amountCol]) : '') + ' ' + sampleAmounts.join(' ');
+        var curMatch = curRe.exec(curText);
+        if (curMatch) { currency = curMatch[1].toUpperCase(); }
+
+        var groupHeader = !src.chosen && names && names[groupCol] ? names[groupCol] : '';
+        return {
+            recognized: out.length > 0, reason: out.length ? '' : 'sin filas con pasadas', rows: out,
+            groupBy: src.chosen ? 'vehicle' : 'road', groupHeader: groupHeader, currency: currency,
+            names: names, amountCol: amountCol,
+            // Para el log de debug: con esto se verifica en vivo de dónde salió el vehículo.
+            diag: {
+                encabezados: names,
+                agrupaPor: src.chosen ? 'vehículo (' + src.chosen.desc + ')' : 'autopista (columna ' + groupCol + (groupHeader ? ' "' + groupHeader + '"' : '') + '): vehículo no identificado',
+                vehiculosEnFlota: src.fleetN,
+                candidatosVehiculo: src.cands.filter(function (x) { return x.distinct > 0; })
+                    .sort(function (a, b) { return b.ratio - a.ratio; }).slice(0, 6)
+                    .map(function (x) { return { fuente: x.desc, distintos: x.distinct, coincidenConFlota: Math.round(x.ratio * 100) + '%', ejemplo: x.example }; }),
+                columnaMonto: amountCol > 0 && names ? names[amountCol] : null,
+                muestraMonto: sampleAmounts,
+                monedaDetectada: currency,
+                muestraFilas: all.slice(0, 3).map(function (x) { return { claves: x.keys, celdas: x.cells }; })
+            }
+        };
     },
 
     loadLopTag: function (force) {
@@ -7838,10 +8617,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
             me._lopTag = { rows: parsed.rows.sort(function (a, b) { return (b.amount || 0) - (a.amount || 0) || b.passes - a.passes; }),
                 hasAmount: parsed.amountCol > 0 && parsed.rows.some(function (x) { return x.amount !== null; }),
-                queried: cand.ids.length, failed: res.failed, aborted: res.aborted, days: cfg.windowDays };
+                groupBy: parsed.groupBy, groupHeader: parsed.groupHeader, currency: parsed.currency,
+                queried: cand.ids.length, scope: cand.scope, failed: res.failed, aborted: res.aborted, days: cfg.windowDays };
             me._lopCacheSet('tag', sig, me._lopTag);
-            Store.promatic_dashboard_enhancer.Module.debugLog('TAG: ' + parsed.rows.length + ' vehículos con pasadas, columna de monto ' +
-                (parsed.amountCol > 0 ? parsed.names[parsed.amountCol] : 'no identificada'));
+            Store.promatic_dashboard_enhancer.Module.debugLog('TAG: ' + parsed.rows.length + (parsed.groupBy === 'vehicle' ? ' vehículos' : ' autopistas') +
+                ' con pasadas. Detalle de columnas y de dónde salió el vehículo:', parsed.diag);
             me.renderLopTag();
         }).catch(function (err) {
             me.updateCardBody(id, l('No se pudo cargar el consumo de TAG.') + ' (' + me.widgetErrorCode('LOP-TAG', err) + ')', 0, true);
@@ -7852,32 +8632,43 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var d = this._lopTag;
         if (!d) { return; }
         var cfg = this._lopCfg('tag'), esc = Ext.String.htmlEncode, me = this;
+        // Sin vehículo identificable las filas son autopistas: el nombre no
+        // pasa por displayName (enmascararía una autopista como si fuera patente).
+        var byVeh = d.groupBy === 'vehicle';
         var list = d.rows.slice(0, cfg.rankCount);
-        var maxPasses = 0;
-        d.rows.forEach(function (r) { if (r.passes > maxPasses) { maxPasses = r.passes; } });
         var totalPasses = d.rows.reduce(function (a, r) { return a + r.passes; }, 0);
         var trs = list.map(function (r) {
             var cells = [
-                { tag: 'td', html: esc(me.displayName(r.name)) },
+                { tag: 'td', html: esc(byVeh ? me.displayName(r.name) : r.name) },
                 { tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: String(r.passes) }
             ];
             if (d.hasAmount) { cells.push({ tag: 'td', cls: 'promatic_dashboard_enhancer-lop-n', html: me._lopFmt(r.amount, 0) }); }
             return { tag: 'tr', cn: cells };
         });
-        var head = [{ tag: 'th', html: l('Vehículo') }, { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Pasadas') }];
-        if (d.hasAmount) { head.push({ tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Monto') }); }
-        this.updateCardBody(this.LOP_CARD_IDS.tag, Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: [
-            { cls: 'promatic_dashboard_enhancer-lop-boxes', cn: [
-                this._lopBox(String(d.rows.length), l('vehículos con pasadas'), 'neutral'),
-                this._lopBox(String(totalPasses), l('pasadas'), 'neutral')
-            ] },
-            { cls: 'promatic_dashboard_enhancer-lop-scroll', cn: [{ tag: 'table', cls: 'promatic_dashboard_enhancer-lop-table', cn: [
-                { tag: 'thead', cn: [{ tag: 'tr', cn: head }] },
-                { tag: 'tbody', cn: trs }
-            ] }] },
-            this._lopNote(l('Consultados') + ' ' + d.queried + ' ' + l('vehículos con movimiento reciente') + ' · ' + d.days + ' ' + l('días') +
-                (d.failed ? ' · ' + d.failed + ' ' + l('lotes fallidos') : '') + (d.aborted ? ' (' + l('carga cortada') + ')' : ''))
-        ] }), 0, true);
+        var head = [{ tag: 'th', html: byVeh ? l('Vehículo') : l('Autopista') }, { tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: l('Pasadas') }];
+        if (d.hasAmount) { head.push({ tag: 'th', cls: 'promatic_dashboard_enhancer-lop-n', html: this._lopTagAmountLabel(d) }); }
+        var cn = [];
+        if (!byVeh) {
+            cn.push(this._lopNote(l('El reporte de PILOT no identifica el vehículo en esta cuenta: se muestran las pasadas por autopista.')));
+        }
+        cn.push({ cls: 'promatic_dashboard_enhancer-lop-boxes', cn: [
+            this._lopBox(String(d.rows.length), byVeh ? l('vehículos con pasadas') : l('autopistas con pasadas'), 'neutral'),
+            this._lopBox(String(totalPasses), l('pasadas'), 'neutral')
+        ] });
+        cn.push({ cls: 'promatic_dashboard_enhancer-lop-scroll', cn: [{ tag: 'table', cls: 'promatic_dashboard_enhancer-lop-table', cn: [
+            { tag: 'thead', cn: [{ tag: 'tr', cn: head }] },
+            { tag: 'tbody', cn: trs }
+        ] }] });
+        cn.push(this._lopNote(l('Consultados') + ' ' + d.queried + (d.scope ? ' ' + l('de') + ' ' + d.scope : '') + ' ' + l('vehículos (solo con movimiento reciente)') +
+            ' · ' + d.days + ' ' + l('días') +
+            (d.hasAmount && !d.currency ? ' · ' + l('Monto en la moneda del reporte (no indicada)') : '') +
+            (d.failed ? ' · ' + d.failed + ' ' + l('lotes fallidos') : '') + (d.aborted ? ' (' + l('carga cortada') + ')' : '')));
+        this.updateCardBody(this.LOP_CARD_IDS.tag, Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-lop-wrap', cn: cn }), 0, true);
+    },
+
+    /** Encabezado de la columna de monto: la moneda solo si el reporte la informó. */
+    _lopTagAmountLabel: function (d) {
+        return l('Monto') + (d.currency ? ' (' + d.currency + ')' : '');
     },
 
     // ---------------------------------------------------------------------
@@ -8288,19 +9079,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 rows: ma.rows.map(function (r) { return [me.displayName(r.name), f(r.odo, 0) + ' km', f(r.toNext, 0) + ' km', lbl[r.status]]; }) });
             m.notes.push(l('Cobertura') + ': ' + ma.rows.length + ' ' + l('de') + ' ' + mt.total + ' ' + l('con odómetro') + '.');
         } else if (which === 'lop_tag') {
-            m.desc = l('Pasadas por pórticos de peaje por vehículo (reporte Toll Roads de PILOT).');
+            m.desc = l('Pasadas por pórticos de peaje (reporte Toll Roads de PILOT), por vehículo o, si el reporte no lo identifica, por autopista.');
             var t = this._lopTag;
             if (!t) { m.notes.push(l('Sin datos de peajes cargados o reporte no disponible en esta cuenta.')); return m; }
             m.days = t.days;
-            var head = [l('Vehículo'), l('Pasadas')];
-            if (t.hasAmount) { head.push(l('Monto')); }
-            m.tables.push({ title: l('Vehículos con más pasadas'), headers: head,
+            var tagVeh = t.groupBy === 'vehicle';
+            var head = [tagVeh ? l('Vehículo') : l('Autopista'), l('Pasadas')];
+            if (t.hasAmount) { head.push(this._lopTagAmountLabel(t)); }
+            m.tables.push({ title: tagVeh ? l('Vehículos con más pasadas') : l('Autopistas con más pasadas'), headers: head,
                 rows: t.rows.map(function (r) {
-                    var row = [me.displayName(r.name), String(r.passes)];
+                    var row = [tagVeh ? me.displayName(r.name) : r.name, String(r.passes)];
                     if (t.hasAmount) { row.push(f(r.amount, 0)); }
                     return row;
                 }) });
-            m.notes.push(l('Consultados') + ' ' + t.queried + ' ' + l('vehículos con movimiento reciente.'));
+            if (!tagVeh) { m.notes.push(l('El reporte de PILOT no identifica el vehículo en esta cuenta: se muestran las pasadas por autopista.')); }
+            if (t.hasAmount && !t.currency) { m.notes.push(l('Monto en la moneda del reporte (no indicada).')); }
+            m.notes.push(l('Consultados') + ' ' + t.queried + (t.scope ? ' ' + l('de') + ' ' + t.scope : '') + ' ' + l('vehículos con movimiento reciente.'));
         }
         return m;
     },
@@ -8341,12 +9135,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         m.notes.forEach(function (n) { C.push({ text: n, style: 'sub' }); });
     },
 
+    // Widgets LOP que siguen exportables por separado pero no entran al
+    // Golden Report: el consumo de TAG no es confiable como cifra de resumen.
+    _LOP_GOLDEN_SKIP: { lop_tag: true },
+
     /** Secciones LOP del Golden Report (HTML): solo los widgets con datos cargados. */
     _lopGoldenHtml: function () {
         var out = '';
         var esc = Ext.String.htmlEncode;
         for (var k in this._LOP_EXPORTS) {
-            if (!this._LOP_EXPORTS.hasOwnProperty(k)) { continue; }
+            if (!this._LOP_EXPORTS.hasOwnProperty(k) || this._LOP_GOLDEN_SKIP[k]) { continue; }
             try {
                 var m = this._lopExportModel(k);
                 if (m.tables.length === 0) { continue; }
@@ -8361,7 +9159,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     _lopGoldenPdf: function (C) {
         for (var k in this._LOP_EXPORTS) {
-            if (!this._LOP_EXPORTS.hasOwnProperty(k)) { continue; }
+            if (!this._LOP_EXPORTS.hasOwnProperty(k) || this._LOP_GOLDEN_SKIP[k]) { continue; }
             try {
                 var m = this._lopExportModel(k);
                 if (m.tables.length === 0) { continue; }
@@ -9097,6 +9895,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
 
         this._lastTop5Ranked = ranked;
+        // Fechas reales de la consulta, para que el Golden Report las
+        // muestre sin recalcularlas (la ventana depende de cuándo se cargó).
+        this._lastTop5Window = { start: startDate, stop: stopDate };
 
         if (ranked.length === 0) {
             this.updateCardBody('top5km', l('Sin datos de kilometraje para el período.'));
