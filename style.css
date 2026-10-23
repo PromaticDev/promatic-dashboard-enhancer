@@ -1257,6 +1257,29 @@
     background: rgba(255, 255, 255, 0.22);
 }
 
+/* Tarjeta de Alertas Generales que aún espera su dato: un spinner de 30 px en
+   el lugar del número. Va en absoluto y no empuja nada: así la tarjeta no
+   cambia de alto cuando llega el número. Reutiliza el giro del overlay de
+   los mapas (sk-spin). Con "reducir movimiento" queda un anillo fijo. */
+.promatic_dashboard_enhancer-stat-card__spinner {
+    position: absolute;
+    left: 12px;
+    bottom: 4px;
+    box-sizing: border-box;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    animation: promatic_dashboard_enhancer-sk-spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .promatic_dashboard_enhancer-stat-card__spinner {
+        animation: none;
+    }
+}
+
 /* Categorías GRAVES (Accidentes, Requiere mantención) con incidencia (> 0):
    solo ESA tarjeta vira a naranja de alerta, no el grid completo — el fondo
    ya lo pone el `style` inline (ver card() en renderAlertasGenerales), esta

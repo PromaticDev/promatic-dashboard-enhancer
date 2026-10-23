@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.0',
-    moduleBuild: '2026-10-23-1357',
+    version: '0.27.1',
+    moduleBuild: '2026-10-23-1728',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -826,7 +826,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     _reportStyles: function () {
         return '<style>' +
             '*{box-sizing:border-box}' +
-            'body{font:13px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b;margin:0;padding:36px 40px;background:#fff}' +
+            // print-color-adjust: sin él el navegador omite los fondos al
+            // imprimir y el texto blanco de las cabeceras oscuras quedaría
+            // invisible sobre el papel.
+            'body{font:13px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b;margin:0;padding:36px 40px;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
             'h1{font-size:22px;margin:0 0 2px;color:#0a3d5c}' +
             'h2{font-size:14px;margin:26px 0 6px;color:#0a3d5c;border-bottom:2px solid #cbd5e1;padding-bottom:4px;text-transform:uppercase;letter-spacing:.4px}' +
             '.sub{color:#64748b;font-size:11.5px;margin-bottom:4px}' +
@@ -834,7 +837,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '.desc{color:#475569;font-size:14px;font-style:italic;margin:2px 0 10px;max-width:52em}' +
             'table{border-collapse:collapse;width:100%;margin:8px 0 4px;font-size:11.5px}' +
             'th,td{border:1px solid #e2e8f0;padding:6px 9px;text-align:left}' +
+            // Cabecera oscura con texto blanco para que no se confunda con una
+            // fila de datos. Las th con estilo propio (subencabezados de
+            // grupo con fondo claro) conservan el fondo y color base.
             'th{background:#f1f5f9;font-weight:600;color:#334155}' +
+            'th:not([style]){background:#0a3d5c;border-color:#0a3d5c;color:#fff}' +
             'tr:nth-child(even) td{background:#fafcfe}' +
             'td.n{text-align:right;font-variant-numeric:tabular-nums}' +
             '.grid{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}' +
@@ -1426,34 +1433,65 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
-     * Estilos propios del Golden Report, encima de _reportStyles: cifras
-     * grandes de alertas, variación con color, listas de patentes y textos de
-     * apoyo en gris más claro. Los botones de ubicación y detalle no se
-     * imprimen: en papel no hacen nada.
+     * "23 de octubre de 2026, 16:52" en la zona horaria configurada (mismos
+     * ajustes que el reloj del panel). Los meses van en español fijo: el
+     * texto del reporte lo es, sea cual sea el locale del reloj.
+     */
+    _fmtLongDateTime: function (ts) {
+        var months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+        var cfg = this.clockConfig();
+        try {
+            var parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: cfg.timeZone, year: 'numeric', month: 'numeric', day: 'numeric',
+                hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+            }).formatToParts(new Date(ts * 1000));
+            var m = {};
+            parts.forEach(function (p) { m[p.type] = p.value; });
+            return Number(m.day) + ' de ' + months[Number(m.month) - 1] + ' de ' + m.year + ', ' + m.hour + ':' + m.minute;
+        } catch (e) {
+            return this._fmtEventDateTime(ts);
+        }
+    },
+
+    /**
+     * Estilos propios del Golden Report, encima de _reportStyles: fecha de
+     * generación, tablas de Sin Señal GPS y de Alertas con columnas de ancho
+     * fijo (los números no deben mover nada al cambiar de dígitos), cifras
+     * grandes, mini-gráfico de variación y textos de apoyo en gris más claro.
+     * Los botones de ubicación y detalle, y las columnas que solo los llevan
+     * (.nop), no se imprimen: en papel no hacen nada. No se usa style en las
+     * th para que conserven la cabecera oscura global.
      */
     _goldenStyles: function () {
         return '<style>' +
+            'h4.gen{font-size:15px;font-weight:700;color:#334155;margin:2px 0 10px}' +
             '.hint{color:#64748b;font-size:12px;margin:2px 0 10px;max-width:52em}' +
-            '.alerts td{vertical-align:middle}' +
+            '.none{color:#64748b}' +
+            'table.gps,table.alerts{table-layout:fixed}' +
+            '.gps th,.alerts th{text-transform:uppercase;letter-spacing:.3px;font-size:11px}' +
+            '.gps td,.alerts td{vertical-align:middle}' +
+            'th.c,td.c{text-align:center}th.r,td.r{text-align:right;padding-right:20px}' +
+            '.gps .promatic_dashboard_enhancer-icon-btn,.alerts .promatic_dashboard_enhancer-icon-btn{margin:0}' +
+            '.gps4 th:nth-child(1){width:22%}.gps4 th:nth-child(2){width:28%}.gps4 th:nth-child(3),.gps4 th:nth-child(4){width:25%}' +
+            '.gps5 th:nth-child(1){width:18%}.gps5 th:nth-child(2){width:24%}.gps5 th:nth-child(3),.gps5 th:nth-child(4){width:18%}.gps5 th:nth-child(5){width:22%}' +
+            '.gtit{font-size:12.5px;font-weight:700;color:#0a3d5c;letter-spacing:.3px;margin:18px 0 2px}' +
+            '.gtit .cnt{display:inline-block;min-width:1.7em;margin-left:8px;padding:1px 7px;border-radius:10px;background:#0a3d5c;color:#fff;text-align:center;font-size:11.5px}' +
+            'td.sev{text-align:center;font-weight:700}' +
+            '.alerts th.w-inc{width:15%}.alerts th.w-act{width:12%}.alerts th.w-yest{width:11%}.alerts th.w-var{width:24%}' +
             '.big{font-size:30px;font-weight:700;line-height:1.1;color:#0a3d5c;font-variant-numeric:tabular-nums}' +
-            '.big.nd{font-size:15px;font-weight:600;color:#94a3b8}' +
-            'td.incid{white-space:nowrap}td.incid .promatic_dashboard_enhancer-icon-btn{margin:0 10px 0 0}' +
+            '.big.nd{font-size:15px;font-weight:600;color:#64748b}' +
+            '.yest{font-size:16px;font-weight:600;color:#475569;font-variant-numeric:tabular-nums}' +
+            '.var{display:inline-flex;align-items:center;justify-content:center;gap:8px}' +
+            '.spark{display:block;flex:none}' +
             '.trend{font-size:15px;font-weight:700;white-space:nowrap}' +
-            '.trend.up{color:#ad1100}.trend.down{color:#238a4c}.trend.flat,.none{color:#64748b}' +
-            '.tramo{margin:10px 0 12px}' +
-            '.tramo-h{font-size:12.5px;font-weight:600;color:#334155}' +
-            '.tramo-h .cnt{display:inline-block;min-width:1.7em;margin-right:6px;padding:1px 7px;border-radius:10px;background:#0a3d5c;color:#fff;text-align:center}' +
-            '.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}' +
-            '.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #cbd5e1;border-radius:14px;background:#f8fafc;padding:2px 8px 2px 10px;font-size:12px}' +
-            '.chip .t{color:#64748b;font-size:10.5px}' +
-            '.chip .promatic_dashboard_enhancer-icon-btn{width:22px;height:22px;margin:0}' +
-            '@media print{.promatic_dashboard_enhancer-icon-btn,.noprint{display:none}.chip{break-inside:avoid}}' +
+            '.trend.up{color:#ad1100}.trend.down{color:#238a4c}.trend.flat{color:#64748b}' +
+            '@media print{button.promatic_dashboard_enhancer-icon-btn,.nop,.noprint{display:none}}' +
             '</style>';
     },
 
     _goldenHeader: function () {
-        return '<h1>Golden Report — ' + l('Resumen de Flota') + '</h1><div class="sub">' +
-            l('Generado el') + ' ' + this._fmtEventDateTime(Math.floor(Date.now() / 1000)) + '</div>';
+        return '<h1>Golden Report — ' + l('Resumen de Flota') + '</h1><h4 class="gen">' +
+            l('Generado el') + ' ' + this._fmtLongDateTime(Math.floor(Date.now() / 1000)) + '</h4>';
     },
 
     /**
@@ -1471,10 +1509,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return a.ts - b.ts;
         };
         return [
-            { label: l('Menos de 24h'), rows: g.rows24 },
-            { label: l('Entre 24 y 48h'), rows: g.rows48 },
-            { label: l('Más de 48h'), rows: g.rowsMore },
-            { label: l('Sin dato'), rows: g.rowsNoData, nodata: true }
+            { key: '24', label: l('Vehículos sin señal GPS en las últimas 24 hrs'), rows: g.rows24 },
+            { key: '48', label: l('Entre 24 y 48 hrs'), rows: g.rows48 },
+            { key: 'more', label: l('Más de 48 hrs'), rows: g.rowsMore },
+            { key: 'nodata', label: l('Sin dato de última señal'), rows: g.rowsNoData, nodata: true }
         ].map(function (grp) {
             grp.rows = (grp.rows || []).slice().sort(oldestFirst);
             return grp;
@@ -1525,16 +1563,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     /**
      * Filas de Alertas Generales del Golden Report (HTML y PDF). value: número
      * o null si no hay dato (se muestra N/D). detail: clave de _openAlertDetail
-     * o null si la categoría no tiene modal de detalle. trend: variación vs.
-     * ayer, solo donde existe el dato del día anterior (hoy, accidentes).
-     * Ralentí, mantención y combustible son acumulados de su ventana o un
-     * estado actual, sin serie diaria, así que quedan sin variación.
+     * o null si la categoría no tiene modal de detalle; hasDetail dice si
+     * corresponde ofrecerlo (hay incidencias). trend: hoy vs. ayer, solo donde
+     * existe el dato del día anterior (accidentes). Ralentí, mantención y
+     * combustible son acumulados de su ventana o un estado actual, sin serie
+     * diaria, así que quedan sin AYER ni variación.
+     *
+     * Accidentes muestra los de hoy (no el hoy+ayer de la tarjeta) para que
+     * INCIDENCIAS, AYER y VARIACIÓN cuadren entre sí; el detalle se ofrece si
+     * hubo alguno hoy o ayer, igual que la tarjeta.
      */
     _goldenAlertRows: function () {
         var me = this;
         var num = function (v) { return typeof v === 'number' ? v : null; };
+        var acc = this._accidentDayTrend();
         var rows = [
-            { label: l('Accidentes (hoy y ayer)'), value: num(this._alertAccidentes), detail: 'accidentes', trend: this._accidentDayTrend() },
+            { label: l('Posibles accidentes (hoy)'), value: acc ? acc.today : null, detail: 'accidentes', trend: acc },
             { label: l('Requiere mantención'), value: num(this._alertMantencion), detail: null, trend: null },
             { label: l('Ralentí excesivo'), value: num(this._alertRalenti), detail: 'ralenti', trend: null }
         ];
@@ -1542,28 +1586,71 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var sm = me._fuelSummary(k[0]);
             rows.push({ label: k[1], cov: sm.cov, value: num(sm.count), detail: k[0], trend: null });
         });
+        rows.forEach(function (r) {
+            r.hasDetail = !!(r.detail && (r.value > 0 || (r.trend && r.trend.yesterday > 0)));
+        });
         return rows;
     },
 
-    /** Variación vs. ayer en HTML: flecha con color (más incidencias = peor) y los dos valores. */
+    /**
+     * Mini-gráfico de 2 puntos (ayer → hoy): línea que sube en rojo (más
+     * incidencias es peor), baja en verde, o plana punteada en gris. La
+     * pendiente es cualitativa, no escala con la magnitud del cambio.
+     */
+    _goldenSpark: function (delta) {
+        var color = delta > 0 ? '#ad1100' : (delta < 0 ? '#238a4c' : '#64748b');
+        var y1 = delta > 0 ? 16 : (delta < 0 ? 4 : 10);
+        var y2 = delta > 0 ? 4 : (delta < 0 ? 16 : 10);
+        return '<svg class="spark" viewBox="0 0 48 20" width="48" height="20" aria-hidden="true">' +
+            '<line x1="3" y1="' + y1 + '" x2="45" y2="' + y2 + '" stroke="' + color + '" stroke-width="2" stroke-linecap="round"' +
+            (delta === 0 ? ' stroke-dasharray="3 4"' : '') + '/>' +
+            '<circle cx="45" cy="' + y2 + '" r="2.5" fill="' + color + '"/></svg>';
+    },
+
+    /** Columna VARIACIÓN en HTML: mini-gráfico y flecha con la diferencia hoy - ayer (rojo si sube). "—" sin dato de ayer. */
     _goldenTrendHtml: function (t) {
         if (!t) { return '<span class="trend flat" title="' + Ext.String.htmlEncode(l('Sin dato del día anterior')) + '">—</span>'; }
         var cls = t.delta > 0 ? 'up' : (t.delta < 0 ? 'down' : 'flat');
-        var mark = t.delta > 0 ? '▲ +' : (t.delta < 0 ? '▼ −' : '= ');
-        return '<span class="trend ' + cls + '">' + mark + Math.abs(t.delta) + '</span>' +
-            '<div class="sub">' + l('hoy') + ' ' + t.today + ' · ' + l('ayer') + ' ' + t.yesterday + '</div>';
+        var mark = t.delta > 0 ? '▲ +' + t.delta : (t.delta < 0 ? '▼ -' + (-t.delta) : '=');
+        return '<span class="var" title="' + Ext.String.htmlEncode(l('ayer') + ' ' + t.yesterday + ' → ' + l('hoy') + ' ' + t.today) + '">' +
+            this._goldenSpark(t.delta) + '<span class="trend ' + cls + '">' + mark + '</span></span>';
     },
 
-    /** Variación vs. ayer en pdfMake: palabras y ASCII, porque la fuente del PDF no trae las flechas. */
+    /**
+     * Columna VARIACIÓN en pdfMake: texto con color y la palabra sube/baja, en
+     * ASCII porque la fuente del PDF no trae las flechas. Sin mini-gráfico:
+     * un canvas de pdfMake dentro de la celda no se pudo verificar sin el
+     * runtime de PILOT y un fallo ahí tumbaría todo el PDF.
+     */
     _goldenTrendPdf: function (t) {
-        if (!t) { return { text: '—', color: '#64748b' }; }
+        if (!t) { return { text: '—', alignment: 'center', color: '#64748b' }; }
         var color = t.delta > 0 ? '#ad1100' : (t.delta < 0 ? '#238a4c' : '#64748b');
         var word = t.delta > 0 ? '+' + t.delta + ' (' + l('sube') + ')'
-            : (t.delta < 0 ? '-' + (-t.delta) + ' (' + l('baja') + ')' : l('Sin cambio'));
-        return { stack: [
-            { text: word, bold: true, fontSize: 10, color: color },
-            { text: l('hoy') + ' ' + t.today + ' · ' + l('ayer') + ' ' + t.yesterday, fontSize: 7.5, color: '#64748b' }
-        ] };
+            : (t.delta < 0 ? '-' + (-t.delta) + ' (' + l('baja') + ')' : '= (' + l('sin cambio') + ')');
+        return { text: word, alignment: 'center', bold: true, fontSize: 10, color: color };
+    },
+
+    // Severidad del tiempo sin señal, de menor a mayor (ámbar, naranja, rojo):
+    // fondo y texto con contraste AA.
+    _GOLDEN_SEV: [null,
+        { bg: '#fcd34d', fg: '#3f2a00' },
+        { bg: '#fb923c', fg: '#431407' },
+        { bg: '#b91c1c', fg: '#ffffff' }],
+
+    /**
+     * Tiempo sin señal en la unidad más legible: días (menos de 14), semanas
+     * (14 a 59 días) o meses de 30 días (60 o más). level (1-3) sube con la
+     * unidad y elige el color de _GOLDEN_SEV.
+     * @param {Number} sec Segundos desde la última señal.
+     * @return {{text: string, level: number}}
+     */
+    _goldenOutage: function (sec) {
+        var days = Math.max(0, Math.floor(sec / 86400));
+        var n, unit, level;
+        if (days < 14) { n = days; unit = n === 1 ? 'día' : 'días'; level = 1; }
+        else if (days < 60) { n = Math.floor(days / 7); unit = 'semanas'; level = 2; }
+        else { n = Math.floor(days / 30); unit = 'meses'; level = 3; }
+        return { text: n + ' ' + l(unit), level: level };
     },
 
     /** Segunda línea de la descripción del ranking de km: las fechas reales de la consulta del widget. */
@@ -1683,52 +1770,73 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 '</div>';
         });
 
-        // Sin Señal GPS: qué patentes hay en cada tramo y dónde quedó cada una.
-        s += sec('GPS', l('Sin Señal GPS'), function () {
+        // Vehículos sin señal GPS: una tabla por tramo, apiladas, con la
+        // última señal y la última ubicación de cada patente. Solo el tramo de
+        // más de 48 h lleva el tiempo sin señal (en días, semanas o meses).
+        s += sec('GPS', l('Vehículos Sin Señal GPS'), function () {
             var groups = me._goldenGpsGroups();
             if (!groups) { return noData(l('Sin datos de conectividad cargados todavía.')); }
-            var chip = function (r) {
-                var plate = me.displayName(r.veh);
-                var when = r.ts != null ? me._fmtEventDateTime(r.ts) : '';
-                var link = r.lat != null && r.lon != null ? me._mapsLink(r.lat, r.lon) : null;
-                var label = plate + (when ? ' — ' + when : '');
-                return '<span class="chip"><b>' + (esc(plate) || '—') + '</b>' +
-                    (when ? '<span class="t">' + esc(when) + '</span>' : '') +
-                    (r.lat != null && r.lon != null
-                        ? me._iconFocusBtn(r.lat, r.lon, label, l('Ver última ubicación en PILOT'), me._SVG_PIN) : '') +
-                    (link ? me._iconExtLink(link, l('Ver última ubicación en mapa externo')) : '') + '</span>';
-            };
-            var out = '<p class="hint">' + l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal; se indica la fecha de esa última señal.') + '</p>' +
-                '<p class="hint noprint">' + l('Los íconos de cada patente muestran su última ubicación conocida en el mapa de esta ventana o en un mapa externo.') + '</p>';
+            var up = function (t) { return esc(String(t).toUpperCase()); };
+            var nowSec = Math.floor(Date.now() / 1000);
+            var out = '<p class="hint">' + l('Vehículos sin conexión al servidor, agrupados por el tiempo transcurrido desde su última señal.') + '</p>' +
+                '<p class="hint noprint">' + l('Última posición PILOT centra el mapa de esta ventana; última pos. ext. abre un mapa externo.') + '</p>';
             groups.forEach(function (grp) {
                 // Los tramos por tiempo se muestran siempre (el cero también
                 // informa); "Sin dato" solo cuando tiene vehículos.
                 if (grp.nodata && !grp.rows.length) { return; }
-                out += '<div class="tramo"><div class="tramo-h"><span class="cnt">' + grp.rows.length + '</span>' + grp.label + '</div>' +
-                    (grp.rows.length
-                        ? '<div class="chips">' + grp.rows.map(chip).join('') + '</div>'
-                        : '<div class="none">' + l('Ninguno') + '</div>') + '</div>';
+                out += '<h3 class="gtit">' + up(grp.label) + '<span class="cnt">' + grp.rows.length + '</span></h3>';
+                if (!grp.rows.length) { out += '<p class="none">' + l('Ninguno') + '</p>'; return; }
+                var more = grp.key === 'more';
+                out += '<table class="gps ' + (more ? 'gps5' : 'gps4') + '"><tr><th>' + up(l('Patente')) + '</th><th>' + up(l('Fecha y hora')) +
+                    '</th><th class="c nop">' + up(l('Última posición PILOT')) + '</th><th class="c">' + up(l('Última pos. ext.')) + '</th>' +
+                    (more ? '<th class="c">' + up(l('Tiempo sin señal')) + '</th>' : '') + '</tr>';
+                grp.rows.forEach(function (r) {
+                    var plate = me.displayName(r.veh);
+                    var when = r.ts != null ? me._fmtEventDateTime(r.ts) : '';
+                    var hasPos = r.lat != null && r.lon != null;
+                    var link = hasPos ? me._mapsLink(r.lat, r.lon) : null;
+                    var label = plate + (when ? ' — ' + when : '');
+                    var sev = '';
+                    if (more) {
+                        // Sin fecha de última señal no hay cómo medir el tiempo.
+                        var o = r.ts != null ? me._goldenOutage(nowSec - r.ts) : null;
+                        sev = o
+                            ? '<td class="sev" style="background:' + me._GOLDEN_SEV[o.level].bg + ';color:' + me._GOLDEN_SEV[o.level].fg + '">' + esc(o.text) + '</td>'
+                            : '<td class="sev">—</td>';
+                    }
+                    out += '<tr><td><b>' + (esc(plate) || '—') + '</b></td><td>' + (when ? esc(when) : '—') + '</td>' +
+                        '<td class="c nop">' + (hasPos ? me._iconFocusBtn(r.lat, r.lon, label, l('Ver última ubicación en PILOT'), me._SVG_PIN) : '—') + '</td>' +
+                        '<td class="c">' + (link ? me._iconExtLink(link, l('Ver última ubicación en mapa externo')) : '—') + '</td>' + sev + '</tr>';
+                });
+                out += '</table>';
             });
             return out;
         });
 
-        // Alertas Generales: cifra grande, ícono de detalle si no es cero y
-        // variación vs. ayer donde hay dato.
+        // Alertas Generales: cifra grande de ancho fijo, ícono de detalle en
+        // su propia columna y variación vs. ayer (AYER + VARIACIÓN) donde hay
+        // dato del día anterior.
         s += sec('ALERTAS', l('Alertas Generales'), function () {
-            var out = '<p class="hint">' + l('Incidencias por categoría en el período configurado de cada widget; accidentes cuenta hoy y ayer. La variación compara hoy con el día anterior.') + '</p>' +
-                '<table class="alerts"><tr><th>' + l('Categoría') + '</th><th>' + l('Incidencias') + '</th><th>' + l('Variación vs. ayer') + '</th></tr>';
+            var up = function (t) { return esc(String(t).toUpperCase()); };
+            var detailTip = esc(l('Abrir el detalle'));
+            var out = '<p class="hint">' + l('Incidencias por categoría en el período configurado de cada widget. Posibles accidentes cuenta los de hoy (la tarjeta del panel suma hoy y ayer). La variación es hoy menos ayer: si sube hay más alertas.') + '</p>' +
+                '<table class="alerts"><tr><th>' + up(l('Categoría')) + '</th><th class="r w-inc">' + up(l('Incidencias')) +
+                '</th><th class="c w-act nop">' + up(l('Acciones')) + '</th><th class="r w-yest">' + up(l('Ayer')) +
+                '</th><th class="c w-var">' + up(l('Variación')) + '</th></tr>';
             me._goldenAlertRows().forEach(function (r) {
                 var has = typeof r.value === 'number';
-                var detail = has && r.value > 0 && r.detail
+                var action = r.hasDetail
                     ? '<button type="button" class="promatic_dashboard_enhancer-icon-btn promatic_dashboard_enhancer-detail-btn" data-alert-detail="' + r.detail +
-                      '" title="' + esc(l('Abrir el detalle')) + '" aria-label="' + esc(l('Abrir el detalle')) + '">' + me._SVG_DETAIL + '</button>'
-                    : '';
+                      '" title="' + detailTip + '" aria-label="' + detailTip + '">' + me._SVG_DETAIL + '</button>'
+                    : '—';
                 out += '<tr><td>' + r.label + (r.cov ? ' <span class="sub">(' + esc(r.cov) + ')</span>' : '') + '</td>' +
-                    '<td class="n incid">' + detail + '<span class="big' + (has ? '' : ' nd') + '">' + (has ? r.value : l('N/D')) + '</span></td>' +
-                    '<td>' + me._goldenTrendHtml(r.trend) + '</td></tr>';
+                    '<td class="r"><span class="big' + (has ? '' : ' nd') + '">' + (has ? r.value : l('N/D')) + '</span></td>' +
+                    '<td class="c nop">' + action + '</td>' +
+                    '<td class="r">' + (r.trend ? '<span class="yest">' + r.trend.yesterday + '</span>' : '—') + '</td>' +
+                    '<td class="c">' + me._goldenTrendHtml(r.trend) + '</td></tr>';
             });
             return out + '</table><p class="sub">' +
-                l('N/D: PILOT no entregó el dato (por ejemplo, vehículos sin sensor de combustible). "—" en la variación: no hay dato del día anterior.') + '</p>';
+                l('N/D: PILOT no entregó el dato (por ejemplo, vehículos sin sensor de combustible). "—" en acciones: sin incidencias o sin detalle; "—" en ayer y variación: no hay dato del día anterior.') + '</p>';
         });
 
         // Top KM
@@ -1798,7 +1906,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 h2: { fontSize: 11, bold: true, color: '#0a3d5c', margin: [0, 14, 0, 4] },
                 sub: { fontSize: 8, color: '#64748b', margin: [0, 0, 0, 2] },
                 desc: { fontSize: 8, italics: true, color: '#475569', margin: [0, 2, 0, 8] },
-                th: { bold: true, fillColor: '#f1f5f9', color: '#334155' },
+                th: { bold: true, fillColor: '#0a3d5c', color: '#ffffff' },
                 foot: { fontSize: 7.5, color: '#94a3b8', margin: [0, 20, 0, 0] }
             },
             content: [
@@ -1819,12 +1927,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     _pdfScoreColor: function (sc) {
         return sc >= 75 ? '#238a4c' : (sc >= 45 ? '#a34d00' : '#ad1100');
     },
-    // tabla simple: headers = [str], rows = [[cell,...]]
-    _pdfTable: function (headers, rows) {
+    // tabla simple: headers = [str], rows = [[cell,...]], widths = anchos de columna (opcional; por defecto iguales)
+    _pdfTable: function (headers, rows, widths) {
         var body = [headers.map(function (h) { return { text: h, style: 'th' }; })];
         for (var i = 0; i < rows.length; i++) { body.push(rows[i]); }
         return {
-            table: { headerRows: 1, widths: headers.map(function () { return '*'; }), body: body },
+            table: { headerRows: 1, widths: widths || headers.map(function () { return '*'; }), body: body },
             layout: { hLineColor: function () { return '#e2e8f0'; }, vLineColor: function () { return '#e2e8f0'; } },
             margin: [0, 4, 0, 4]
         };
@@ -2052,9 +2160,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     buildGoldenPdfDoc: function () {
         var me = this;
-        var doc = this._pdfBase('Golden Report — ' + l('Resumen de Flota'),
-            l('Generado el') + ' ' + this._fmtEventDateTime(Math.floor(Date.now() / 1000)));
+        var doc = this._pdfBase('Golden Report — ' + l('Resumen de Flota'), '');
         var C = doc.content;
+        // La fecha de generación va como subtítulo en negrita (el estilo 'sub'
+        // de _pdfBase es un texto menor): es el dato que ubica al lector.
+        C[1] = { text: l('Generado el') + ' ' + this._fmtLongDateTime(Math.floor(Date.now() / 1000)),
+            fontSize: 12, bold: true, color: '#334155', margin: [0, 0, 0, 6] };
         var name = this.displayName.bind(this);
         var f = this._lastFleetCounts;
         var kr = this._lastTop5Ranked || [];
@@ -2088,37 +2199,50 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             P.push(me._pdfBoxes(boxes));
         });
 
-        // Las patentes con ubicación llevan un enlace a un mapa externo (el
-        // PDF no tiene el mapa de PILOT).
-        sec('GPS', l('Sin Señal GPS'), function (P) {
+        // Mismas tablas que el HTML, salvo la columna de posición en PILOT:
+        // el PDF no tiene el mapa de PILOT al que apuntar. La última posición
+        // es un enlace de texto a un mapa externo.
+        sec('GPS', l('Vehículos Sin Señal GPS'), function (P) {
             var groups = me._goldenGpsGroups();
             if (!groups) { P.push(noData(l('Sin datos de conectividad cargados todavía.'))); return; }
-            P.push(hint(l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal; se indica la fecha de esa última señal. Las patentes en azul abren su última ubicación conocida en un mapa externo.')));
+            var up = function (t) { return String(t).toUpperCase(); };
+            var nowSec = Math.floor(Date.now() / 1000);
+            P.push(hint(l('Vehículos sin conexión al servidor, agrupados por el tiempo transcurrido desde su última señal. "Ver mapa" abre la última ubicación conocida en un mapa externo.')));
             groups.forEach(function (grp) {
                 if (grp.nodata && !grp.rows.length) { return; }
-                P.push({ text: grp.label + ' — ' + grp.rows.length, bold: true, margin: [0, 6, 0, 2] });
+                P.push({ text: up(grp.label) + ' (' + grp.rows.length + ')', bold: true, fontSize: 9, color: '#0a3d5c', margin: [0, 8, 0, 2] });
                 if (!grp.rows.length) { P.push({ text: l('Ninguno'), color: '#64748b' }); return; }
-                var parts = [];
-                grp.rows.forEach(function (r, i) {
-                    if (i) { parts.push({ text: '  ·  ', color: '#94a3b8' }); }
-                    var label = (name(r.veh) || '—') + (r.ts != null ? ' (' + me._fmtEventDateTime(r.ts) + ')' : '');
+                var more = grp.key === 'more';
+                var heads = [up(l('Patente')), up(l('Fecha y hora')), up(l('Última pos. ext.'))];
+                if (more) { heads.push(up(l('Tiempo sin señal'))); }
+                P.push(me._pdfTable(heads, grp.rows.map(function (r) {
                     var url = r.lat != null && r.lon != null ? me._mapsLink(r.lat, r.lon) : null;
-                    parts.push(url ? { text: label, link: url, color: '#0a67a0' } : { text: label });
-                });
-                P.push({ text: parts, fontSize: 8.5, lineHeight: 1.3 });
+                    var row = [{ text: name(r.veh) || '—', bold: true },
+                        r.ts != null ? me._fmtEventDateTime(r.ts) : '—',
+                        url ? { text: l('Ver mapa'), link: url, color: '#0a67a0', decoration: 'underline', alignment: 'center' }
+                            : { text: '—', alignment: 'center' }];
+                    if (more) {
+                        var o = r.ts != null ? me._goldenOutage(nowSec - r.ts) : null;
+                        var sev = o ? me._GOLDEN_SEV[o.level] : null;
+                        row.push(sev ? { text: o.text, alignment: 'center', bold: true, fillColor: sev.bg, color: sev.fg }
+                            : { text: '—', alignment: 'center' });
+                    }
+                    return row;
+                }), more ? [80, 110, 90, '*'] : [100, 140, '*']));
             });
         });
 
-        // Sin ícono de detalle: el PDF es estático.
+        // Sin ícono de detalle ni mini-gráfico: el PDF es estático.
         sec('ALERTAS', l('Alertas Generales'), function (P) {
-            P.push(hint(l('Incidencias por categoría en el período configurado de cada widget; accidentes cuenta hoy y ayer. La variación compara hoy con el día anterior; "—" indica que no hay dato del día anterior.')));
-            P.push(me._pdfTable([l('Categoría'), l('Incidencias'), l('Variación vs. ayer')],
+            P.push(hint(l('Incidencias por categoría en el período configurado de cada widget. Posibles accidentes cuenta los de hoy (la tarjeta del panel suma hoy y ayer). La variación es hoy menos ayer: si sube hay más alertas; "—" indica que no hay dato del día anterior.')));
+            P.push(me._pdfTable([l('Categoría'), l('Incidencias'), l('Ayer'), l('Variación')].map(function (h) { return h.toUpperCase(); }),
                 me._goldenAlertRows().map(function (r) {
                     var has = typeof r.value === 'number';
                     return [r.label + (r.cov ? ' (' + r.cov + ')' : ''),
-                        { text: has ? String(r.value) : l('N/D'), alignment: 'right', bold: has, fontSize: has ? 16 : 9, color: has ? '#0a3d5c' : '#94a3b8' },
+                        { text: has ? String(r.value) : l('N/D'), alignment: 'right', bold: has, fontSize: has ? 16 : 9, color: has ? '#0a3d5c' : '#64748b' },
+                        { text: r.trend ? String(r.trend.yesterday) : '—', alignment: 'right', fontSize: 11, color: '#475569' },
                         me._goldenTrendPdf(r.trend)];
-                })));
+                }), ['*', 70, 50, 110]));
         });
 
         sec('KM', l('Vehículos con Exceso de Kilometraje'), function (P) {
@@ -2153,7 +2277,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         C.push({ ul: [
             l('Kilometraje: panel Informes → "Informe de kilometraje", selecciona vehículos/carpeta y el mismo período del widget, exporta a Excel.'),
             l('Safety Score: panel Informes → "Fleet ECO report", selecciona el grupo y el mismo período del widget, exporta a Excel.'),
-            l('Accidentes y eventos: panel Mensajes / Eventos, filtra por tipo y rango para el detalle por evento (fecha, hora, posición).')
+            l('Posibles accidentes y eventos: panel Mensajes / Eventos, filtra por tipo y rango para el detalle por evento (fecha, hora, posición).')
         ], fontSize: 8.5, margin: [0, 4, 0, 0] });
 
         C.push({ text: l('Golden Report generado por el Dashboard sobre datos de PILOT Telematics.'), style: 'foot' });
@@ -2162,8 +2286,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     /**
      * Layout de 4 columnas: izquierda fija (Alertas Generales), centro
-     * angosto (Sin Señal GPS + Top KM apiladas), mapas (ubicación y hotspots,
-     * doble de ancho) y derecha fija (logo, hora, exportar). En ancho angosto
+     * angosto (Sin Señal GPS, Estado de Flota e Infracciones apiladas), mapas
+     * (ubicación y hotspots, doble de ancho, con Top KM debajo) y derecha fija
+     * (logo, hora, exportar). En ancho angosto
      * la columna derecha pasa a barra horizontal arriba: grid-template-areas
      * cambia solo la DISPOSICIÓN con el mismo DOM (ver .shell-grid en
      * style.css).
@@ -2205,13 +2330,6 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     hint: l('Vehículos seleccionados en el panel "Principal": activos, en movimiento, estacionados y sin conexión. Se actualiza en vivo con el árbol Online.'),
                     noFooter: true,
                     skeleton: 'donut'
-                }),
-                this.cardMarkup('top5km', {
-                    title: l('Vehículos con Exceso de Kilometraje'),
-                    hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: /api/v3/vehicles/trips, con respaldo al reporte de kilometraje.'),
-                    footerLabel: l('Abrir reporte de kilometraje'),
-                    footerIcon: true,
-                    skeleton: 'ranking'
                 }),
                 this.cardMarkup('violations', {
                     title: l('Tendencia de Infracciones de Manejo'),
@@ -2273,6 +2391,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                             }
                         ]
                     }
+                }),
+                // El ranking de kilometraje va bajo el mapa: su tabla con la
+                // tira de km por día necesita más ancho que la columna del
+                // medio. Es solo de la vista RAC (VIEW_WIDGETS), así que no
+                // altera el orden de las tarjetas de LOP que siguen.
+                this.cardMarkup('top5km', {
+                    title: l('Vehículos con Exceso de Kilometraje'),
+                    hint: l('Kilómetros por vehículo en el período configurado (por defecto 7 días). Fuente: /api/v3/vehicles/trips, con respaldo al reporte de kilometraje.'),
+                    footerLabel: l('Abrir reporte de kilometraje'),
+                    footerIcon: true,
+                    skeleton: 'ranking'
                 })
             ].concat(this.lopSlotCards('map'))
         };
@@ -3757,6 +3886,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     r[0] + ' requiere_mantencion=' + r[1] + ' paso_fronterizo=' + r[2]);
                 // Combustible corre aparte (lotes con pausa) y vuelve a
                 // dibujar las tarjetas al terminar; no demora las demás.
+                // Mientras espera su turno sus tarjetas muestran el spinner
+                // (loadFuelAlerts apaga la bandera al arrancar).
+                me._fuelWaiting = !!me._fuelCfg().enabled;
                 if (me._startupDone) {
                     me.loadFuelAlerts(vehIds);
                 } else if (!me._fuelQueued) {
@@ -4860,7 +4992,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     loadFuelAlerts: function (vehIds) {
         var me = this;
         var cfg = me._fuelCfg();
-        if (!cfg.enabled || !vehIds || !vehIds.length || me._fuelRunning) { return; }
+        // Si las tarjetas esperaban con spinner y no hay nada que analizar,
+        // hay que repintarlas: si no, el spinner quedaría para siempre.
+        var wasWaiting = me._fuelWaiting;
+        me._fuelWaiting = false;
+        if (!cfg.enabled || !vehIds || !vehIds.length || me._fuelRunning) {
+            if (wasWaiting && !me._fuelRunning) { me.renderAlertasGenerales(); }
+            return;
+        }
         me._fuelRunning = true;
         me._fuelPerVeh = me._fuelPerVeh || {};
         var dbg = Store.promatic_dashboard_enhancer.Module.debugLog.bind(Store.promatic_dashboard_enhancer.Module);
@@ -4878,7 +5017,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             me.renderAlertasGenerales();
         };
 
-        if (me._isEndpointBlocked(breakerKey)) { me._fuelRunning = false; return; }
+        if (me._isEndpointBlocked(breakerKey)) {
+            me._fuelRunning = false;
+            if (wasWaiting) { me.renderAlertasGenerales(); }
+            return;
+        }
 
         me._fuelSensorVehicles(vehIds, cfg).then(function (src) {
             // Catálogo bloqueado (401): no se consulta ningún reporte. Se
@@ -5016,7 +5159,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     _fuelSummary: function (kind) {
         var f = this._fuel;
         if (!f) {
-            return { state: this._fuelRunning ? 'loading' : 'none', count: null, cov: '', ids: [] };
+            // _fuelWaiting: el análisis está habilitado pero aún no arranca
+            // (espera el fin del arranque); para quien mira es "cargando".
+            return { state: (this._fuelRunning || this._fuelWaiting) ? 'loading' : 'none', count: null, cov: '', ids: [] };
         }
         // Con catálogo, "con sensor" es el total catalogado; en sondeo, solo
         // los vehículos que respondieron con sensor.
@@ -5426,8 +5571,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 1024 1023">' +
             '<path fill="currentColor" d="M512 1023q-104 0-199-40.5t-163.5-109T40.5 710T0 511t40.5-198.5t109-163T313 40.5T512 0t199 40.5t163.5 109t109 163T1024 511t-40.5 199t-109 163.5t-163.5 109t-199 40.5m222-199L512 602L290 824q100 71 222 71t222-71M128 511q0 122 70 221l222-222l-221-221q-71 100-71 222m163-313l221 220l221-220q-100-71-221-71t-221 71m534 91L604 510l222 222q70-99 70-221t-71-222"/></svg>';
 
-        // count: número (conectada), null/undefined (falló → "N/D") o
-        // beta:true (categoría futura → badge "beta", sin número). vehIds:
+        // Una categoría sin respuesta todavía (undefined) muestra un spinner en
+        // vez de "N/D": para quien mira la pantalla, "N/D" es un dato que
+        // falló, no una consulta en curso. null sí es una consulta fallida y
+        // sigue siendo "N/D". El tope evita un spinner eterno si la carga
+        // nunca arranca (p. ej. sin árbol de flota).
+        var PENDING = '__pending__';
+        var pendingFresh = !this._lastAlertsAt || (Date.now() - this._lastAlertsAt) < 180000;
+        var wait = function (v) { return (v === undefined && pendingFresh) ? PENDING : v; };
+
+        // count: número (conectada), PENDING (cargando → spinner), null o
+        // undefined vencido (falló → "N/D") o beta:true (categoría futura →
+        // badge "beta", sin número). vehIds:
         // agent_ids afectados; si hay incidencia y hay ids, la tarjeta es
         // clicable y abre el panel Informes con esos vehículos marcados (el
         // usuario elige el informe). severe: marca las categorías GRAVES
@@ -5438,6 +5593,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var body;
             if (isBeta) {
                 body = { cls: 'promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta', html: l('EN DESARROLLO') };
+            } else if (count === PENDING) {
+                // El &nbsp; conserva la línea del contador; el spinner va en
+                // absoluto (ver style.css) para que el alto de la tarjeta no
+                // cambie cuando llegue el número.
+                body = { cls: 'promatic_dashboard_enhancer-stat-card__count',
+                    html: '&nbsp;<span class="promatic_dashboard_enhancer-stat-card__spinner" role="status" aria-label="' + l('Cargando') + '"></span>' };
             } else if (count === null || count === undefined) {
                 body = { cls: 'promatic_dashboard_enhancer-stat-card__count', html: l('N/D') };
             } else {
@@ -5478,7 +5639,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var sm = me._fuelSummary(kind);
             var count = sm.count;
             var beta = sm.state === 'unrecognized';
-            if (sm.state === 'loading') { count = '…'; }
+            if (sm.state === 'loading') { count = PENDING; }
             var cov = sm.cov ? '<span class="promatic_dashboard_enhancer-stat-card__cov">' + Ext.String.htmlEncode(sm.cov) + '</span>' : '';
             var spec = card(bg, title + cov, count, svgCombustible,
                 titleAttr + (sm.cov ? ' — ' + sm.cov : ''), beta, iconCls,
@@ -5498,7 +5659,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // haya eventos en la ventana de histórico (card() solo la habilita con conteo > 0).
         var accCard = card('var(--g6)',
             l('POSIBLE ACCIDENTE') + '<span class="promatic_dashboard_enhancer-stat-card__cov">' + l('hoy y ayer') + '</span>',
-            accidentes, svgAccidente,
+            wait(accidentes), svgAccidente,
             l('Posible accidente — eventos de hoy y ayer; el histórico de la semana está en el detalle'), false, 'pde_alert-accidentes',
             this._alertAccidentesIds || [], null, true);
         if (!accCard['data-alert-ids'] && (this._alertAccidentesIds || []).length &&
@@ -5523,13 +5684,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: gridCls,
             cn: [
                 accCard,
-                card('var(--g7)', l('Requiere mantención'), mantencion, svgMantencion,
+                card('var(--g7)', l('Requiere mantención'), wait(mantencion), svgMantencion,
                     l('Vehículos con inspección/servicio vencido o pendiente (módulo Técnico-Operacional)'), false, 'pde_alert-mantencion',
                     null, null, true),
                 // Ralentí abre un modal propio (buildRalentiReport): el
                 // informe nativo equivalente es el "Fleet ECO report"
                 // (report_type=223 group=6), que runNativeReport no soporta.
-                card('var(--g6)', l('Ralentí excesivo'), ralenti, svgRalenti,
+                card('var(--g6)', l('Ralentí excesivo'), wait(ralenti), svgRalenti,
                     l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti',
                     this._alertRalentiIds || [], null, false),
                 fuelCard('carga', 'var(--g7)', l('Inconsistencias en Carga'),
@@ -5543,7 +5704,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 // grave: un vehículo detenido en un paso fronterizo sin
                 // permiso es un posible vehículo perdido.
                 this._alertBorderEnabled
-                    ? card('var(--g6)', l('Salida de territorio nacional'), this._alertBorder, svgTerritorio,
+                    ? card('var(--g6)', l('Salida de territorio nacional'), wait(this._alertBorder), svgTerritorio,
                         l('Vehículos detenidos en una geocerca de paso fronterizo (notificación de PILOT)'), false, 'pde_alert-fuerazona',
                         this._alertBorderIds || [], null, true)
                     : card('var(--g6)', l('Salida de territorio nacional'), null, svgTerritorio,
@@ -5624,6 +5785,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 .catch(function (err) {
                     var code = me.widgetErrorCode('ECO-SCORE', err);
                     me.updateCardBody('eco_score', l('No se pudo cargar el Safety Score.') + ' (' + code + ')', 0, true);
+                    // Ralentí sale del mismo reporte: sin él la tarjeta pasa de
+                    // "cargando" a "N/D" en vez de quedar con el spinner. Un
+                    // valor previo bueno (recarga manual) no se pisa.
+                    if (me._alertRalenti === undefined) {
+                        me._alertRalenti = null;
+                        me._alertRalentiIds = [];
+                        me.renderAlertasGenerales();
+                    }
                 })
                 .finally(function () { clearTimeout(to); });
         });
