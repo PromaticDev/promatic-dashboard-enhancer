@@ -1,3 +1,29 @@
+/* ===== Fondo del panel (ui.background, ver applyPanelBackground) =====
+   El cuerpo del panel de Ext JS trae su propio blanco y tapa el fondo del
+   contenedor: con la clase bg se vuelve transparente y se ve el color base
+   (--g1) y la trama del contenedor, de modo que las tarjetas blancas se
+   despegan del fondo. La trama liviana (retícula) va más abierta y la más
+   visible (curvas de nivel) más densa; ambas son repetibles sin costuras. */
+.promatic_dashboard_enhancer-panel.promatic_dashboard_enhancer-bg {
+    background-color: var(--g1);
+}
+
+.promatic_dashboard_enhancer-panel.promatic_dashboard_enhancer-bg .promatic_dashboard_enhancer-panel-body {
+    background: transparent !important;
+}
+
+.promatic_dashboard_enhancer-panel.promatic_dashboard_enhancer-bg--reticula {
+    background-image: var(--pde-bg-image);
+    background-repeat: repeat;
+    background-size: 1600px 1600px;
+}
+
+.promatic_dashboard_enhancer-panel.promatic_dashboard_enhancer-bg--topo {
+    background-image: var(--pde-bg-image);
+    background-repeat: repeat;
+    background-size: 1200px 1200px;
+}
+
 /* Escala de espaciado: 4 / 8 / 12 / 16px — no usar valores arbitrarios fuera de esta escala */
 
 /* Base de escalado (control +/- del pie, ver Module.js applyScalePct).

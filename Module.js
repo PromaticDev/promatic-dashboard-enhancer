@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.4',
-    moduleBuild: '2026-10-23-1927',
+    version: '0.27.5',
+    moduleBuild: '2026-10-23-1955',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -63,7 +63,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // hiddenWidgets: ids de tarjetas que no se muestran (se ocultan, no
         // se dejan de cargar: el widget Conducción de LOP reutiliza los datos
         // del reporte de infracciones). El perfil remoto puede vaciarla.
-        ui: { preset: 'rac', hiddenWidgets: ['violations'] },
+        // background: fondo del panel detrás de las tarjetas (ver
+        // applyPanelBackground). 'auto' elige la trama según cuántos widgets se
+        // ven: con backgroundDenseFrom o más, la liviana (retícula); con
+        // menos, la más visible (curvas de nivel). También 'reticula', 'topo',
+        // 'color' (solo el color base) y 'off' (no se toca el panel).
+        ui: { preset: 'rac', hiddenWidgets: ['violations'], background: 'auto', backgroundDenseFrom: 9 },
         // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
         clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' },
         // Ventana del Fleet ECO report: una semana. Una ventana corta acorta
@@ -212,6 +217,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // La clase de vista inicial evita el parpadeo de la vista equivocada
             // antes del primer applyViewPreset.
             cls: 'promatic_dashboard_enhancer-panel' + (this.effectiveUiPreset() === 'lop' ? ' ' + this.VIEW_LOP_CLS : ''),
+            // El cuerpo del panel de Ext trae su propio fondo y tapa el del
+            // contenedor; con esta clase el CSS lo deja transparente cuando hay
+            // fondo configurado (ver applyPanelBackground).
+            bodyCls: 'promatic_dashboard_enhancer-panel-body',
             layout: { type: 'vbox', align: 'stretch' },
             scrollable: 'y',
             items: [this.summaryBar, this.buildRacShell()],
@@ -2854,6 +2863,60 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         for (var i = 0; i < this.VIEW_WIDGETS.length; i++) {
             var el = Ext.get('promatic_dashboard_enhancer-card-' + this.VIEW_WIDGETS[i].id);
             if (el) { el[this.isWidgetHidden(this.VIEW_WIDGETS[i].id) ? 'addCls' : 'removeCls'](this.VIEW_HIDDEN_CLS); }
+        }
+        // La densidad del fondo depende de qué widgets se ven: se recalcula
+        // al cambiar de vista y cuando llega la config remota.
+        this.applyPanelBackground();
+    },
+
+    // Archivos de la trama de fondo, relativos a la carpeta del módulo.
+    BG_FILES: { reticula: 'img/fondo-reticula.svg', topo: 'img/fondo-topo-reticula.svg' },
+
+    /** Cuántos widgets muestra la vista `preset` con la config actual (no cuenta los retirados ni los ocultos). */
+    visibleWidgetCount: function (preset) {
+        var n = 0;
+        for (var i = 0; i < this.VIEW_WIDGETS.length; i++) {
+            var w = this.VIEW_WIDGETS[i];
+            if (w[preset] !== 'off' && !this.isWidgetHidden(w.id)) { n++; }
+        }
+        return n;
+    },
+
+    /**
+     * Modo de fondo efectivo: 'reticula', 'topo', 'color' u 'off'. En 'auto'
+     * la trama depende de la densidad: con muchos widgets el panel ya está
+     * lleno y basta la trama liviana; con pocos hay más espacio en blanco y se
+     * usa la más visible.
+     */
+    resolveBackground: function () {
+        var ui = (this.config && this.config.ui) || this.DEFAULT_CONFIG.ui || {};
+        var mode = String(ui.background || 'auto');
+        if (mode === 'auto') {
+            var denseFrom = Number(ui.backgroundDenseFrom) || 9;
+            mode = this.visibleWidgetCount(this._activePreset || this.effectiveUiPreset()) >= denseFrom ? 'reticula' : 'topo';
+        }
+        return (mode === 'reticula' || mode === 'topo' || mode === 'color') ? mode : 'off';
+    },
+
+    /**
+     * Pinta el fondo del panel raíz para que las tarjetas blancas no floten
+     * sobre un panel blanco: color base más, según el modo, una trama que se
+     * pide como archivo del módulo (con ?v=moduleBuild para no quedar en el
+     * caché del proxy) y solo la que se usa. El CSS (bg--*) hace transparente
+     * el cuerpo del panel de Ext para que se vea. En 'off' se deja todo como
+     * estaba. Idempotente.
+     */
+    applyPanelBackground: function () {
+        var root = Ext.get('promatic_dashboard_enhancer-panel-root');
+        if (!root) { return; }
+        var mode = this.resolveBackground();
+        var pre = 'promatic_dashboard_enhancer-bg';
+        root.removeCls([pre, pre + '--reticula', pre + '--topo', pre + '--color']);
+        root.dom.style.removeProperty('--pde-bg-image');
+        if (mode === 'off') { return; }
+        root.addCls([pre, pre + '--' + mode]);
+        if (this.BG_FILES[mode]) {
+            root.dom.style.setProperty('--pde-bg-image', 'url("' + this.getModuleBaseUrl() + this.BG_FILES[mode] + '?v=' + this.moduleBuild + '")');
         }
     },
 

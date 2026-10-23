@@ -15,7 +15,9 @@
   },
   "ui": {
     "preset": "rac",
-    "hiddenWidgets": ["violations"]
+    "hiddenWidgets": ["violations"],
+    "background": "auto",
+    "backgroundDenseFrom": 9
   },
   "clock": {
     "timeZone": "America/Santiago",
