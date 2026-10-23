@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.1',
-    moduleBuild: '2026-10-23-1728',
+    version: '0.27.2',
+    moduleBuild: '2026-10-23-1752',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -475,17 +475,34 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     cls: 'promatic_dashboard_enhancer-export-card',
                     cn: [
                         { cls: 'promatic_dashboard_enhancer-export-card__title', html: l('Vista') },
-                        this.viewSwitchMarkup(),
-                        {
-                            tag: 'button', type: 'button',
-                            id: 'promatic_dashboard_enhancer-controls-btn',
-                            cls: 'promatic_dashboard_enhancer-export-card__btn',
-                            html: l('Controles') + ' ›'
-                        }
-                    ]
+                        this.viewSwitchMarkup()
+                    // Controles es un panel técnico (parámetros internos): solo
+                    // para el administrador. El cambio de vista queda para todos.
+                    ].concat(this.isAdminUser() ? [{
+                        tag: 'button', type: 'button',
+                        id: 'promatic_dashboard_enhancer-controls-btn',
+                        cls: 'promatic_dashboard_enhancer-export-card__btn',
+                        html: l('Controles') + ' ›'
+                    }] : [])
                 }
             ]
         };
+    },
+
+    /**
+     * Si el usuario de PILOT es administrador (Pilot.helpers.CurrentUser). Sirve
+     * para mostrar u ocultar partes de la UI; no autoriza nada, porque PILOT
+     * valida cada consulta con la sesión del usuario. Sin dato (objeto ausente
+     * o error al leerlo) devuelve false: ante la duda, vista de solo lectura.
+     * @return {Boolean}
+     */
+    isAdminUser: function () {
+        try {
+            var cu = window.Pilot && window.Pilot.helpers && window.Pilot.helpers.CurrentUser;
+            return !!(cu && typeof cu.isAdmin === 'function' && cu.isAdmin() === true);
+        } catch (err) {
+            return false;
+        }
     },
 
     bindExportBlock: function (panel) {
@@ -1609,7 +1626,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
     /** Columna VARIACIÓN en HTML: mini-gráfico y flecha con la diferencia hoy - ayer (rojo si sube). "—" sin dato de ayer. */
     _goldenTrendHtml: function (t) {
-        if (!t) { return '<span class="trend flat" title="' + Ext.String.htmlEncode(l('Sin dato del día anterior')) + '">—</span>'; }
+        // Sin dato: el mismo guion plano que las columnas Ayer y Acciones; con la
+        // clase .trend (15 px, negrita) se veía más grande que sus vecinas.
+        if (!t) { return '—'; }
         var cls = t.delta > 0 ? 'up' : (t.delta < 0 ? 'down' : 'flat');
         var mark = t.delta > 0 ? '▲ +' + t.delta : (t.delta < 0 ? '▼ -' + (-t.delta) : '=');
         return '<span class="var" title="' + Ext.String.htmlEncode(l('ayer') + ' ' + t.yesterday + ' → ' + l('hoy') + ' ' + t.today) + '">' +
