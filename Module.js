@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.2',
-    moduleBuild: '2026-10-23-1752',
+    version: '0.27.3',
+    moduleBuild: '2026-10-23-1840',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -1785,7 +1785,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 '<div class="box neutral"><div class="v">' + (f.total || 0) + '</div><div class="l">' + l('Vehículos') + '</div></div>' +
                 '<div class="box good"><div class="v">' + (f.moving || 0) + '</div><div class="l">' + l('En movimiento') + '</div></div>' +
                 '<div class="box bad"><div class="v">' + (f.offline || 0) + '</div><div class="l">' + l('Sin conexión') + '</div></div>' +
-                (eco ? '<div class="box ' + me._scoreMod(eco.avg) + '"><div class="v">' + eco.avg + '</div><div class="l">' + l('Safety Score') + '</div></div>' : '') +
+                (eco ? '<div class="box ' + me._scoreMod(eco.avg) + '"><div class="v">' + eco.avg + '%</div><div class="l">' + l('Safety Score (promedio de la flota)') + '</div></div>' : '') +
                 '</div>';
         });
 
@@ -2214,7 +2214,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 { v: f.moving || 0, l: l('En movimiento'), color: '#238a4c' },
                 { v: f.offline || 0, l: l('Sin conexión'), color: '#ad1100' }
             ];
-            if (eco) { boxes.push({ v: eco.avg, l: l('Safety Score'), color: me.ECO_BAND_COLOR[me._scoreMod(eco.avg)] }); }
+            if (eco) { boxes.push({ v: eco.avg + '%', l: l('Safety Score (promedio de la flota)'), color: me.ECO_BAND_COLOR[me._scoreMod(eco.avg)] }); }
             P.push(me._pdfBoxes(boxes));
         });
 
@@ -7589,7 +7589,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // cuánto antes del próximo múltiplo se avisa; highOdometerKm:
         // odómetro desde el cual se sugiere revisión general.
         maintenance: { intervalKm: 10000, warnWithinKm: 1000, highOdometerKm: 100000, rankCount: 8 },
-        tag: { windowDays: 30, rankCount: 8, explode: 3 },
+        // enabled: false deja la tarjeta visible como "en desarrollo" sin lanzar
+        // la consulta. El reporte de peajes carga unos 10 lotes de 60 vehículos
+        // y, mientras su respuesta no sea estable en las cuentas, la tarjeta
+        // quedaba "consultando" sin terminar. Se enciende con lop.tag.enabled en
+        // el perfil de la cuenta.
+        tag: { enabled: false, windowDays: 30, rankCount: 8, explode: 3 },
         branches: { rankCount: 12 }
     },
 
@@ -7667,11 +7672,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // Durante el retardo de arranque, y mientras el combustible carga
         // primero, las cards pesadas muestran su skeleton en vez de quedar vacías.
         if (!this._lopFuel) { this._lopShowLoading(this.LOP_CARD_IDS.combustible, 'ranking', l('Preparando combustible…')); }
-        if (!this._lopTag) { this._lopShowLoading(this.LOP_CARD_IDS.tag, 'ranking', l('Peajes: en espera de que termine el combustible…')); }
+        // Peajes solo corre si la cuenta lo enciende (lop.tag.enabled); si no, la
+        // tarjeta queda visible como "en desarrollo" y no se pide ningún reporte.
+        var tagOn = !!this._lopCfg('tag').enabled;
+        if (!tagOn) {
+            this.updateCardBody(this.LOP_CARD_IDS.tag, this._lopDevMarkup(l('Consumo de TAG: en desarrollo. El reporte de peajes de PILOT aún no responde de forma estable.')), 0, true);
+        } else if (!this._lopTag) {
+            this._lopShowLoading(this.LOP_CARD_IDS.tag, 'ranking', l('Peajes: en espera de que termine el combustible…'));
+        }
         Ext.defer(function () {
-            me.loadLopFuel(force)
-                .then(function () { return me.loadLopTag(force); })
-                .then(done, done);
+            var chain = me.loadLopFuel(force);
+            if (tagOn) { chain = chain.then(function () { return me.loadLopTag(force); }); }
+            chain.then(done, done);
         }, delay);
     },
 
