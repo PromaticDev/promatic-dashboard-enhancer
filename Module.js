@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.3',
-    moduleBuild: '2026-10-23-1840',
+    version: '0.27.4',
+    moduleBuild: '2026-10-23-1927',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -133,8 +133,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // salta el catálogo. batchSize/pauseMs/maxVehicles acotan la carga
         // sobre PILOT: consultas por lotes chicos con pausa, y como mucho
         // maxVehicles nuevas por ciclo (cacheMinutes evita repetirlas).
+        // stationPattern: texto que identifica por nombre las estaciones de
+        // servicio entre las geocercas (sin distinguir mayúsculas, en cualquier
+        // carpeta): una carga fuera de ellas se marca como inconsistencia.
+        // nativeOnly: las cargas y los drenajes son solo los que PILOT detecta
+        // (los estimados por el detector propio no se listan ni se cuentan).
         fuel: {
             enabled: true, windowDays: 3, loadMinPct: 20, drainMinPct: 50, windowMin: 30, maxGapMin: 360,
+            stationPattern: 'copec', nativeOnly: true,
             stopSpeedKmh: 3, minSamples: 5, capacityHint: 0, agentIds: [],
             batchSize: 3, pauseMs: 1000, maxVehicles: 60, cacheMinutes: 30,
             catalogBatch: 20, catalogCacheHours: 24, debugRawMax: 3
@@ -859,6 +865,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // grupo con fondo claro) conservan el fondo y color base.
             'th{background:#f1f5f9;font-weight:600;color:#334155}' +
             'th:not([style]){background:#0a3d5c;border-color:#0a3d5c;color:#fff}' +
+            'th .sub{color:#cbd5e1}' +
             'tr:nth-child(even) td{background:#fafcfe}' +
             'td.n{text-align:right;font-variant-numeric:tabular-nums}' +
             '.grid{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}' +
@@ -4816,6 +4823,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
+     * Deja solo los drenajes que PILOT detectó con una baja de al menos `minPct`
+     * % del nivel máximo ("o más", igual que el detector propio). Los eventos
+     * nativos no declaran su magnitud relativa y, sin nivel de referencia, no se
+     * puede afirmar que alcancen el umbral: se descartan.
+     */
+    _fuelDrainsFrom: function (drains, ref, minPct) {
+        var me = this;
+        return (drains || []).filter(function (e) {
+            var pct = me._fuelEventPct(e, ref);
+            return pct != null && pct >= minPct;
+        });
+    },
+
+    /**
      * Une los eventos nativos de PILOT con los del detector propio. Los
      * nativos mandan; uno propio se descarta si hay un nativo del mismo tipo
      * a menos de `windowSec` (es el mismo evento visto por dos caminos). Los
@@ -5075,14 +5096,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         // a una carga grande del detector propio.
                         var nat = parsed.native && {
                             loads: me._fuelLoadsAbove(parsed.native.loads, det.ref, cfg.loadMinPct || 20),
-                            drains: parsed.native.drains
+                            drains: me._fuelDrainsFrom(parsed.native.drains, det.ref, cfg.drainMinPct || 50)
                         };
                         // Los eventos que PILOT ya detectó mandan; los del
                         // detector propio solo suman los que PILOT no vio.
                         // Ventana de 2 h como mínimo: con el vehículo estacionado el sensor
                         // reporta cada hora y el detector propio ubica el salto antes
                         // que PILOT, que fecha el evento al final del proceso.
-                        entry.events = me._mergeFuelEvents(nat, det.events, Math.max((cfg.windowMin || 30) * 60, 7200));
+                        // Con nativeOnly los eventos estimados por el detector propio
+                        // se descartan antes de mezclar: cargas y drenajes los
+                        // define lo que PILOT detecta. El detector sigue corriendo
+                        // porque entrega el nivel máximo de referencia.
+                        var own = cfg.nativeOnly ? [] : det.events;
+                        if (nat && (nat.loads.length || nat.drains.length)) {
+                            var withPos = function (list) { return list.filter(function (x) { return x.lat != null && x.lon != null; }).length; };
+                            dbg('combustible eventos nativos sobre el umbral (agent ' + id + '): cargas ' + nat.loads.length + ' (con posición ' +
+                                withPos(nat.loads) + '), drenajes ' + nat.drains.length + ' (con posición ' + withPos(nat.drains) + ')');
+                        }
+                        entry.events = me._mergeFuelEvents(nat, own, Math.max((cfg.windowMin || 30) * 60, 7200));
                         entry.n = det.n; entry.ref = det.ref; entry.speedKnown = det.speedKnown;
                         if (det.n < cfg.minSamples && !entry.events.length) { entry.status = 'nodata'; }
                     }
@@ -5247,28 +5278,106 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
-     * Sucursal donde ocurrió una carga: cruza el punto del evento con las
-     * geocercas de los grupos de sucursal del cliente del vehículo (mismo
-     * mapeo y mismas geocercas que el mapa de flota). Un evento estimado por
-     * el detector propio no trae coordenadas: sin punto no hay cruce posible
-     * y queda "N/D" en vez de inferir un lugar.
+     * Dónde ocurrió un evento de combustible, para decidir si es un lugar
+     * esperable. Hay dos lugares válidos y distintos: una ESTACIÓN de servicio
+     * (cualquier geocerca cuyo nombre calce con fuel.stationPattern, esté en
+     * la carpeta que esté: las estaciones pueden venir sin grupo o dentro de la
+     * carpeta de sucursales) y una SUCURSAL (los grupos de geocercas que
+     * branches.clientMap asigna a la flota del vehículo). Una carga es
+     * esperable solo en una estación; un drenaje es sospechoso solo fuera de
+     * ambas. Un evento sin coordenadas no se puede evaluar: queda 'nd' en vez
+     * de inferir un lugar.
      *
      * @param {Ext.data.Model} rec Registro del vehículo en el online_tree (puede ser null).
-     * @param {Object} e Evento de carga (lat, lon).
-     * @return {String} Nombre de la geocerca, "Fuera de sucursal" o el motivo por el que no se pudo determinar.
+     * @param {Object} e Evento (lat, lon).
+     * @return {{kind:string, name:(string|null), station:string, branchesKnown:boolean}}
+     *   kind: 'station' | 'branch' | 'outside' | 'nd'. name: la estación o la
+     *   sucursal donde cae. station: el patrón de estación en mayúsculas, para
+     *   rotular. branchesKnown: la cuenta tiene sucursales mapeadas; si es
+     *   false, un 'outside' no descarta que el punto sea una sucursal.
      */
-    _fuelBranchLabel: function (rec, e) {
+    _fuelPlace: function (rec, e) {
+        var text = String(this._fuelCfg().stationPattern || 'copec');
+        var out = { kind: 'nd', name: null, station: text.toUpperCase(), branchesKnown: false };
         var geofences = this._lastGeofences;
-        if (e.lat == null || e.lon == null || !geofences) { return l('N/D'); }
+        if (e.lat == null || e.lon == null || !geofences) { return out; }
+        // El patrón se toma como texto literal, no como expresión regular.
+        var stationRe = new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
         var entry = this._clientMapEntryForRecord(rec);
-        if (!entry || !entry.groupNames || !entry.groupNames.length) { return l('Sucursales no configuradas'); }
-        for (var i = 0; i < geofences.length; i++) {
-            var g = geofences[i];
-            if (g && g.group_name && entry.groupNames.indexOf(g.group_name) !== -1 && this._pointInGeofence(e.lat, e.lon, g)) {
-                return g.name || g.group_name;
+        var groups = (entry && entry.groupNames) || [];
+        out.branchesKnown = groups.length > 0;
+        var i, g;
+        for (i = 0; i < geofences.length; i++) {
+            g = geofences[i];
+            if (g && stationRe.test(g.name || '') && this._pointInGeofence(e.lat, e.lon, g)) {
+                out.kind = 'station';
+                out.name = g.name;
+                return out;
             }
         }
-        return l('Fuera de sucursal');
+        for (i = 0; out.branchesKnown && i < geofences.length; i++) {
+            g = geofences[i];
+            if (g && g.group_name && groups.indexOf(g.group_name) !== -1 && this._pointInGeofence(e.lat, e.lon, g)) {
+                out.kind = 'branch';
+                out.name = g.name || g.group_name;
+                return out;
+            }
+        }
+        out.kind = 'outside';
+        return out;
+    },
+
+    /**
+     * Texto, color y nota con que se muestra el lugar de un evento de
+     * combustible (ver _fuelPlace). Carga: lo normal es una estación; en una
+     * sucursal o en cualquier otro lado es una inconsistencia (rojo). Drenaje:
+     * lo sospechoso es estar fuera de sucursal y de estación (rojo); en
+     * cualquiera de las dos es un lugar esperable.
+     *
+     * @param {Object} pl Resultado de _fuelPlace.
+     * @param {String} eventKind 'carga' o 'drenaje'.
+     * @return {{text:String, sub:(String|null), color:String, bold:Boolean}}
+     */
+    _fuelPlaceView: function (pl, eventKind) {
+        var GRAY = '#64748b', GREEN = '#238a4c', RED = '#ad1100';
+        if (pl.kind === 'nd') {
+            return { text: eventKind === 'carga' ? l('N/D') : l('Ubicación N/D'), sub: null, color: GRAY, bold: false };
+        }
+        if (eventKind === 'carga') {
+            if (pl.kind === 'station') { return { text: pl.name, sub: null, color: GREEN, bold: true }; }
+            return { text: l('Fuera de') + ' ' + pl.station, sub: pl.kind === 'branch' ? l('En sucursal') + ': ' + pl.name : null, color: RED, bold: true };
+        }
+        if (pl.kind === 'station') { return { text: l('En estación') + ': ' + pl.name, sub: l('Lugar esperable: no se considera sospechoso'), color: GREEN, bold: false }; }
+        if (pl.kind === 'branch') { return { text: l('En sucursal') + ': ' + pl.name, sub: l('Lugar esperable: no se considera sospechoso'), color: GRAY, bold: false }; }
+        return {
+            text: l('Fuera de sucursal y estación'),
+            sub: pl.branchesKnown ? null : l('Sucursales sin configurar en esta cuenta: no se puede descartar que sea una sucursal'),
+            color: RED, bold: true
+        };
+    },
+
+    /** Celda HTML del lugar de un evento: texto con su color, nota e íconos de mapa si el evento trae posición. */
+    _fuelPlaceCellHtml: function (rec, e, eventKind, vehicleName) {
+        var esc = Ext.String.htmlEncode;
+        var v = this._fuelPlaceView(this._fuelPlace(rec, e), eventKind);
+        var html = '<span style="color:' + v.color + ';font-weight:' + (v.bold ? '700' : '400') + '">' + esc(v.text) + '</span>' +
+            (v.sub ? '<br><span class="sub">' + esc(v.sub) + '</span>' : '');
+        if (e.lat != null && e.lon != null) {
+            var link = this._mapsLink(e.lat, e.lon);
+            html += '<br>' + this._iconFocusBtn(e.lat, e.lon, vehicleName + ' — ' + this._fmtEventDateTime(e.ts), l('Ver en PILOT'), this._SVG_PIN) +
+                (link ? this._iconExtLink(link, l('Ver en mapa externo')) : '');
+        }
+        return html;
+    },
+
+    /** Celda pdfMake del lugar de un evento: mismo contenido que la HTML, con el mapa externo como enlace de texto. */
+    _fuelPlaceCellPdf: function (rec, e, eventKind) {
+        var v = this._fuelPlaceView(this._fuelPlace(rec, e), eventKind);
+        var stack = [{ text: v.text, color: v.color, bold: v.bold }];
+        if (v.sub) { stack.push({ text: v.sub, fontSize: 8, color: '#475569' }); }
+        var link = (e.lat != null && e.lon != null) ? this._mapsLink(e.lat, e.lon) : null;
+        if (link) { stack.push({ text: l('Ver en mapa'), link: link, color: '#0a67a0', decoration: 'underline' }); }
+        return { stack: stack };
     },
 
     /**
@@ -5335,33 +5444,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 (e.viaGap ? (e.speedKnown ? '' : '<br>') + l('el equipo no reportó entre ambas lecturas') : '');
             // Origen del evento y, si lo trae, el lugar donde ocurrió.
             var src = e.source === 'pilot' ? l('detectado por PILOT') : l('estimado por el Dashboard');
-            var where = '';
-            if (e.lat != null && e.lon != null) {
-                var evLink = me._mapsLink(e.lat, e.lon);
-                where = '<br>' + e.lat.toFixed(5) + ', ' + e.lon.toFixed(5) +
-                    (evLink ? ' <a href="' + esc(evLink) + '" target="_blank" rel="noopener">' + l('ver en mapa') + ' ↗</a>' : '');
-            }
+            var where = '<br>' + me._fuelPlaceCellHtml(rec, e, 'drenaje', me.displayName(name));
             return '<tr><td>' + esc(me._fmtEventDateTime(e.ts)) + (e.te !== e.ts ? ' → ' + esc(me._fmtEventDateTime(e.te)) : '') +
                 '</td><td>' + esc(me.displayName(name)) + '</td><td>' + sheet + '</td><td class="n">' +
                 lv.head + '<br>(' + lv.tail +
                 ')</td><td>' + (conf || l('vehículo detenido')) + '<br>' + esc(src) + where + '</td><td>' + curCell + '</td></tr>';
         };
 
-        // Carga: se ubica el evento en una sucursal (con los íconos de mapa de
+        // Carga: se ubica el evento en una estación (con los íconos de mapa de
         // los demás detalles) y se reserva la columna del comprobante de pago.
-        // La posición actual del vehículo no aporta a una carga pasada.
+        // Una carga fuera de toda estación se resalta en rojo: es la
+        // inconsistencia. La posición actual del vehículo no aporta a una carga pasada.
         var loadRowHtml = function (x) {
             var rec = byId[x.id];
             var name = rec ? rec.get('name') : String(x.id);
             var sheet = me._vehicleSheetLines(rec).map(esc).join('<br>') || l('N/D');
             var e = x.e;
             var lv = me._fuelLevelText(e, x.ref);
-            var place = esc(me._fuelBranchLabel(rec, e));
-            if (e.lat != null && e.lon != null) {
-                var link = me._mapsLink(e.lat, e.lon);
-                place += '<br>' + me._iconFocusBtn(e.lat, e.lon, me.displayName(name) + ' — ' + me._fmtEventDateTime(e.ts), l('Ver en PILOT'), me._SVG_PIN) +
-                    (link ? me._iconExtLink(link, l('Ver en mapa externo')) : '');
-            }
+            var place = me._fuelPlaceCellHtml(rec, e, 'carga', me.displayName(name));
             var vch = me._fuelVoucherFor(e);
             var vchCell = vch
                 ? esc(vch.type + ' N° ' + vch.number)
@@ -5409,13 +5509,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         var loadVehicles = Object.keys(events.reduce(function (acc, x) { acc[x.id] = 1; return acc; }, {})).length;
         var desc = '<p class="desc">' + (isLoad
-            ? l('Posibles cargas de combustible: alzas de nivel con el vehículo detenido, calculadas por el Dashboard sobre la serie del sensor. Son indicios, no hechos: confirma con la tarjeta de combustible o el conductor.')
-            : l('Posibles drenajes de combustible: bajas bruscas de nivel con el vehículo detenido, calculadas por el Dashboard sobre la serie del sensor. Son indicios, no hechos: un sensor con ruido o un estanque en pendiente pueden imitarlos.')) +
+            ? (cfg.nativeOnly
+                ? l('Cargas de combustible detectadas por PILOT con el vehículo detenido, a partir del sensor de nivel. Son indicios, no hechos: confirma con la tarjeta de combustible o el conductor.')
+                : l('Posibles cargas de combustible: alzas de nivel con el vehículo detenido, calculadas por el Dashboard sobre la serie del sensor. Son indicios, no hechos: confirma con la tarjeta de combustible o el conductor.'))
+            : (cfg.nativeOnly
+                ? l('Drenajes de combustible detectados por PILOT: bajas bruscas de nivel con el vehículo detenido, a partir del sensor de nivel.')
+                : l('Posibles drenajes de combustible: bajas bruscas de nivel con el vehículo detenido, calculadas por el Dashboard sobre la serie del sensor.')) +
+                ' ' + l('Son indicios, no hechos: un sensor con ruido o un estanque en pendiente pueden imitarlos. Un drenaje es sospechoso cuando ocurre fuera de una sucursal y de una estación de servicio; en esos lugares se indica como esperable.')) +
             '</p><p class="desc">' + (isLoad ? l('Umbral: variación mayor a') : l('Umbral: variación mínima de')) + ' ' +
             (isLoad ? cfg.loadMinPct : cfg.drainMinPct) + '% ' +
             l('del nivel máximo observado; ventana de') + ' ' + cfg.windowDays + ' ' + l('días. Fuente: reports.php report_type=16.') + '</p>' +
             (isLoad ? '<p class="desc">' + l('Cargas listadas') + ': ' + events.length + ' ' + l('en') + ' ' + loadVehicles + ' ' + l('vehículos') +
-                '. ' + l('La comparación con el comprobante de pago (guía o factura) aún no está disponible: esa columna queda como Pendiente.') + '</p>' : '');
+                '. ' + l('La comparación con el comprobante de pago (guía o factura) aún no está disponible: esa columna queda como Pendiente.') + '</p>' +
+                '<p class="desc">' + l('Una carga debe ocurrir en una estación de servicio: si el vehículo estaba fuera de toda estación se marca en rojo como inconsistencia (las sucursales no son estaciones; se indican solo como contexto). N/D: el evento no trae posición y no se puede evaluar.') + '</p>' : '');
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
             '</title>' + this._reportStyles() + '</head><body>' +
@@ -5435,8 +5541,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var C = doc.content;
         var byId = this._onlineRecordsByAgent();
         C.push({ text: (isLoad
-            ? l('Posibles cargas: alzas de nivel mayores a') + ' ' + cfg.loadMinPct + '% ' + l('del nivel máximo observado, con el vehículo detenido, calculadas sobre la serie del sensor (report_type=16). Son indicios, no hechos.')
-            : l('Posibles drenajes: bajas bruscas de nivel con el vehículo detenido, calculadas sobre la serie del sensor (report_type=16). Son indicios, no hechos.')), style: 'desc' });
+            ? (cfg.nativeOnly ? l('Cargas detectadas por PILOT con alza de nivel mayor a') : l('Posibles cargas: alzas de nivel mayores a')) + ' ' + cfg.loadMinPct + '% ' + l('del nivel máximo observado, con el vehículo detenido, calculadas sobre la serie del sensor (report_type=16). Son indicios, no hechos. Una carga debe ocurrir en una estación de servicio: fuera de toda estación se marca como inconsistencia; N/D = el evento no trae posición.')
+            : (cfg.nativeOnly ? l('Drenajes detectados por PILOT: bajas bruscas de nivel con el vehículo detenido (report_type=16).') : l('Posibles drenajes: bajas bruscas de nivel con el vehículo detenido, calculadas sobre la serie del sensor (report_type=16).')) +
+                ' ' + l('Son indicios, no hechos. Sospechoso = fuera de una sucursal y de una estación de servicio.')), style: 'desc' });
 
         var rows = [];
         if (isLoad) {
@@ -5449,9 +5556,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     var rec = byId[x.id];
                     var e = x.e;
                     var lv = me._fuelLevelText(e, x.ref);
-                    var link = (e.lat != null && e.lon != null) ? me._mapsLink(e.lat, e.lon) : null;
-                    var place = { stack: [{ text: me._fuelBranchLabel(rec, e) }] };
-                    if (link) { place.stack.push({ text: l('Ver en mapa'), link: link, color: '#0a67a0', decoration: 'underline' }); }
+                    var place = me._fuelPlaceCellPdf(rec, e, 'carga');
                     var vch = me._fuelVoucherFor(e);
                     rows.push([me._fmtEventDateTime(e.ts), me.displayName(rec ? rec.get('name') : String(x.id)),
                         me._vehicleSheetLines(rec).join('\n') || l('N/D'),
@@ -5470,8 +5575,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     rows.push([e.ts, [me._fmtEventDateTime(e.ts), me.displayName(rec ? rec.get('name') : String(id)),
                         me._vehicleSheetLines(rec).join('\n') || l('N/D'),
                         me._fuelLevelText(e, c.ref).head + ' (' + me._fuelLevelText(e, c.ref).tail + ')',
-                        (e.speedKnown ? l('vehículo detenido') : l('sin dato de velocidad')) + ' · ' +
-                            (e.source === 'pilot' ? l('detectado por PILOT') : l('estimado por el Dashboard'))]]);
+                        { stack: [
+                            { text: (e.speedKnown ? l('vehículo detenido') : l('sin dato de velocidad')) + ' · ' +
+                                (e.source === 'pilot' ? l('detectado por PILOT') : l('estimado por el Dashboard')) },
+                            me._fuelPlaceCellPdf(rec, e, 'drenaje')
+                        ] }]]);
                 });
             });
             rows.sort(function (a, b) { return b[0] - a[0]; });
@@ -5500,16 +5608,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
-     * Abre el detalle de combustible. Para las cargas, la columna de
-     * sucursal necesita las geocercas: si aún no están en memoria y la cuenta
-     * tiene sucursales configuradas, se piden antes de abrir (un GET que el
-     * resto del Dashboard ya comparte vía _lastGeofences). Si falla, el
-     * modal abre igual y la sucursal queda como "N/D".
+     * Abre el detalle de combustible. La columna de ubicación (cargas y
+     * drenajes) necesita las geocercas, las estaciones y las sucursales: si aún
+     * no están en memoria se piden antes de abrir (un GET que el resto del
+     * Dashboard ya comparte vía _lastGeofences). Si falla, el modal abre igual
+     * y la ubicación queda como "N/D".
      */
     openFuelAlertModal: function (kind) {
         var me = this;
-        var bcfg = (me.config && me.config.branches) || (me.DEFAULT_CONFIG.branches || {});
-        if (kind === 'carga' && !me._lastGeofences && (bcfg.clientMap || []).length) {
+        if (!me._lastGeofences) {
             // Evita pedir las geocercas dos veces si el usuario insiste mientras llegan.
             if (me._fuelGeoLoading) { return; }
             me._fuelGeoLoading = true;
@@ -5523,9 +5630,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
-     * Arma y muestra el modal. El mapa de las cargas dibuja el lugar de cada
-     * evento con coordenadas (los íconos de la tabla centran ahí); el de los
-     * drenajes, la posición actual de los vehículos con eventos.
+     * Arma y muestra el modal. El mapa dibuja el lugar de cada evento con
+     * coordenadas (los íconos de la tabla centran ahí). Si ningún drenaje trae
+     * posición, cae a la posición actual de los vehículos con eventos.
      */
     _showFuelAlertModal: function (kind) {
         var me = this;
@@ -5533,15 +5640,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var s = this._fuelSummary(kind);
         var points = [];
         var notice = '';
-        if (kind === 'carga') {
-            this._fuelEventList('carga').slice(0, 300).forEach(function (x) {
-                if (x.e.lat == null || x.e.lon == null) { return; }
-                var rec = byId[x.id];
-                points.push({ lat: x.e.lat, lon: x.e.lon,
-                    label: me.displayName(rec ? rec.get('name') : String(x.id)) + ' — ' + me._fmtEventDateTime(x.e.ts) });
-            });
-            if (points.length) { notice = l('Mostrando el lugar de las cargas posibles'); }
-        } else {
+        this._fuelEventList(kind).slice(0, 300).forEach(function (x) {
+            if (x.e.lat == null || x.e.lon == null) { return; }
+            var rec = byId[x.id];
+            points.push({ lat: x.e.lat, lon: x.e.lon,
+                label: me.displayName(rec ? rec.get('name') : String(x.id)) + ' — ' + me._fmtEventDateTime(x.e.ts) });
+        });
+        if (points.length) {
+            notice = kind === 'carga' ? l('Mostrando el lugar de las cargas posibles') : l('Mostrando el lugar de los drenajes posibles');
+        } else if (kind !== 'carga') {
             s.ids.forEach(function (id) {
                 var rec = byId[id];
                 var cur = rec ? me._recordLatLon(rec) : null;
@@ -5713,10 +5820,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti',
                     this._alertRalentiIds || [], null, false),
                 fuelCard('carga', 'var(--g7)', l('Inconsistencias en Carga'),
-                    l('Posibles cargas de combustible: alza de nivel mayor a') + ' ' + this._fuelCfg().loadMinPct + '% ' + l('con el vehículo detenido, calculada sobre el sensor') +
+                    (this._fuelCfg().nativeOnly ? l('Cargas de combustible detectadas por PILOT: alza de nivel mayor a') : l('Posibles cargas de combustible: alza de nivel mayor a')) + ' ' + this._fuelCfg().loadMinPct + '% ' + l('con el vehículo detenido, calculada sobre el sensor') +
                         ' — ' + l('el número cuenta cargas, no vehículos'), 'pde_alert-inconsistencias'),
                 fuelCard('drenaje', 'var(--g6)', l('Drenaje de Combustible'),
-                    l('Posibles drenajes: baja brusca de nivel con el vehículo detenido, calculada sobre el sensor'), 'pde_alert-drenaje'),
+                    this._fuelCfg().nativeOnly ? l('Drenajes detectados por PILOT: baja brusca de nivel con el vehículo detenido')
+                        : l('Posibles drenajes: baja brusca de nivel con el vehículo detenido, calculada sobre el sensor'), 'pde_alert-drenaje'),
                 card('var(--g7)', l('GPS Manipulado'), null, svgGpsManual,
                     l('Desconexión intencional del equipo — en desarrollo: aún no hay una fuente de datos confirmada'), true, 'pde_alert-manipulacion'),
                 // Conectada solo en cuentas con borderAlert.eventType; es

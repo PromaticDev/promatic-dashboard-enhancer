@@ -51,6 +51,8 @@
     "windowDays": 3,
     "loadMinPct": 20,
     "drainMinPct": 50,
+    "stationPattern": "copec",
+    "nativeOnly": true,
     "windowMin": 30,
     "maxGapMin": 360,
     "stopSpeedKmh": 3,
