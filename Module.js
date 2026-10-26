@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.5',
-    moduleBuild: '2026-10-23-1955',
+    version: '0.27.6',
+    moduleBuild: '2026-10-26-1153',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -69,6 +69,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // menos, la más visible (curvas de nivel). También 'reticula', 'topo',
         // 'color' (solo el color base) y 'off' (no se toca el panel).
         ui: { preset: 'rac', hiddenWidgets: ['violations'], background: 'auto', backgroundDenseFrom: 9 },
+        // Logo de la cuenta: con logo propio (config remota, branding.logoSrc)
+        // alterna con el de Promatic y el de PILOT (ver renderLogo).
+        // sequence: qué logos y en qué orden ('client', 'promatic', 'pilot');
+        // seconds: cuánto se ve cada uno; fadeMs: duración del fundido.
+        branding: { logoRotation: { enabled: true, seconds: 6, fadeMs: 800, sequence: ['client', 'promatic', 'pilot'] } },
         // Widget "Hora Oficial" — zona horaria IANA y locale para formatear.
         clock: { timeZone: 'America/Santiago', locale: 'es-CL', label: 'Hora Oficial' },
         // Ventana del Fleet ECO report: una semana. Una ventana corta acorta
@@ -3813,15 +3818,74 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(src) ? src : null;
     },
 
+    // Logo de la plataforma: lo sirve PILOT mismo (SVG público y sin caché), así
+    // el repo no guarda su marca y siempre se ve la vigente. URL relativa, como
+    // las de /api/v3: nunca un host absoluto.
+    PILOT_LOGO_URL: '/backend/logo.php?q=1',
+
+    /**
+     * Rotación del logo (branding.logoRotation): el logo de la cuenta pasa al de
+     * Promatic, luego al de PILOT y vuelve, con un fundido. Los valores se
+     * acotan para que una config mal escrita no deje la tarjeta parpadeando.
+     * @return {{enabled:Boolean, seconds:Number, fadeMs:Number, sequence:Array<String>}}
+     */
+    logoRotationConfig: function () {
+        var d = ((this.DEFAULT_CONFIG.branding || {}).logoRotation) || {};
+        var u = ((this.config && this.config.branding) || {}).logoRotation || {};
+        var clamp = function (v, lo, hi, dflt) { v = Number(v); return isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt; };
+        var seq = (u.sequence || d.sequence || ['client', 'promatic', 'pilot']).filter(function (k, i, a) {
+            return (k === 'client' || k === 'promatic' || k === 'pilot') && a.indexOf(k) === i;
+        });
+        return {
+            enabled: u.enabled !== undefined ? !!u.enabled : d.enabled !== false,
+            seconds: clamp(u.seconds != null ? u.seconds : d.seconds, 2, 60, 6),
+            fadeMs: clamp(u.fadeMs != null ? u.fadeMs : d.fadeMs, 0, 3000, 800),
+            sequence: seq
+        };
+    },
+
+    /** Imágenes de la rotación, en el orden configurado. `custom` es el logo propio de la cuenta. */
+    logoRotationImages: function (custom, sequence) {
+        var base = this.getModuleBaseUrl();
+        var all = {
+            client: { src: custom, alt: 'Logo' },
+            promatic: { src: base + 'img/logo-promatic.png', alt: 'Promatic' },
+            pilot: { src: this.PILOT_LOGO_URL, alt: 'PILOT' }
+        };
+        return sequence.map(function (k) { all[k].key = k; return all[k]; });
+    },
+
+    /**
+     * Pinta la tarjeta del logo. Una cuenta con logo propio y la rotación
+     * habilitada alterna varias imágenes superpuestas; en cualquier otro caso
+     * (sin logo propio, rotación apagada, menos de dos logos o con "reducir
+     * movimiento" en el sistema) queda el logo fijo de siempre.
+     */
     renderLogo: function () {
         var custom = this.brandingLogoSrc();
         this._logoSrcShown = custom;
+        var rot = this.logoRotationConfig();
+        var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        var rotating = !!custom && rot.enabled && rot.sequence.length > 1 && !reduced;
+        var logoNode;
+        if (rotating) {
+            logoNode = {
+                cls: 'promatic_dashboard_enhancer-logo-stage',
+                style: '--pde-logo-fade:' + rot.fadeMs + 'ms',
+                cn: this.logoRotationImages(custom, rot.sequence).map(function (im, i) {
+                    return { tag: 'img', cls: 'promatic_dashboard_enhancer-logo-img' + (i === 0 ? ' is-active' : ''), src: im.src, alt: im.alt,
+                        'aria-hidden': i === 0 ? 'false' : 'true', 'data-logo': im.key };
+                })
+            };
+        } else {
+            logoNode = custom
+                ? { tag: 'img', src: custom, alt: 'Logo' }
+                : { tag: 'img', src: this.getModuleBaseUrl() + 'img/dashboard-enhancer-resized-small.jpg', alt: 'Dashboard Enhancer' };
+        }
         this.updateCardBody('logo', Ext.DomHelper.markup({
             cls: 'promatic_dashboard_enhancer-logo' + (custom ? ' promatic_dashboard_enhancer-logo--custom' : ''),
             cn: [
-                custom
-                    ? { tag: 'img', src: custom, alt: 'Logo' }
-                    : { tag: 'img', src: this.getModuleBaseUrl() + 'img/dashboard-enhancer-resized-small.jpg', alt: 'Dashboard Enhancer' },
+                logoNode,
                 {
                     tag: 'span',
                     cls: 'promatic_dashboard_enhancer-version',
@@ -3834,6 +3898,70 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 }
             ]
         }));
+        if (rotating) { this.startLogoRotation(rot); } else { this.stopLogoRotation(); }
+    },
+
+    stopLogoRotation: function () {
+        if (this._logoTimer) { clearInterval(this._logoTimer); this._logoTimer = null; }
+    },
+
+    /**
+     * Arranca el cambio periódico entre las imágenes ya pintadas. Una imagen
+     * que no carga (p. ej. el logo de la plataforma no responde) sale de la
+     * rotación para no mostrar un ícono roto. Idempotente: renderLogo vuelve a
+     * llamarlo cuando llega la config remota.
+     */
+    startLogoRotation: function (rot) {
+        var me = this;
+        this.stopLogoRotation();
+        var card = Ext.get('promatic_dashboard_enhancer-card-logo');
+        var stage = card && card.down('.promatic_dashboard_enhancer-logo-stage');
+        if (!stage) { return; }
+        var imgs = stage.dom.querySelectorAll('img');
+        for (var i = 0; i < imgs.length; i++) {
+            (function (img) {
+                var fail = function () {
+                    img.setAttribute('data-failed', '1');
+                    // Solo se adelanta el cambio si la rota era la que estaba a la
+                    // vista; si no, la rotación sigue su curso y solo se verifica
+                    // que queden al menos dos imágenes sanas.
+                    if (img.classList.contains('is-active')) { me._logoStep(stage.dom, true); return; }
+                    if (stage.dom.querySelectorAll('img:not([data-failed])').length < 2) { me.stopLogoRotation(); }
+                };
+                img.addEventListener('error', fail);
+                if (img.complete && img.naturalWidth === 0 && img.getAttribute('src')) { fail(); }
+            })(imgs[i]);
+        }
+        this._logoTimer = setInterval(function () { me._logoStep(stage.dom, false); }, rot.seconds * 1000);
+    },
+
+    /**
+     * Pasa a la siguiente imagen que haya cargado. No gira con la pestaña
+     * oculta ni con el panel fuera de pantalla (`force` solo lo usa una imagen
+     * rota que estaba visible). Con una sola imagen sana, la deja fija.
+     */
+    _logoStep: function (stage, force) {
+        if (!force && (document.hidden || !stage.offsetParent)) { return; }
+        var all = stage.querySelectorAll('img'), ok = [], cur = -1, i;
+        for (i = 0; i < all.length; i++) {
+            if (all[i].classList.contains('is-active')) { cur = i; }
+            if (!all[i].getAttribute('data-failed')) { ok.push(i); }
+        }
+        if (ok.length < 2) {
+            this.stopLogoRotation();
+            if (ok.length === 1 && cur !== ok[0]) { this._logoShow(all, ok[0]); }
+            return;
+        }
+        var next = ok[0];
+        for (i = 0; i < ok.length; i++) { if (ok[i] > cur) { next = ok[i]; break; } }
+        this._logoShow(all, next);
+    },
+
+    _logoShow: function (imgs, idx) {
+        for (var i = 0; i < imgs.length; i++) {
+            imgs[i].classList[i === idx ? 'add' : 'remove']('is-active');
+            imgs[i].setAttribute('aria-hidden', i === idx ? 'false' : 'true');
+        }
     },
 
     /**

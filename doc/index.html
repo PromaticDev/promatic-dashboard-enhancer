@@ -140,7 +140,7 @@
     </nav>
 
     <!-- SECCIÓN EN ESPAÑOL -->
-    <section id="es">
+    <section id="es" lang="es">
         <header>
             <h1>Dashboard Enhancer</h1>
             <p class="tagline">Panel de resumen de flota en tiempo real, integrado como extensión nativa de la plataforma PILOT.</p>
@@ -153,26 +153,120 @@
         <h2>Qué hace</h2>
         <p>
             La extensión agrega una pestaña propia en el panel de navegación de PILOT con un
-            dashboard de flota. Reúne en una sola vista el estado de conectividad de los
-            vehículos, las alertas relevantes, el kilometraje y otros indicadores operativos,
-            actualizándose en vivo con el árbol de vehículos de la plataforma.
+            dashboard de flota. Reúne en una sola pantalla el estado de conectividad de los
+            vehículos, las alertas relevantes, el kilometraje, la conducción, el combustible y
+            otros indicadores operativos, a partir de los datos que la propia plataforma ya entrega.
         </p>
         <p>
-            Está pensada para dar una lectura rápida del estado general de la flota sin tener
-            que recorrer los distintos reportes nativos, y para enlazar de vuelta a ellos
-            cuando se necesita el detalle.
+            Está pensada para quienes operan o supervisan una flota —por ejemplo, equipos de una
+            empresa de renta de autos o administradores de una flota propia— y necesitan una
+            lectura rápida del estado general sin recorrer uno a uno los reportes nativos. Cuando
+            hace falta el detalle, los indicadores con incidencias abren su propio detalle o
+            enlazan de vuelta al informe correspondiente de PILOT.
         </p>
 
         <h2>Características principales</h2>
         <ul>
-            <li><strong>Estado de flota en vivo</strong> — vehículos activos, en movimiento y detenidos, en porcentajes sobre el total.</li>
-            <li><strong>Sin Señal GPS</strong> — vehículos sin conexión al servidor agrupados por antigüedad de la última señal (menos de 24 h, entre 24 y 48 h, más de 48 h), con realce visual para los casos críticos.</li>
-            <li><strong>Alertas Generales</strong> — conteo de accidentes recientes y vehículos que requieren mantención.</li>
-            <li><strong>Vehículos con Exceso de Kilometraje</strong> — ranking de kilómetros recorridos en el período configurado, con enlace directo al informe de kilometraje de PILOT.</li>
-            <li><strong>Hora Oficial</strong> — reloj con zona horaria configurable.</li>
-            <li><strong>Alcance ajustable</strong> — el dashboard puede seguir la selección de vehículos del panel "Principal" de PILOT o considerar la flota completa, desde un control en el propio panel.</li>
-            <li><strong>Actualización manual</strong> — botón para refrescar todos los indicadores sin recargar la página.</li>
+            <li><strong>Dos vistas</strong> — RAC (renta de autos sueltos) y LOP (administrador de flota), intercambiables en vivo desde el propio panel.</li>
+            <li><strong>Flota y conectividad en vivo</strong> — estado de la flota y vehículos sin señal GPS según la antigüedad de su última señal.</li>
+            <li><strong>Alertas con detalle</strong> — posibles accidentes, mantención, ralentí excesivo, cargas y drenajes de combustible y salida de territorio nacional.</li>
+            <li><strong>Conducción y kilometraje</strong> — Safety Score, infracciones de manejo, ranking de kilometraje, rendimiento de combustible y mantención por kilometraje.</li>
+            <li><strong>Mapas</strong> — ubicación global de la flota y mapa de calor de pérdida de conexión.</li>
+            <li><strong>Reportes</strong> — exportación por widget (pantalla y PDF) y Golden Report con el resumen de la flota.</li>
+            <li><strong>Configuración por cuenta</strong> — los valores se ajustan desde <code>config.json</code> o desde un perfil de la cuenta, sin tocar el código.</li>
             <li><strong>Solo lectura</strong> — la extensión únicamente consulta datos; nunca crea, modifica ni elimina información en PILOT.</li>
+        </ul>
+
+        <h2>Vistas y controles</h2>
+        <p>
+            El dashboard ofrece dos vistas sobre los mismos datos. Los botones <strong>RAC</strong> y
+            <strong>LOP</strong> de la tarjeta "Vista" (bajo el logo y el reloj) cambian de una a otra
+            en vivo, sin recargar la página.
+        </p>
+        <ul>
+            <li><strong>RAC</strong> — pensada para renta de autos sueltos: alertas, estado y conectividad de la flota, Safety Score, kilometraje y mapa de pérdida de conexión.</li>
+            <li><strong>LOP</strong> — pensada para administradores de flota: suma la ubicación de la flota, los vehículos disponibles por sucursal, la conducción, el rendimiento de combustible y la mantención por kilometraje.</li>
+            <li><strong>Vista inicial</strong> — la define el perfil de la cuenta o <code>config.json</code> (RAC por defecto). Cada persona puede cambiarla y su elección queda guardada solo en su navegador.</li>
+            <li><strong>Alcance de la flota</strong> — el dashboard considera siempre la flota completa que PILOT muestra al usuario, sin depender de los vehículos marcados en el panel "Principal". Los reportes pesados tienen un tope de seguridad de vehículos consultados (<code>fleet.maxVehicles</code>, 1500 por defecto). Los mapas pueden acotarse a una carpeta con el menú de su tarjeta.</li>
+            <li><strong>Actualizar widgets</strong> — el botón del pie del panel vuelve a consultar todos los indicadores sin recargar la página y registra la hora de la última actualización. Estado de Flota y Sin Señal GPS se actualizan además en vivo con el árbol de vehículos de PILOT, y Alertas Generales se consulta sola cada 5 minutos; el resto de los widgets se actualiza con el botón.</li>
+            <li><strong>Escala</strong> — los botones − y + del pie achican o agrandan todo el dashboard (de 80 % a 130 %, en pasos de 5 %), útil en pantallas grandes o monitores externos. Se guarda en el navegador.</li>
+            <li><strong>Controles (solo administrador)</strong> — el botón "Controles" lo ve únicamente el administrador de la cuenta en PILOT. Abre una ventana para elegir la vista, revisar qué widgets tiene cada vista (activos, en desarrollo u ocultos) y consultar, en solo lectura, los parámetros vigentes (alcance, períodos de tiempo, umbral de ralentí y zona horaria). Los demás usuarios ven el dashboard completo, solo que sin ese botón. Nada de lo que hace un usuario sale de su navegador: la vista elegida y la escala no modifican la configuración de la cuenta ni la de otros usuarios.</li>
+        </ul>
+
+        <h2>Widgets de ambas vistas</h2>
+        <p>
+            Cada widget es una tarjeta del panel, con un ícono "?" que explica brevemente qué mide.
+            Los widgets trabajan con datos que PILOT ya entrega, salvo la Hora Oficial, que usa el
+            reloj del navegador. Una tarjeta marcada "en desarrollo" está visible, pero todavía no
+            entrega datos.
+        </p>
+        <ul>
+            <li><strong>Alertas Generales</strong> — una tarjeta con contador por categoría. Las categorías graves (accidentes, mantención y salida de territorio nacional) se destacan en naranja cuando hay incidencias, y las tarjetas de accidentes, ralentí, combustible y territorio nacional abren su detalle en una ventana, con tabla y mapa, que se puede imprimir o guardar en PDF. Mientras una categoría espera su respuesta muestra un indicador de carga; si PILOT no entrega el dato, muestra N/D.
+                <ul>
+                    <li><strong>Posible accidente</strong> — eventos de detección de accidente de PILOT de hoy y de ayer; el detalle conserva el historial de 7 días.</li>
+                    <li><strong>Requiere mantención</strong> — vehículos con una inspección o un servicio vencido o pendiente en el módulo Técnico-Operacional de PILOT.</li>
+                    <li><strong>Ralentí excesivo</strong> — vehículos con más de 120 minutos de ralentí acumulado en los últimos 7 días (umbral y período configurables), según el informe Fleet ECO de PILOT.</li>
+                    <li><strong>Inconsistencias en Carga</strong> y <strong>Drenaje de Combustible</strong> — cargas y bajas bruscas de nivel que PILOT detecta con el sensor de combustible. Ver la sección "Combustible: cargas y drenajes".</li>
+                    <li><strong>GPS Manipulado</strong> — en desarrollo: aún no hay una fuente de datos confirmada.</li>
+                    <li><strong>Salida de territorio nacional</strong> — vehículos detenidos en una geocerca de paso fronterizo, según una notificación creada en PILOT. Se activa por cuenta (el perfil indica cuál es esa notificación); mientras no esté configurada, la tarjeta figura "en desarrollo". Cuenta vehículos distintos de los últimos 7 días.</li>
+                </ul>
+            </li>
+            <li><strong>Sin Señal GPS</strong> — vehículos sin conexión con el servidor, agrupados por el tiempo transcurrido desde su última señal: menos de 24 h, entre 24 y 48 h y más de 48 h (el tramo más crítico se destaca), más "Sin dato" para los que no tienen registro de última conexión. Cada tramo abre el detalle con las patentes, su última posición y un mapa; si no hay desconexiones se muestra "Todo OK". Sale del árbol de vehículos (Online) de PILOT y se actualiza en vivo.</li>
+            <li><strong>Estado de Flota</strong> — porcentaje de la flota activa (con conexión), en movimiento, estacionada y sin conexión, sobre el total de vehículos. Sale del árbol de vehículos (Online) de PILOT y se actualiza en vivo. Una barra en la parte superior del panel resume el total, los vehículos en línea y desconectados y la hora de la última actualización.</li>
+            <li><strong>Safety Score (ECO)</strong> — puntaje de conducción segura de 0 a 100 que PILOT calcula en su informe Fleet ECO a partir de las frenadas y aceleraciones bruscas, el exceso de velocidad y el ralentí excesivo de cada vehículo. Muestra el puntaje global de la flota y un ranking de cinco vehículos (los dos mejores, el del medio y los dos peores), cada uno con su puntaje del período anterior. Verde desde 75, naranja de 45 a 74 y rojo bajo 45. Período por defecto: 7 días. En la vista RAC se puede acotar a una carpeta con el menú del mapa de Hotspots.</li>
+            <li><strong>Hora Oficial</strong> — reloj con la hora de la zona horaria configurada (por defecto, America/Santiago). Se calcula en el navegador, sin consultar PILOT.</li>
+            <li><strong>Logo</strong> — muestra el logo de la extensión o, si la cuenta tiene uno propio en su perfil, el de la cuenta (ver "Apariencia"). Debajo se indican la versión y el build instalados, útiles para reportar una incidencia.</li>
+        </ul>
+
+        <h2>Widgets de la vista RAC</h2>
+        <ul>
+            <li><strong>Vehículos con Exceso de Kilometraje</strong> — ranking de los cinco vehículos que más kilómetros recorrieron en el período (por defecto, 7 días), con los kilómetros de cada día bajo cada uno, el máximo, la media y el mínimo de los vehículos consultados y un enlace directo al informe de kilometraje de PILOT. Considera los vehículos con movimiento más reciente, hasta un tope configurable (30 por defecto); la tarjeta indica cuántos se consultaron. Usa los recorridos de PILOT y, si no están disponibles, su informe de kilometraje.</li>
+            <li><strong>Tendencia de Infracciones de Manejo</strong> — infracciones de manejo de la flota sumadas en el período (por defecto, 7 días) por categoría: velocidad, aceleración, frenado, ralentí, giro y cinturón, con barras comparativas. Sale del informe de infracciones de PILOT. Viene oculto por defecto: se activa quitándolo de <code>ui.hiddenWidgets</code> en <code>config.json</code> o en el perfil de la cuenta. Aunque esté oculto sus datos se siguen cargando, porque el widget Conducción de la vista LOP los reutiliza.</li>
+            <li><strong>Hotspots de Pérdida de Conexión</strong> — mapa de calor con los puntos donde, en los últimos 30 días, los vehículos tienden a perder la conexión GPS. Tiene dos capas: "Cortes largos" (vehículo apagado o fuera de cobertura por un tiempo prolongado) e "Intermitencias breves" (cortes cortos, típicos de túneles y pasos subterráneos). Excluye los cortes dentro de las geocercas de sucursales o bases, donde un vehículo apagado y estacionado no indica un problema de cobertura. Un menú permite filtrar por carpeta. Sale del informe de pérdida de conexión de PILOT.</li>
+        </ul>
+
+        <h2>Widgets de la vista LOP</h2>
+        <ul>
+            <li><strong>Ubicación Global de la Flota</strong> — mapa con la última posición conocida de cada vehículo, agrupada en clusters cuando hay varios cercanos. Cada vehículo indica si está en línea o sin conexión y si tiene el motor encendido o apagado y, cuando está apagado dentro de una sucursal o base de su cuenta, cuál es. Un menú filtra por carpeta. Usa el árbol de vehículos (Online) y las geocercas de PILOT.</li>
+            <li><strong>Vehículos disponibles por Sucursal</strong> — tabla por sucursal o base de la cuenta, según la última posición de cada vehículo: presentes, disponibles (en línea y sin movimiento), en ruta y sin señal, más el % de estacionados (disponibles sobre presentes). Un porcentaje bajo indica vehículos que están saliendo o con problemas de conexión. Solo cuentan los vehículos de flotas con sucursales configuradas en el perfil de la cuenta (<code>branches.clientMap</code>); sin esa configuración la tarjeta indica "Sin sucursales configuradas". Usa las geocercas de PILOT.</li>
+            <li><strong>Conducción</strong> — ranking de vehículos o, cuando PILOT identifica al conductor, de conductores por eventos bruscos cada 100 km: frenadas, aceleraciones y curvas bruscas y excesos de velocidad, en total o por tipo. Solo entran los que recorrieron al menos 50 km. Reutiliza el Safety Score y las infracciones de manejo ya cargadas, sin consultas nuevas; un 0 puede significar que el vehículo no tiene sensor de conducción brusca.</li>
+            <li><strong>Rendimiento de Combustible</strong> — consumo por norma y litros cada 100 km de cada vehículo en los últimos 30 días, ordenados por L/100 km o por litros. Un vehículo figura en sobreconsumo si supera en 20 % o más la mediana de su carpeta (o de toda la flota, si la carpeta tiene menos de 5 vehículos con dato). Solo entran los vehículos con al menos 100 km recorridos y una norma de consumo configurada en PILOT; el resto figura como N/D. No requiere sensor de tanque. Sale del informe de combustible de PILOT.</li>
+            <li><strong>Kilometraje para Mantención</strong> — odómetro de cada vehículo frente al intervalo de servicio: indica cuántos kilómetros faltan para el próximo servicio (cada 10.000 km, con aviso a 1.000 km) y sugiere una revisión general desde los 100.000 km. Los vehículos sin odómetro cargado en PILOT figuran como N/D, no como 0 km.</li>
+            <li><strong>Vehículos que más consumen TAG</strong> — pasadas por pórticos de peaje en los últimos 30 días, por vehículo (o por autopista si el informe de PILOT no identifica el vehículo), con el monto si el informe lo entrega. Usa el informe Toll Roads de PILOT, que la cuenta debe tener habilitado. Viene apagado por defecto: la tarjeta figura "en desarrollo" hasta que el perfil de la cuenta lo active (<code>lop.tag.enabled</code>).</li>
+            <li><strong>Vehículos fuera de Rutas preestablecidas</strong> — en desarrollo: requiere una fuente que asigne rutas a los vehículos y aún no hay una confirmada en PILOT.</li>
+        </ul>
+
+        <h2>Combustible: cargas y drenajes</h2>
+        <p>
+            Las tarjetas "Inconsistencias en Carga" y "Drenaje de Combustible" de Alertas Generales
+            usan solo las cargas y los drenajes que detecta PILOT con el sensor de nivel de
+            combustible de cada vehículo detenido. La extensión no estima ni infiere eventos por su
+            cuenta. Son indicios, no hechos: conviene confirmarlos con la tarjeta de combustible o
+            con el conductor.
+        </p>
+        <ul>
+            <li><strong>Qué se cuenta</strong> — cargas con un alza de nivel mayor a 20 % y drenajes con una baja brusca de 50 % o más (porcentajes del nivel máximo observado), en los últimos 3 días. Solo entran los vehículos con sensor de combustible; los demás figuran como N/D y la tarjeta indica cuántos vehículos tienen sensor.</li>
+            <li><strong>Dónde se espera una carga</strong> — en una estación de servicio. Las estaciones se reconocen por el nombre de sus geocercas en PILOT (por defecto, las que contienen "copec"). Una carga en cualquier otro lugar, sucursales incluidas, se marca en rojo como "Fuera de COPEC" (o el nombre de estación configurado).</li>
+            <li><strong>Cuándo un drenaje es sospechoso</strong> — solo si ocurre fuera de las sucursales de la cuenta y de las estaciones de servicio; dentro de cualquiera de ellas se muestra como un lugar esperable.</li>
+            <li><strong>Sin posición</strong> — si el evento no trae coordenadas, el lugar se indica como N/D y no se supone ninguno. Si la cuenta no tiene sucursales configuradas, el detalle avisa que no puede descartar que el punto sea una sucursal.</li>
+            <li><strong>Comprobante de pago</strong> — la tabla de cargas tiene una columna "Comprobante" (guía de despacho o factura) que por ahora figura como "Pendiente". La comparación entre lo que miden los sensores y lo cobrado según la guía de despacho y la factura llegará en una etapa posterior; hasta entonces el número de la tarjeta cuenta todas las cargas detectadas.</li>
+        </ul>
+        <p>
+            Cada tarjeta abre un detalle con los eventos (las cargas, agrupadas por día), los datos del
+            vehículo, el nivel antes y después, el lugar y un mapa, que se puede imprimir o guardar en PDF.
+        </p>
+
+        <h2>Exportar reportes</h2>
+        <ul>
+            <li><strong>Exportar Reporte</strong> — se elige un widget (Estado de Flota, Exceso de Kilometraje, Safety Score, Sin Señal GPS o Alertas Generales; en la vista LOP también Vehículos por Sucursal, Conducción, Rendimiento de Combustible, Kilometraje para Mantención y Consumo de TAG) y se pulsa "Exportar". El reporte se abre en una ventana sobre el panel, con el período y una descripción de lo que mide, y se puede descargar en PDF, imprimir o cerrar. Se arma con los datos que el widget ya cargó: no hace consultas nuevas.</li>
+            <li><strong>Golden Report</strong> — el botón "Generar" arma el documento "Golden Report — Resumen de Flota", para pantalla y PDF, con el período de cada widget. Incluye: una fotografía de la flota (vehículos, en movimiento, sin conexión y Safety Score promedio); los vehículos sin señal GPS por tramo, con su última señal y posición y un mapa; las Alertas Generales por categoría, con el valor de ayer y la variación donde existe ese dato (accidentes); el ranking de kilometraje; el Safety Score con el reparto de vehículos por banda y los 10 de menor puntaje; las secciones de la vista LOP (sucursales, conducción, combustible y mantención) cuando sus datos están cargados; y una guía para ver el detalle en los paneles de PILOT (kilometraje, Fleet ECO y mensajes y eventos).</li>
+        </ul>
+
+        <h2>Apariencia</h2>
+        <ul>
+            <li><strong>Fondo del panel</strong> — una trama detrás de las tarjetas evita que floten sobre un panel blanco. Con 9 o más widgets visibles se usa una retícula liviana; con menos, curvas de nivel más visibles. Se ajusta con <code>ui.background</code> (<code>"auto"</code>, <code>"reticula"</code>, <code>"topo"</code>, <code>"color"</code> u <code>"off"</code>) y <code>ui.backgroundDenseFrom</code>.</li>
+            <li><strong>Indicador de carga</strong> — mientras cada categoría de Alertas Generales espera su respuesta, su tarjeta muestra un indicador de carga en lugar de "N/D"; "N/D" queda para los datos que PILOT no entregó. Los demás widgets muestran una silueta animada mientras cargan (se desactiva si el sistema pide reducir el movimiento).</li>
+            <li><strong>Logo rotativo</strong> — cuando la cuenta tiene logo propio, la tarjeta del logo alterna con un fundido entre el logo de la cuenta, el de Promatic y el de PILOT (cada 6 segundos por defecto). Sin logo propio, o con la preferencia de reducir movimiento activada en el sistema, se mantiene el logo fijo. Se ajusta con <code>branding.logoRotation</code>.</li>
         </ul>
 
         <h2>Configuración — <code>config.json</code></h2>
@@ -181,33 +275,173 @@
             incluido en la extensión, sin necesidad de tocar el código. Si el archivo no está
             disponible, la extensión usa valores por defecto equivalentes.
         </p>
+        <p>
+            Además, cada cuenta puede tener un <strong>perfil</strong> que ajusta estos mismos valores
+            sin republicar la extensión: por ejemplo, su logo, sus sucursales, la notificación de la
+            alerta de territorio nacional o los widgets visibles. Los valores del perfil se mezclan,
+            sección por sección, sobre los de <code>config.json</code>; una cuenta sin perfil usa los
+            de <code>config.json</code>. El perfil de la cuenta lo recibe solo el administrador: los
+            demás usuarios ven el dashboard con los valores de <code>config.json</code> (por ejemplo,
+            sin logo propio ni sucursales). Los parámetros vigentes se pueden consultar, en solo
+            lectura, desde el botón "Controles".
+        </p>
+        <p>Secciones y valores por defecto:</p>
         <pre><code>{
-  "top5km": {
-    "windowDays": 7,          // días hacia atrás para el ranking de kilometraje
-    "activeVehicleCap": 300,  // tope de vehículos a consultar
-    "source": "ratings",      // fuente de datos: "ratings" o "reports"
-    "count": 5                // filas visibles en la tarjeta
+  "ui": {
+    "preset": "rac",               // vista inicial: "rac" o "lop"
+    "hiddenWidgets": ["violations"], // widgets ocultos (ids más abajo)
+    "background": "auto",          // fondo (ver "Apariencia")
+    "backgroundDenseFrom": 9       // con estos widgets o más: retícula
   },
   "fleet": {
-    "scope": "pilot-selection", // "pilot-selection" (sigue la selección) o "all"
-    "maxVehicles": 500          // tope de seguridad para llamadas a la API
+    "scope": "all",                // alcance: toda la flota (valor fijo)
+    "maxVehicles": 1500            // tope de vehículos en reportes pesados
   },
   "clock": {
-    "timeZone": "America/Santiago", // identificador de zona horaria IANA
-    "locale": "es-CL",              // formato de hora
+    "timeZone": "America/Santiago", // zona horaria IANA
+    "locale": "es-CL",             // formato de hora
     "label": "Hora Oficial"        // rótulo del widget
+  },
+  "top5km": {
+    "windowDays": 7,               // días hacia atrás del ranking
+    "count": 5,                    // filas visibles en la tarjeta
+    "kmField": "gps",              // kilómetros medidos por GPS
+    "source": "trips-v3",          // fuente: trips-v3, ratings, reports
+    "activeVehicleCap": 300,       // tope de vehículos con movimiento
+    "tripsMaxVehicles": 30,        // vehículos cuyos recorridos se consultan
+    "tripsBatchSize": 4            // consultas simultáneas
+  },
+  "ecoScore": {
+    "windowDays": 7,               // días del Safety Score y del ralentí
+    "idleThresholdMin": 120        // minutos de ralentí para la alerta
+  },
+  "violations": {
+    "windowDays": 7                // días de la tendencia de infracciones
+  },
+  "borderAlert": {
+    "eventType": null,             // notificación; null = en desarrollo
+    "windowDays": 7,               // días que se consideran
+    "since": ""                    // fecha-hora ISO desde la que se cuenta
+  },
+  "hotspots": {
+    "windowDays": 30,              // días de historial de cortes
+    "minGapSeconds": 120,          // "corte largo": más de estos segundos
+    "shortGapMinSeconds": 10,      // "intermitencia breve": entre estos
+    "shortGapMaxSeconds": 90,      //   dos valores, en segundos
+    "excludeBranches": true,       // excluye cortes en sucursales/bases
+    "excludeGroupPatterns": ["sucursal", "base"], // textos de esos grupos
+    "excludeGroupNames": []        // nombres exactos de grupos a excluir
+  },
+  "fuel": {
+    "enabled": true,               // activa las alertas de combustible
+    "windowDays": 3,               // días analizados
+    "loadMinPct": 20,              // una carga sube el nivel más de este %
+    "drainMinPct": 50,             // un drenaje lo baja este % o más
+    "stationPattern": "copec",     // texto que identifica las estaciones
+    "nativeOnly": true,            // solo cargas y drenajes de PILOT
+    // detección propia (referencia de nivel) y sensores fijados a mano:
+    "windowMin": 30, "maxGapMin": 360, "stopSpeedKmh": 3,
+    "minSamples": 5, "capacityHint": 0, "agentIds": [],
+    // ajustes técnicos para no sobrecargar PILOT y de diagnóstico:
+    "batchSize": 3, "pauseMs": 1000, "maxVehicles": 60, "cacheMinutes": 30,
+    "catalogBatch": 20, "catalogCacheHours": 24, "debugRawMax": 3
+  },
+  "lop": {
+    "fuel": {                      // Rendimiento de Combustible
+      "windowDays": 30,            // días analizados
+      "minKm": 100,                // recorrido mínimo para entrar
+      "overconsumptionPct": 20,    // sobreconsumo: % sobre la mediana
+      "minCohort": 5,              // vehículos con dato para usar la carpeta
+      "rankCount": 8,              // filas visibles
+      // ajustes técnicos de la consulta y del informe:
+      "explode": 3, "distCol": null, "fuelCol": null
+    },
+    "driving": {                   // Conducción
+      "rankCount": 8,              // filas visibles
+      "minKm": 50                  // recorrido mínimo para entrar
+    },
+    "maintenance": {               // Kilometraje para Mantención
+      "intervalKm": 10000,         // cada cuántos km se sugiere servicio
+      "warnWithinKm": 1000,        // aviso cuando faltan estos km o menos
+      "highOdometerKm": 100000,    // desde aquí se sugiere revisión general
+      "rankCount": 8               // filas visibles
+    },
+    "tag": {                       // Vehículos que más consumen TAG
+      "enabled": false,            // apagado: "en desarrollo"
+      "windowDays": 30,            // días analizados
+      "rankCount": 8,              // filas visibles
+      "explode": 3                 // ajuste técnico de la consulta
+    },
+    "branches": {
+      "rankCount": 12              // sucursales; la tabla, el triple
+    },
+    "batch": {                     // carga de los reportes pesados
+      "batchSize": 60,             // vehículos por consulta
+      "batchPauseMs": 1500,        // pausa entre consultas (ms)
+      "batchTimeoutMs": 45000,     // tiempo máximo por consulta (ms)
+      "maxVehicles": 600,          // tope de vehículos por widget
+      "cacheMinutes": 30,          // vigencia de lo ya consultado
+      "startDelayMs": 5000         // espera tras la carga inicial (ms)
+    }
+  },
+  "branches": {
+    "clientMap": []                // sucursales o bases por flota
+  },
+  "privacy": {
+    "maskPlates": false            // true: reemplaza la patente por un alias
+  },
+  "branding": {
+    "logoRotation": {
+      "enabled": true,             // alterna el logo de la cuenta con otros
+      "seconds": 6,                // segundos que se ve cada logo
+      "fadeMs": 800,               // duración del fundido (ms)
+      "sequence": ["client", "promatic", "pilot"] // orden de la rotación
+    }
   }
 }</code></pre>
         <table>
             <tr><th>Sección</th><th>Para qué sirve</th></tr>
-            <tr><td><code>top5km</code></td><td>Ventana de tiempo, límites y fuente del ranking de kilometraje.</td></tr>
-            <tr><td><code>fleet</code></td><td>Qué vehículos considera el dashboard y tope de seguridad de consultas.</td></tr>
-            <tr><td><code>clock</code></td><td>Zona horaria, idioma y rótulo del reloj.</td></tr>
+            <tr><td><code>ui</code></td><td>Vista inicial, widgets ocultos y fondo del panel.</td></tr>
+            <tr><td><code>fleet</code></td><td>Alcance (toda la flota) y tope de seguridad de vehículos consultados.</td></tr>
+            <tr><td><code>clock</code></td><td>Zona horaria, formato y rótulo del reloj.</td></tr>
+            <tr><td><code>top5km</code></td><td>Período, filas y fuente del ranking de kilometraje.</td></tr>
+            <tr><td><code>ecoScore</code></td><td>Período del Safety Score y umbral del ralentí excesivo.</td></tr>
+            <tr><td><code>violations</code></td><td>Período de la tendencia de infracciones de manejo.</td></tr>
+            <tr><td><code>borderAlert</code></td><td>Activación y período de la alerta de salida de territorio nacional.</td></tr>
+            <tr><td><code>hotspots</code></td><td>Período, duraciones y exclusiones del mapa de pérdida de conexión.</td></tr>
+            <tr><td><code>fuel</code></td><td>Alertas de combustible: período, umbrales de carga y drenaje y reconocimiento de estaciones.</td></tr>
+            <tr><td><code>lop</code></td><td>Widgets de la vista LOP: combustible, conducción, mantención, TAG, sucursales y carga de reportes.</td></tr>
+            <tr><td><code>branches</code></td><td>Sucursales o bases de cada flota (mapa, vehículos por sucursal y lugar de cargas y drenajes).</td></tr>
+            <tr><td><code>privacy</code></td><td>Enmascarar las patentes con un alias.</td></tr>
+            <tr><td><code>branding</code></td><td>Rotación del logo de la cuenta (el logo propio lo entrega el perfil).</td></tr>
         </table>
         <p>
-            Los cambios en <code>config.json</code> se aplican al volver a publicar la extensión.
-            La estructura está preparada para que, más adelante, un servicio externo pueda
-            entregar la misma configuración de forma dinámica.
+            <code>branches.clientMap</code> indica, para cada flota, qué grupos de geocercas son sus
+            sucursales o bases, por ejemplo <code>{ "nombreFlota": "Flota Norte", "groupNames": ["Sucursales"] }</code>:
+            <code>nombreFlota</code> es un texto del nombre de la carpeta de la flota (o de una carpeta que
+            la contiene) y <code>groupNames</code>, los nombres exactos de los grupos de geocercas. Va vacío
+            en el archivo público: lo aporta el perfil de la cuenta, igual que el logo propio.
+        </p>
+        <p>
+            Identificadores válidos para <code>ui.hiddenWidgets</code>: <code>alertas_generales</code>,
+            <code>gps_signal</code>, <code>flota</code>, <code>eco_score</code>, <code>top5km</code>,
+            <code>violations</code>, <code>hotspots</code>, <code>fleet_map</code>, <code>lop_sucursales</code>,
+            <code>lop_conduccion</code>, <code>lop_combustible</code>, <code>lop_mantencion</code>,
+            <code>lop_tag</code> y <code>lop_rutas</code>. Ocultar un widget no detiene la carga de sus
+            datos, porque otros widgets pueden reutilizarlos.
+        </p>
+        <p>
+            Los cambios en <code>config.json</code> se aplican al volver a publicar la extensión; los del
+            perfil de la cuenta, sin republicar. Las secciones <code>violations</code> y <code>lop</code> no
+            vienen en el archivo: se aplican los valores por defecto de la extensión, y pueden agregarse
+            al archivo o al perfil.
+        </p>
+
+        <h2>Solo lectura</h2>
+        <p>
+            La extensión únicamente consulta datos de PILOT; nunca crea, modifica ni elimina información
+            en la plataforma. Las preferencias de cada persona (vista y escala) se guardan solo en su
+            navegador.
         </p>
 
         <h2>Instalación</h2>
@@ -218,14 +452,14 @@
         </p>
 
         <h2>Estado</h2>
-        <p>Versión <strong>0.27.5</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
+        <p>Versión <strong>0.27.6</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
 
         <footer>
             Documentación de la extensión · Dashboard Enhancer
             <br>
-            Versión 0.27.5
+            Versión 0.27.6
             <br>
-            <p>Version 2026-10-23-1955</p>
+            <p>Version 2026-10-26-1153</p>
         </footer>
     </section>
 
@@ -249,25 +483,118 @@
         <h2>What it does</h2>
         <p>
             The extension adds its own tab to the PILOT navigation panel with a fleet dashboard.
-            It gathers vehicle connectivity status, relevant alerts, mileage, and other operational
-            indicators into a single view, updating live with the platform's vehicle tree.
+            It gathers vehicle connectivity status, relevant alerts, mileage, driving, fuel and other
+            operational indicators into a single screen, using data the platform already provides.
         </p>
         <p>
-            It is designed to provide a quick read of the overall fleet status without having to
-            navigate through various native reports, while offering direct links back to them
-            when detailed information is needed.
+            It is designed for people who run or supervise a fleet — for example, the team of a car
+            rental company or the administrators of a company fleet — and need a quick read of the
+            overall status without going through the native reports one by one. When more detail is
+            needed, indicators with incidents open their own detail or link back to the matching
+            PILOT report.
         </p>
 
         <h2>Key Features</h2>
         <ul>
-            <li><strong>Live Fleet Status</strong> — active, moving, and stopped vehicles, displayed as percentages of the total.</li>
-            <li><strong>No GPS Signal</strong> — vehicles disconnected from the server grouped by age of the last signal (less than 24h, between 24 and 48h, over 48h), featuring visual highlighting for critical cases.</li>
-            <li><strong>General Alerts</strong> — count of recent accidents and vehicles requiring maintenance.</li>
-            <li><strong>Excess Mileage Vehicles</strong> — ranking of distance driven during the configured timeframe, with a direct link to the PILOT mileage report.</li>
-            <li><strong>Official Time</strong> — clock with configurable timezone.</li>
-            <li><strong>Adjustable Scope</strong> — the dashboard can follow the vehicle selection from the PILOT "Main" panel or evaluate the entire fleet, toggled via a control directly on the dashboard.</li>
-            <li><strong>Manual Refresh</strong> — button to refresh all indicators without reloading the page.</li>
-            <li><strong>Read-Only</strong> — the extension only queries data; it never creates, modifies, or deletes information in PILOT.</li>
+            <li><strong>Two views</strong> — RAC (individual car rental) and LOP (fleet administrator), switchable live from the dashboard itself.</li>
+            <li><strong>Live fleet and connectivity</strong> — fleet status and vehicles without GPS signal, grouped by how long ago their last signal arrived.</li>
+            <li><strong>Alerts with detail</strong> — possible accidents, maintenance, excessive idling, fuel loads and drains, and exits from the national territory.</li>
+            <li><strong>Driving and mileage</strong> — Safety Score, driving violations, mileage ranking, fuel efficiency and mileage-based maintenance.</li>
+            <li><strong>Maps</strong> — global fleet location and a heat map of connection loss.</li>
+            <li><strong>Reports</strong> — per-widget export (on screen and PDF) and a Golden Report with the fleet summary.</li>
+            <li><strong>Per-account configuration</strong> — values are tuned from <code>config.json</code> or from an account profile, without touching any code.</li>
+            <li><strong>Read-only</strong> — the extension only queries data; it never creates, modifies, or deletes information in PILOT.</li>
+        </ul>
+
+        <h2>Views and Controls</h2>
+        <p>
+            The dashboard offers two views over the same data. The <strong>RAC</strong> and
+            <strong>LOP</strong> buttons on the "Vista" (View) card, below the logo and the clock, switch
+            between them live, without reloading the page.
+        </p>
+        <ul>
+            <li><strong>RAC</strong> — designed for individual car rental: alerts, fleet status and connectivity, Safety Score, mileage and the connection-loss map.</li>
+            <li><strong>LOP</strong> — designed for fleet administrators: adds fleet location, vehicles available by branch, driving, fuel efficiency and mileage-based maintenance.</li>
+            <li><strong>Initial view</strong> — set by the account profile or by <code>config.json</code> (RAC by default). Each person can change it, and the choice is stored only in their own browser.</li>
+            <li><strong>Fleet scope</strong> — the dashboard always considers the entire fleet that PILOT shows the user, regardless of which vehicles are ticked in the "Main" panel. Heavy reports have a safety cap on the number of vehicles queried (<code>fleet.maxVehicles</code>, 1500 by default). Maps can be narrowed to one folder with the menu on their card.</li>
+            <li><strong>Refresh widgets</strong> — the button at the bottom of the dashboard ("Actualizar widgets") re-queries every indicator without reloading the page and stamps the time of the last update. Fleet Status and No GPS Signal also follow PILOT's live vehicle tree, and General Alerts re-queries itself every 5 minutes; the other widgets update with the button.</li>
+            <li><strong>Scale</strong> — the − and + buttons at the bottom shrink or enlarge the whole dashboard (80% to 130%, in 5% steps), which is handy on large screens or external monitors. It is saved in the browser.</li>
+            <li><strong>Controls (administrator only)</strong> — the "Controles" button is visible only to the account's PILOT administrator. It opens a window to choose the view, review which widgets each view has (active, in development or hidden) and consult, read-only, the current parameters (scope, time periods, idle threshold and time zone). Other users see the full dashboard, only without that button. Nothing a user does leaves their browser: the chosen view and scale do not change the configuration of the account or of other users.</li>
+        </ul>
+
+        <h2>Widgets in both views</h2>
+        <p>
+            Each widget is a card on the dashboard, with a "?" icon that briefly explains what it measures.
+            Widgets work with data that PILOT already provides, except Official Time, which uses the
+            browser clock. A card marked "in development" is visible but does not deliver data yet.
+            Each widget's Spanish interface name is given in parentheses.
+        </p>
+        <ul>
+            <li><strong>General Alerts</strong> (<em>Alertas Generales</em>) — one card with a counter per category. Serious categories (accidents, maintenance and exits from the national territory) are highlighted in orange when there are incidents, and the accident, idling, fuel and national-territory cards open their detail in a window, with a table and a map, which can be printed or saved as a PDF. While a category waits for its answer it shows a loading indicator; if PILOT does not deliver the data, it shows N/D (not available).
+                <ul>
+                    <li><strong>Possible accident</strong> (<em>Posible accidente</em>) — PILOT accident-detection events from today and yesterday; the detail keeps a 7-day history.</li>
+                    <li><strong>Maintenance required</strong> (<em>Requiere mantención</em>) — vehicles with an overdue or pending inspection or service in PILOT's Technical-Operational module.</li>
+                    <li><strong>Excessive idling</strong> (<em>Ralentí excesivo</em>) — vehicles with more than 120 minutes of accumulated idling in the last 7 days (threshold and period are configurable), according to PILOT's Fleet ECO report.</li>
+                    <li><strong>Fuel load inconsistencies</strong> (<em>Inconsistencias en Carga</em>) and <strong>Fuel drain</strong> (<em>Drenaje de Combustible</em>) — refuelings and sharp level drops that PILOT detects with the fuel sensor. See the section "Fuel: loads and drains".</li>
+                    <li><strong>Tampered GPS</strong> (<em>GPS Manipulado</em>) — in development: there is no confirmed data source yet.</li>
+                    <li><strong>Exit from national territory</strong> (<em>Salida de territorio nacional</em>) — vehicles stopped inside a border-crossing geofence, based on a notification created in PILOT. It is enabled per account (the profile says which notification it is); until it is configured, the card reads "in development". It counts distinct vehicles over the last 7 days.</li>
+                </ul>
+            </li>
+            <li><strong>No GPS Signal</strong> (<em>Sin Señal GPS</em>) — vehicles disconnected from the server, grouped by the time elapsed since their last signal: under 24 h, between 24 and 48 h and over 48 h (the most critical group is highlighted), plus "Sin dato" (no data) for those with no last-connection record. Each group opens a detail with the plates, their last position and a map; if nothing is disconnected it shows "Todo OK" (all OK). It comes from PILOT's vehicle tree (Online) and updates live.</li>
+            <li><strong>Fleet Status</strong> (<em>Estado de Flota</em>) — percentage of the fleet that is active (connected), moving, parked and disconnected, over the total number of vehicles. It comes from PILOT's vehicle tree (Online) and updates live. A bar at the top of the dashboard summarizes the total, the vehicles online and disconnected, and the time of the last update.</li>
+            <li><strong>Safety Score (ECO)</strong> — a safe-driving score from 0 to 100 that PILOT calculates in its Fleet ECO report from each vehicle's harsh braking and acceleration, speeding and excessive idling. It shows the fleet-wide score and a ranking of five vehicles (the two best, the middle one and the two worst), each with its score for the previous period. Green from 75, orange from 45 to 74 and red below 45. Default period: 7 days. In the RAC view it can be narrowed to one folder with the menu on the Hotspots map.</li>
+            <li><strong>Official Time</strong> (<em>Hora Oficial</em>) — a clock showing the time in the configured time zone (America/Santiago by default). It is computed in the browser, without querying PILOT.</li>
+            <li><strong>Logo</strong> — shows the extension's logo or, if the account has its own logo in its profile, the account's logo (see "Appearance"). Below it, the installed version and build are shown, which is useful when reporting an issue.</li>
+        </ul>
+
+        <h2>RAC view widgets</h2>
+        <ul>
+            <li><strong>Excess Mileage Vehicles</strong> (<em>Vehículos con Exceso de Kilometraje</em>) — ranking of the five vehicles that drove the most kilometers in the period (7 days by default), with each day's kilometers under each vehicle, the maximum, average and minimum of the vehicles queried, and a direct link to PILOT's mileage report. It considers the vehicles with the most recent movement, up to a configurable cap (30 by default); the card says how many were queried. It uses PILOT's trips and, if they are unavailable, its mileage report.</li>
+            <li><strong>Driving Violations Trend</strong> (<em>Tendencia de Infracciones de Manejo</em>) — the fleet's driving violations added up over the period (7 days by default) by category: speed, acceleration, braking, idling, turning and seat belt, with comparison bars. It comes from PILOT's violations report. It is hidden by default: enable it by removing it from <code>ui.hiddenWidgets</code> in <code>config.json</code> or in the account profile. Even while hidden its data keeps loading, because the Driving widget of the LOP view reuses it.</li>
+            <li><strong>Connection Loss Hotspots</strong> (<em>Hotspots de Pérdida de Conexión</em>) — a heat map of the places where, over the last 30 days, vehicles tend to lose their GPS connection. It has two layers: "Cortes largos" (long outages: vehicle switched off or out of coverage for a long time) and "Intermitencias breves" (brief dropouts, typical of tunnels and underground passages). It excludes outages inside branch or base geofences, where a parked, switched-off vehicle does not indicate a coverage problem. A menu filters by folder. It comes from PILOT's connection-loss report.</li>
+        </ul>
+
+        <h2>LOP view widgets</h2>
+        <ul>
+            <li><strong>Global Fleet Location</strong> (<em>Ubicación Global de la Flota</em>) — a map with each vehicle's last known position, grouped into clusters when several are close together. Each vehicle shows whether it is online or disconnected and whether its engine is on or off and, when it is off inside a branch or base of its account, which one. A menu filters by folder. It uses PILOT's vehicle tree (Online) and geofences.</li>
+            <li><strong>Vehicles Available by Branch</strong> (<em>Vehículos disponibles por Sucursal</em>) — a table per branch or base of the account, based on each vehicle's last position: present, available (online and not moving), on the road and without signal, plus the % parked (available over present). A low percentage points to vehicles that are leaving or having connection problems. Only vehicles from fleets with branches configured in the account profile (<code>branches.clientMap</code>) are counted; without that configuration the card reads "Sin sucursales configuradas" (no branches configured). It uses PILOT's geofences.</li>
+            <li><strong>Driving</strong> (<em>Conducción</em>) — ranking of vehicles or, when PILOT identifies the driver, of drivers by harsh events per 100 km: harsh braking, acceleration and cornering, and speeding, in total or by type. Only those that drove at least 50 km are included. It reuses the Safety Score and the driving violations already loaded, with no new queries; a 0 can mean the vehicle has no harsh-driving sensor.</li>
+            <li><strong>Fuel Efficiency</strong> (<em>Rendimiento de Combustible</em>) — consumption by norm and liters per 100 km for each vehicle over the last 30 days, sorted by L/100 km or by liters. A vehicle is flagged as overconsuming if it is 20% or more above the median of its folder (or of the whole fleet, if the folder has fewer than 5 vehicles with data). Only vehicles with at least 100 km driven and a consumption norm configured in PILOT are included; the rest show N/D. It does not require a tank sensor. It comes from PILOT's fuel report.</li>
+            <li><strong>Mileage to Maintenance</strong> (<em>Kilometraje para Mantención</em>) — each vehicle's odometer against the service interval: it shows how many kilometers remain until the next service (every 10,000 km, with a warning at 1,000 km) and suggests a general inspection from 100,000 km. Vehicles with no odometer loaded in PILOT show N/D, not 0 km.</li>
+            <li><strong>Top TAG Consumers</strong> (<em>Vehículos que más consumen TAG</em>) — passes through toll gantries over the last 30 days, per vehicle (or per highway if PILOT's report does not identify the vehicle), with the amount if the report provides it. It uses PILOT's Toll Roads report, which the account must have enabled. It is off by default: the card reads "in development" until the account profile turns it on (<code>lop.tag.enabled</code>).</li>
+            <li><strong>Vehicles Off Preset Routes</strong> (<em>Vehículos fuera de Rutas preestablecidas</em>) — in development: it needs a source that assigns routes to vehicles, and none is confirmed in PILOT yet.</li>
+        </ul>
+
+        <h2>Fuel: loads and drains</h2>
+        <p>
+            The "Inconsistencias en Carga" (fuel load inconsistencies) and "Drenaje de Combustible" (fuel
+            drain) cards in General Alerts use only the loads and drains that PILOT itself detects, from the
+            fuel-level sensor of a stopped vehicle. The extension does not estimate or infer events on its
+            own. They are indications, not facts: confirm them with the fuel card or the driver.
+        </p>
+        <ul>
+            <li><strong>What is counted</strong> — loads where the level rises by more than 20%, and drains where it drops sharply by 50% or more (percentages of the maximum level observed), over the last 3 days. Only vehicles with a fuel sensor are included; the rest show N/D, and the card says how many vehicles have a sensor.</li>
+            <li><strong>Where a load is expected</strong> — at a service station. Stations are recognized by the name of their geofences in PILOT (by default, those containing "copec"). A load anywhere else, branches included, is flagged in red as "Fuera de COPEC" (outside COPEC, or the configured station name).</li>
+            <li><strong>When a drain is suspicious</strong> — only if it happens outside the account's branches and outside service stations; inside either of them it is shown as an expected place.</li>
+            <li><strong>No position</strong> — if the event carries no coordinates, the place is shown as N/D and none is assumed. If the account has no branches configured, the detail warns that it cannot rule out that the spot is a branch.</li>
+            <li><strong>Payment voucher</strong> — the loads table has a "Comprobante" (voucher) column, meaning a dispatch note or an invoice, which currently reads "Pendiente" (pending). Comparing what the sensors measure with what was billed according to the dispatch note and the invoice will come in a later stage; until then the card counts every load detected.</li>
+        </ul>
+        <p>
+            Each card opens a detail with the events (loads grouped by day), the vehicle data, the level
+            before and after, the place and a map, which can be printed or saved as a PDF.
+        </p>
+
+        <h2>Exporting reports</h2>
+        <ul>
+            <li><strong>Export report</strong> (<em>Exportar Reporte</em>) — pick a widget (Fleet Status, Excess Mileage Vehicles, Safety Score, No GPS Signal or General Alerts; in the LOP view also Vehicles by Branch, Driving, Fuel Efficiency, Mileage to Maintenance and TAG consumption) and press "Exportar". The report opens in a window over the dashboard, with the period and a description of what it measures, and can be downloaded as a PDF, printed or closed. It is built from the data the widget has already loaded: it makes no new queries.</li>
+            <li><strong>Golden Report</strong> — the "Generar" button builds the document "Golden Report — Resumen de Flota" (Fleet Summary), for screen and PDF, using each widget's period. It includes: a snapshot of the fleet (vehicles, moving, disconnected and average Safety Score); vehicles without GPS signal by group, with their last signal and position and a map; General Alerts by category, with yesterday's value and the change where that data exists (accidents); the mileage ranking; the Safety Score with the split of vehicles by band and the 10 lowest scores; the LOP view sections (branches, driving, fuel and maintenance) when their data is loaded; and a guide to see the detail in PILOT's panels (mileage, Fleet ECO, and messages and events).</li>
+        </ul>
+
+        <h2>Appearance</h2>
+        <ul>
+            <li><strong>Dashboard background</strong> — a pattern behind the cards keeps them from floating on a blank white panel. With 9 or more visible widgets a light grid is used; with fewer, a more visible contour-line pattern. It is tuned with <code>ui.background</code> (<code>"auto"</code>, <code>"reticula"</code> for the grid, <code>"topo"</code> for the contour lines, <code>"color"</code> for the base color only, or <code>"off"</code>) and <code>ui.backgroundDenseFrom</code>.</li>
+            <li><strong>Loading indicator</strong> — while each General Alerts category waits for its answer, its card shows a loading indicator instead of "N/D"; "N/D" is kept for data that PILOT did not deliver. The other widgets show an animated placeholder while they load (turned off if the system asks to reduce motion).</li>
+            <li><strong>Rotating logo</strong> — when the account has its own logo, the logo card fades between the account's logo, Promatic's and PILOT's (every 6 seconds by default). Without its own logo, or with the reduce-motion preference turned on in the system, the fixed logo stays. It is tuned with <code>branding.logoRotation</code>.</li>
         </ul>
 
         <h2>Configuration — <code>config.json</code></h2>
@@ -276,33 +603,171 @@
             in the extension, without touching any code. If the file is not available,
             the extension falls back to equivalent default values.
         </p>
+        <p>
+            In addition, each account can have a <strong>profile</strong> that adjusts the same values
+            without re-publishing the extension: for example, its logo, its branches, the notification
+            behind the national-territory alert or the visible widgets. Profile values are merged,
+            section by section, over those of <code>config.json</code>; an account without a profile uses
+            <code>config.json</code>. Only the administrator receives the account profile: other users see
+            the dashboard with the <code>config.json</code> values (for example, without an own logo or
+            branches). The current parameters can be consulted, read-only, from the "Controles" button.
+        </p>
+        <p>Sections and default values:</p>
         <pre><code>{
-  "top5km": {
-    "windowDays": 7,          // days back for mileage ranking
-    "activeVehicleCap": 300,  // maximum vehicles to query
-    "source": "ratings",      // data source: "ratings" or "reports"
-    "count": 5                // visible rows in card
+  "ui": {
+    "preset": "rac",               // initial view: "rac" or "lop"
+    "hiddenWidgets": ["violations"], // hidden widgets (ids below)
+    "background": "auto",          // background (see "Appearance")
+    "backgroundDenseFrom": 9       // from this many widgets: grid
   },
   "fleet": {
-    "scope": "pilot-selection", // "pilot-selection" (follows selection) or "all"
-    "maxVehicles": 500          // safety cap for API calls
+    "scope": "all",                // scope: the entire fleet (fixed value)
+    "maxVehicles": 1500            // vehicle cap for heavy reports
   },
   "clock": {
     "timeZone": "America/Santiago", // IANA time zone identifier
-    "locale": "es-CL",              // time format locale
-    "label": "Official Time"        // widget label
+    "locale": "es-CL",             // time format locale
+    "label": "Hora Oficial"        // widget label
+  },
+  "top5km": {
+    "windowDays": 7,               // days back for the ranking
+    "count": 5,                    // visible rows in the card
+    "kmField": "gps",              // kilometers measured by GPS
+    "source": "trips-v3",          // source: trips-v3, ratings, reports
+    "activeVehicleCap": 300,       // cap of recently moving vehicles
+    "tripsMaxVehicles": 30,        // vehicles whose trips are queried
+    "tripsBatchSize": 4            // simultaneous queries
+  },
+  "ecoScore": {
+    "windowDays": 7,               // days for Safety Score and idling
+    "idleThresholdMin": 120        // idling minutes that trigger the alert
+  },
+  "violations": {
+    "windowDays": 7                // days for the violations trend
+  },
+  "borderAlert": {
+    "eventType": null,             // notification; null = in development
+    "windowDays": 7,               // days considered
+    "since": ""                    // ISO date-time to count from
+  },
+  "hotspots": {
+    "windowDays": 30,              // days of outage history
+    "minGapSeconds": 120,          // long outage: above this (seconds)
+    "shortGapMinSeconds": 10,      // "brief dropout": between these
+    "shortGapMaxSeconds": 90,      //   two values, in seconds
+    "excludeBranches": true,       // drops outages inside branches/bases
+    "excludeGroupPatterns": ["sucursal", "base"], // texts of those groups
+    "excludeGroupNames": []        // exact names of groups to exclude
+  },
+  "fuel": {
+    "enabled": true,               // turns the fuel alerts on
+    "windowDays": 3,               // days analyzed
+    "loadMinPct": 20,              // level rise (%) that counts as a load
+    "drainMinPct": 50,             // a drain lowers it by this % or more
+    "stationPattern": "copec",     // text that identifies stations
+    "nativeOnly": true,            // only loads and drains detected by PILOT
+    // own detection (level reference only) and fixed sensor vehicles:
+    "windowMin": 30, "maxGapMin": 360, "stopSpeedKmh": 3,
+    "minSamples": 5, "capacityHint": 0, "agentIds": [],
+    // technical settings, to avoid overloading PILOT, and diagnostics:
+    "batchSize": 3, "pauseMs": 1000, "maxVehicles": 60, "cacheMinutes": 30,
+    "catalogBatch": 20, "catalogCacheHours": 24, "debugRawMax": 3
+  },
+  "lop": {
+    "fuel": {                      // Fuel Efficiency
+      "windowDays": 30,            // days analyzed
+      "minKm": 100,                // minimum distance to be included
+      "overconsumptionPct": 20,    // overconsumption: % above the median
+      "minCohort": 5,              // vehicles needed to use the folder
+      "rankCount": 8,              // visible rows
+      // technical settings of the query and the report:
+      "explode": 3, "distCol": null, "fuelCol": null
+    },
+    "driving": {                   // Driving
+      "rankCount": 8,              // visible rows
+      "minKm": 50                  // minimum distance to be included
+    },
+    "maintenance": {               // Mileage to Maintenance
+      "intervalKm": 10000,         // km between suggested services
+      "warnWithinKm": 1000,        // warn when this many km or fewer remain
+      "highOdometerKm": 100000,    // general inspection from here
+      "rankCount": 8               // visible rows
+    },
+    "tag": {                       // Top TAG Consumers
+      "enabled": false,            // off: the card reads "in development"
+      "windowDays": 30,            // days analyzed
+      "rankCount": 8,              // visible rows
+      "explode": 3                 // technical setting of the query
+    },
+    "branches": {
+      "rankCount": 12              // branches; the table, triple
+    },
+    "batch": {                     // loading of heavy reports
+      "batchSize": 60,             // vehicles per query
+      "batchPauseMs": 1500,        // pause between queries (ms)
+      "batchTimeoutMs": 45000,     // maximum time per query (ms)
+      "maxVehicles": 600,          // vehicle cap per widget
+      "cacheMinutes": 30,          // how long queried data stays valid
+      "startDelayMs": 5000         // wait after the initial load (ms)
+    }
+  },
+  "branches": {
+    "clientMap": []                // branches or bases per fleet
+  },
+  "privacy": {
+    "maskPlates": false            // true: replaces plates with an alias
+  },
+  "branding": {
+    "logoRotation": {
+      "enabled": true,             // alternates the account logo with others
+      "seconds": 6,                // seconds each logo is shown
+      "fadeMs": 800,               // fade duration (ms)
+      "sequence": ["client", "promatic", "pilot"] // rotation order
+    }
   }
 }</code></pre>
         <table>
             <tr><th>Section</th><th>Description</th></tr>
-            <tr><td><code>top5km</code></td><td>Time window, limits, and data source for the mileage ranking.</td></tr>
-            <tr><td><code>fleet</code></td><td>Which vehicles the dashboard considers and safety query cap.</td></tr>
-            <tr><td><code>clock</code></td><td>Time zone, language locale, and clock label.</td></tr>
+            <tr><td><code>ui</code></td><td>Initial view, hidden widgets and dashboard background.</td></tr>
+            <tr><td><code>fleet</code></td><td>Scope (the entire fleet) and safety cap on the vehicles queried.</td></tr>
+            <tr><td><code>clock</code></td><td>Time zone, locale and clock label.</td></tr>
+            <tr><td><code>top5km</code></td><td>Period, rows and source of the mileage ranking.</td></tr>
+            <tr><td><code>ecoScore</code></td><td>Safety Score period and excessive-idling threshold.</td></tr>
+            <tr><td><code>violations</code></td><td>Period of the driving violations trend.</td></tr>
+            <tr><td><code>borderAlert</code></td><td>Activation and period of the exit-from-national-territory alert.</td></tr>
+            <tr><td><code>hotspots</code></td><td>Period, durations and exclusions of the connection-loss map.</td></tr>
+            <tr><td><code>fuel</code></td><td>Fuel alerts: period, load and drain thresholds, and station recognition.</td></tr>
+            <tr><td><code>lop</code></td><td>LOP view widgets: fuel, driving, maintenance, TAG, branches and report loading.</td></tr>
+            <tr><td><code>branches</code></td><td>Branches or bases of each fleet (map, vehicles by branch, and place of loads and drains).</td></tr>
+            <tr><td><code>privacy</code></td><td>Masking plates with an alias.</td></tr>
+            <tr><td><code>branding</code></td><td>Rotation of the account logo (the account's own logo comes from the profile).</td></tr>
         </table>
         <p>
-            Changes to <code>config.json</code> take effect upon re-publishing the extension.
-            The structure is prepared so that an external service can dynamically deliver
-            the same configuration in the future.
+            <code>branches.clientMap</code> states, for each fleet, which geofence groups are its branches
+            or bases, for example <code>{ "nombreFlota": "Flota Norte", "groupNames": ["Sucursales"] }</code>:
+            <code>nombreFlota</code> is a piece of text from the name of the fleet's folder (or of a folder
+            that contains it) and <code>groupNames</code> are the exact names of the geofence groups. It is
+            empty in the public file: the account profile supplies it, just like the account's own logo.
+        </p>
+        <p>
+            Valid identifiers for <code>ui.hiddenWidgets</code>: <code>alertas_generales</code>,
+            <code>gps_signal</code>, <code>flota</code>, <code>eco_score</code>, <code>top5km</code>,
+            <code>violations</code>, <code>hotspots</code>, <code>fleet_map</code>, <code>lop_sucursales</code>,
+            <code>lop_conduccion</code>, <code>lop_combustible</code>, <code>lop_mantencion</code>,
+            <code>lop_tag</code> and <code>lop_rutas</code>. Hiding a widget does not stop its data from
+            loading, because other widgets may reuse it.
+        </p>
+        <p>
+            Changes to <code>config.json</code> take effect upon re-publishing the extension; those of the
+            account profile, without re-publishing. The <code>violations</code> and <code>lop</code> sections
+            are not in the file: the extension's built-in defaults apply, and they can be added to the file
+            or to the profile.
+        </p>
+
+        <h2>Read-only</h2>
+        <p>
+            The extension only queries data from PILOT; it never creates, modifies, or deletes information
+            on the platform. Each person's preferences (view and scale) are stored only in their own browser.
         </p>
 
         <h2>Installation</h2>
@@ -313,14 +778,14 @@
         </p>
 
         <h2>Status</h2>
-        <p>Version <strong>0.27.5</strong> — under active development, verified and running on a live PILOT instance.</p>
+        <p>Version <strong>0.27.6</strong> — under active development, verified and running on a live PILOT instance.</p>
 
         <footer>
             Extension Documentation · Dashboard Enhancer
             <br>
-            Version 0.27.5
+            Version 0.27.6
             <br>
-            <p>Version 2026-10-23-1955</p>
+            <p>Version 2026-10-26-1153</p>
         </footer>
     </section>
 

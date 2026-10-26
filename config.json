@@ -13,6 +13,9 @@
     "scope": "all",
     "maxVehicles": 1500
   },
+  "branding": {
+    "logoRotation": { "enabled": true, "seconds": 6, "fadeMs": 800, "sequence": ["client", "promatic", "pilot"] }
+  },
   "ui": {
     "preset": "rac",
     "hiddenWidgets": ["violations"],

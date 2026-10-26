@@ -816,6 +816,40 @@
     object-fit: contain;
 }
 
+/* Logo que alterna entre el de la cuenta, el de Promatic y el de PILOT
+   (branding.logoRotation, ver renderLogo): las imágenes van superpuestas en un
+   cuadro de alto fijo, para que la tarjeta no cambie de tamaño, y se cruzan
+   con un fundido de duración --pde-logo-fade. Cada logo se ajusta al cuadro
+   sin deformarse (object-fit). */
+.promatic_dashboard_enhancer-logo-stage {
+    position: relative;
+    width: 90%;
+    max-width: 230px;
+    height: 64px;
+}
+
+.promatic_dashboard_enhancer-logo .promatic_dashboard_enhancer-logo-stage .promatic_dashboard_enhancer-logo-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    object-fit: contain;
+    opacity: 0;
+    transition: opacity var(--pde-logo-fade, 0.8s) ease-in-out;
+}
+
+.promatic_dashboard_enhancer-logo .promatic_dashboard_enhancer-logo-stage .promatic_dashboard_enhancer-logo-img.is-active {
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .promatic_dashboard_enhancer-logo .promatic_dashboard_enhancer-logo-stage .promatic_dashboard_enhancer-logo-img {
+        transition: none;
+    }
+}
+
 /* Versión visible bajo el logo (moduleBuild + SemVer) — evita tener que
    ir a comparar contra el repo público / borrar caché a ciegas para saber
    si el navegador ya cargó el último build. Pedido del usuario, 4 sep. */
