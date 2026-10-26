@@ -19,6 +19,7 @@
   "ui": {
     "preset": "rac",
     "hiddenWidgets": ["violations"],
+    "hiddenAlerts": ["manipulacion", "fuerazona"],
     "background": "auto",
     "backgroundDenseFrom": 9
   },

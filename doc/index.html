@@ -207,8 +207,8 @@
                     <li><strong>Requiere mantención</strong> — vehículos con una inspección o un servicio vencido o pendiente en el módulo Técnico-Operacional de PILOT.</li>
                     <li><strong>Ralentí excesivo</strong> — vehículos con más de 120 minutos de ralentí acumulado en los últimos 7 días (umbral y período configurables), según el informe Fleet ECO de PILOT.</li>
                     <li><strong>Inconsistencias en Carga</strong> y <strong>Drenaje de Combustible</strong> — cargas y bajas bruscas de nivel que PILOT detecta con el sensor de combustible. Ver la sección "Combustible: cargas y drenajes".</li>
-                    <li><strong>GPS Manipulado</strong> — en desarrollo: aún no hay una fuente de datos confirmada.</li>
-                    <li><strong>Salida de territorio nacional</strong> — vehículos detenidos en una geocerca de paso fronterizo, según una notificación creada en PILOT. Se activa por cuenta (el perfil indica cuál es esa notificación); mientras no esté configurada, la tarjeta figura "en desarrollo". Cuenta vehículos distintos de los últimos 7 días.</li>
+                    <li><strong>GPS Manipulado</strong> — oculta por ahora (<code>ui.hiddenAlerts</code>): aún no hay una fuente de datos confirmada.</li>
+                    <li><strong>Salida de territorio nacional</strong> — oculta por ahora (<code>ui.hiddenAlerts</code>). Muestra vehículos detenidos en una geocerca de paso fronterizo, según una notificación creada en PILOT. Se activa por cuenta (el perfil indica cuál es esa notificación); mientras no esté configurada, la tarjeta figura "en desarrollo". Cuenta vehículos distintos de los últimos 7 días.</li>
                 </ul>
             </li>
             <li><strong>Vehículos Sin Señal GPS</strong> — vehículos sin conexión con el servidor, agrupados por el tiempo transcurrido desde su última señal: menos de 24 h, entre 24 y 48 h y más de 48 h (el tramo más crítico se destaca), más "Sin dato" para los que no tienen registro de última conexión. Cada tramo abre el detalle con las patentes, su última posición y un mapa; si no hay desconexiones se muestra "Todo OK". Sale del árbol de vehículos (Online) de PILOT y se actualiza en vivo.</li>
@@ -290,6 +290,7 @@
   "ui": {
     "preset": "rac",               // vista inicial: "rac" o "lop"
     "hiddenWidgets": ["violations"], // widgets ocultos (ids más abajo)
+    "hiddenAlerts": ["manipulacion", "fuerazona"], // alertas ocultas (ids más abajo)
     "background": "auto",          // fondo (ver "Apariencia")
     "backgroundDenseFrom": 9       // con estos widgets o más: retícula
   },
@@ -407,7 +408,7 @@
             <tr><td><code>top5km</code></td><td>Período, filas y fuente del ranking de kilometraje.</td></tr>
             <tr><td><code>ecoScore</code></td><td>Período del Safety Score y umbral del ralentí excesivo.</td></tr>
             <tr><td><code>violations</code></td><td>Período de la tendencia de infracciones de manejo.</td></tr>
-            <tr><td><code>borderAlert</code></td><td>Activación y período de la alerta de salida de territorio nacional.</td></tr>
+            <tr><td><code>borderAlert</code></td><td>Activación y período de la alerta de salida de territorio nacional. Solo se consulta si no está oculta (<code>ui.hiddenAlerts</code>).</td></tr>
             <tr><td><code>hotspots</code></td><td>Período, duraciones y exclusiones del mapa de pérdida de conexión.</td></tr>
             <tr><td><code>fuel</code></td><td>Alertas de combustible: período, umbrales de carga y drenaje y reconocimiento de estaciones.</td></tr>
             <tr><td><code>lop</code></td><td>Widgets de la vista LOP: combustible, conducción, mantención, TAG, sucursales y carga de reportes.</td></tr>
@@ -431,6 +432,12 @@
             datos, porque otros widgets pueden reutilizarlos.
         </p>
         <p>
+            Identificadores válidos para <code>ui.hiddenAlerts</code> (categorías de Alertas Generales):
+            <code>manipulacion</code> (GPS Manipulado) y <code>fuerazona</code> (Salida de territorio
+            nacional). A diferencia de los widgets, ocultar <code>fuerazona</code> también evita su
+            consulta de eventos.
+        </p>
+        <p>
             Los cambios en <code>config.json</code> se aplican al volver a publicar la extensión; los del
             perfil de la cuenta, sin republicar. Las secciones <code>violations</code> y <code>lop</code> no
             vienen en el archivo: se aplican los valores por defecto de la extensión, y pueden agregarse
@@ -452,14 +459,14 @@
         </p>
 
         <h2>Estado</h2>
-        <p>Versión <strong>0.27.7</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
+        <p>Versión <strong>0.27.8</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
 
         <footer>
             Documentación de la extensión · Dashboard Enhancer
             <br>
-            Versión 0.27.7
+            Versión 0.27.8
             <br>
-            <p>Version 2026-10-26-1328</p>
+            <p>Version 2026-10-26-1505</p>
         </footer>
     </section>
 
@@ -536,8 +543,8 @@
                     <li><strong>Maintenance required</strong> (<em>Requiere mantención</em>) — vehicles with an overdue or pending inspection or service in PILOT's Technical-Operational module.</li>
                     <li><strong>Excessive idling</strong> (<em>Ralentí excesivo</em>) — vehicles with more than 120 minutes of accumulated idling in the last 7 days (threshold and period are configurable), according to PILOT's Fleet ECO report.</li>
                     <li><strong>Fuel load inconsistencies</strong> (<em>Inconsistencias en Carga</em>) and <strong>Fuel drain</strong> (<em>Drenaje de Combustible</em>) — refuelings and sharp level drops that PILOT detects with the fuel sensor. See the section "Fuel: loads and drains".</li>
-                    <li><strong>Tampered GPS</strong> (<em>GPS Manipulado</em>) — in development: there is no confirmed data source yet.</li>
-                    <li><strong>Exit from national territory</strong> (<em>Salida de territorio nacional</em>) — vehicles stopped inside a border-crossing geofence, based on a notification created in PILOT. It is enabled per account (the profile says which notification it is); until it is configured, the card reads "in development". It counts distinct vehicles over the last 7 days.</li>
+                    <li><strong>Tampered GPS</strong> (<em>GPS Manipulado</em>) — hidden for now (<code>ui.hiddenAlerts</code>): there is no confirmed data source yet.</li>
+                    <li><strong>Exit from national territory</strong> (<em>Salida de territorio nacional</em>) — hidden for now (<code>ui.hiddenAlerts</code>). It shows vehicles stopped inside a border-crossing geofence, based on a notification created in PILOT. It is enabled per account (the profile says which notification it is); until it is configured, the card reads "in development". It counts distinct vehicles over the last 7 days.</li>
                 </ul>
             </li>
             <li><strong>Vehicles with No GPS Signal</strong> (<em>Vehículos Sin Señal GPS</em>) — vehicles disconnected from the server, grouped by the time elapsed since their last signal: under 24 h, between 24 and 48 h and over 48 h (the most critical group is highlighted), plus "Sin dato" (no data) for those with no last-connection record. Each group opens a detail with the plates, their last position and a map; if nothing is disconnected it shows "Todo OK" (all OK). It comes from PILOT's vehicle tree (Online) and updates live.</li>
@@ -617,6 +624,7 @@
   "ui": {
     "preset": "rac",               // initial view: "rac" or "lop"
     "hiddenWidgets": ["violations"], // hidden widgets (ids below)
+    "hiddenAlerts": ["manipulacion", "fuerazona"], // hidden alerts (ids below)
     "background": "auto",          // background (see "Appearance")
     "backgroundDenseFrom": 9       // from this many widgets: grid
   },
@@ -734,7 +742,7 @@
             <tr><td><code>top5km</code></td><td>Period, rows and source of the mileage ranking.</td></tr>
             <tr><td><code>ecoScore</code></td><td>Safety Score period and excessive-idling threshold.</td></tr>
             <tr><td><code>violations</code></td><td>Period of the driving violations trend.</td></tr>
-            <tr><td><code>borderAlert</code></td><td>Activation and period of the exit-from-national-territory alert.</td></tr>
+            <tr><td><code>borderAlert</code></td><td>Activation and period of the exit-from-national-territory alert. It is only queried when it is not hidden (<code>ui.hiddenAlerts</code>).</td></tr>
             <tr><td><code>hotspots</code></td><td>Period, durations and exclusions of the connection-loss map.</td></tr>
             <tr><td><code>fuel</code></td><td>Fuel alerts: period, load and drain thresholds, and station recognition.</td></tr>
             <tr><td><code>lop</code></td><td>LOP view widgets: fuel, driving, maintenance, TAG, branches and report loading.</td></tr>
@@ -758,6 +766,11 @@
             loading, because other widgets may reuse it.
         </p>
         <p>
+            Valid identifiers for <code>ui.hiddenAlerts</code> (General Alerts categories):
+            <code>manipulacion</code> (Tampered GPS) and <code>fuerazona</code> (Exit from national
+            territory). Unlike widgets, hiding <code>fuerazona</code> also skips its events query.
+        </p>
+        <p>
             Changes to <code>config.json</code> take effect upon re-publishing the extension; those of the
             account profile, without re-publishing. The <code>violations</code> and <code>lop</code> sections
             are not in the file: the extension's built-in defaults apply, and they can be added to the file
@@ -778,14 +791,14 @@
         </p>
 
         <h2>Status</h2>
-        <p>Version <strong>0.27.7</strong> — under active development, verified and running on a live PILOT instance.</p>
+        <p>Version <strong>0.27.8</strong> — under active development, verified and running on a live PILOT instance.</p>
 
         <footer>
             Extension Documentation · Dashboard Enhancer
             <br>
-            Version 0.27.7
+            Version 0.27.8
             <br>
-            <p>Version 2026-10-26-1328</p>
+            <p>Version 2026-10-26-1505</p>
         </footer>
     </section>
 

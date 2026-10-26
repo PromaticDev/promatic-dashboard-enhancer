@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.7',
-    moduleBuild: '2026-10-26-1328',
+    version: '0.27.8',
+    moduleBuild: '2026-10-26-1505',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -63,12 +63,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // hiddenWidgets: ids de tarjetas que no se muestran (se ocultan, no
         // se dejan de cargar: el widget Conducción de LOP reutiliza los datos
         // del reporte de infracciones). El perfil remoto puede vaciarla.
+        // hiddenAlerts: categorías de Alertas Generales que no se muestran:
+        // 'manipulacion' (GPS Manipulado) y 'fuerazona' (Salida de territorio
+        // nacional), el sufijo de la clase pde_alert-<id> de cada tarjeta. A
+        // diferencia de hiddenWidgets, ocultar 'fuerazona' también evita su
+        // consulta de eventos. Mientras no tengan una fuente confirmada se
+        // ocultan en todas las cuentas; el perfil remoto puede vaciarla para
+        // probarlas en una cuenta.
         // background: fondo del panel detrás de las tarjetas (ver
         // applyPanelBackground). 'auto' elige la trama según cuántos widgets se
         // ven: con backgroundDenseFrom o más, la liviana (retícula); con
         // menos, la más visible (curvas de nivel). También 'reticula', 'topo',
         // 'color' (solo el color base) y 'off' (no se toca el panel).
-        ui: { preset: 'rac', hiddenWidgets: ['violations'], background: 'auto', backgroundDenseFrom: 9 },
+        ui: { preset: 'rac', hiddenWidgets: ['violations'], hiddenAlerts: ['manipulacion', 'fuerazona'], background: 'auto', backgroundDenseFrom: 9 },
         // Logo de la cuenta: con logo propio (config remota, branding.logoSrc)
         // alterna con el de Promatic y el de PILOT (ver renderLogo).
         // sequence: qué logos y en qué orden ('client', 'promatic', 'pilot');
@@ -1039,15 +1046,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 return '<tr><td>' + lbl + '</td><td class="n">' +
                     (typeof v === 'number' ? v : l('N/D')) + '</td></tr>';
             };
+            // Categorías visibles que siguen sin fuente conectada: se avisan
+            // en una nota; las ocultas por ui.hiddenAlerts no se mencionan.
+            var gpsPending = !this._alertHidden('manipulacion');
+            var borderPending = !this._alertHidden('fuerazona') && !this._alertBorderEnabled;
+            var pendingNote = gpsPending && borderPending ? l('GPS manipulado y territorio nacional: en desarrollo, aún sin fuente conectada.')
+                : (gpsPending ? l('GPS manipulado: en desarrollo, aún sin fuente conectada.')
+                    : (borderPending ? l('Territorio nacional: en desarrollo, aún sin fuente conectada.') : ''));
             body = '<table><tr><th>' + l('Categoría') + '</th><th>' + l('Incidencias') + '</th></tr>' +
                 mk(l('Accidentes (hoy y ayer)'), this._alertAccidentes) +
                 mk(l('Requiere mantención'), this._alertMantencion) +
                 mk(l('Ralentí excesivo'), this._alertRalenti) +
                 this._fuelRowsHtml() +
                 (this._alertBorderEnabled ? mk(l('Salida de territorio nacional'), this._alertBorder) : '') +
-                '</table><p class="sub">' + (this._alertBorderEnabled
-                    ? l('GPS manipulado: en desarrollo, aún sin fuente conectada.')
-                    : l('GPS manipulado y territorio nacional: en desarrollo, aún sin fuente conectada.')) + ' ' +
+                '</table><p class="sub">' + (pendingNote ? pendingNote + ' ' : '') +
                 l('Combustible: posibles cargas y drenajes calculados sobre el sensor; "N/D" indica vehículos sin sensor.') + '</p>';
         } else if (which === 'top5km') {
             title = l('Vehículos con Exceso de Kilometraje');
@@ -4096,7 +4108,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // esta cuenta: la tarjeta queda en "EN DESARROLLO" (undefined).
             var border = Promise.resolve(undefined);
             var bcfg = (me.config && me.config.borderAlert) || me.DEFAULT_CONFIG.borderAlert || {};
-            me._alertBorderEnabled = !!bcfg.eventType;
+            me._alertBorderEnabled = !!bcfg.eventType && !me._alertHidden('fuerazona');
             me._alertBorderIds = [];
             me._alertBorderRows = [];
             if (me._alertBorderEnabled) {
@@ -5882,6 +5894,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             points, { notice: notice });
     },
 
+    /**
+     * Si una categoría de Alertas Generales se oculta por config
+     * (ui.hiddenAlerts). Vale para su tarjeta, su consulta y su mención en el
+     * reporte exportado.
+     * @param {String} id 'manipulacion' | 'fuerazona'.
+     * @return {Boolean}
+     */
+    _alertHidden: function (id) {
+        var ui = (this.config && this.config.ui) || this.DEFAULT_CONFIG.ui || {};
+        return Array.isArray(ui.hiddenAlerts) && ui.hiddenAlerts.indexOf(id) !== -1;
+    },
+
     renderAlertasGenerales: function () {
         var accidentes = this._alertAccidentes;
         var mantencion = this._alertMantencion;
@@ -6045,18 +6069,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 fuelCard('drenaje', 'var(--g6)', l('Drenaje de Combustible'),
                     this._fuelCfg().nativeOnly ? l('Drenajes detectados por PILOT: baja brusca de nivel con el vehículo detenido')
                         : l('Posibles drenajes: baja brusca de nivel con el vehículo detenido, calculada sobre el sensor'), 'pde_alert-drenaje'),
-                card('var(--g7)', l('GPS Manipulado'), null, svgGpsManual,
+                // Las dos últimas se omiten si ui.hiddenAlerts las oculta (el
+                // filter(Boolean) de abajo descarta los null).
+                this._alertHidden('manipulacion') ? null : card('var(--g7)', l('GPS Manipulado'), null, svgGpsManual,
                     l('Desconexión intencional del equipo — en desarrollo: aún no hay una fuente de datos confirmada'), true, 'pde_alert-manipulacion'),
                 // Conectada solo en cuentas con borderAlert.eventType; es
                 // grave: un vehículo detenido en un paso fronterizo sin
                 // permiso es un posible vehículo perdido.
-                this._alertBorderEnabled
+                this._alertHidden('fuerazona') ? null : this._alertBorderEnabled
                     ? card('var(--g6)', l('Salida de territorio nacional'), wait(this._alertBorder), svgTerritorio,
                         l('Vehículos detenidos en una geocerca de paso fronterizo (notificación de PILOT)'), false, 'pde_alert-fuerazona',
                         this._alertBorderIds || [], null, true)
                     : card('var(--g6)', l('Salida de territorio nacional'), null, svgTerritorio,
                         l('Vehículo cruza la frontera — pendiente de conexión'), true, 'pde_alert-fuerazona')
-            ].map(addMore)
+            ].filter(Boolean).map(addMore)
         }));
     },
 

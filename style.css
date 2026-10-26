@@ -1071,7 +1071,7 @@
 }
 
 /* Alertas Generales vive en la columna izquierda (sin alto fijo) — la card
-   debe crecer con sus 7 tarjetas, no scrollear. Se anula el overflow-y:auto
+   debe crecer con todas sus tarjetas, no scrollear. Se anula el overflow-y:auto
    del body genérico y se deja que el contenido defina el alto. */
 #promatic_dashboard_enhancer-card-body-alertas_generales {
     overflow-y: visible;
