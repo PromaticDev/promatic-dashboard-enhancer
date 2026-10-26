@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.6',
-    moduleBuild: '2026-10-26-1153',
+    version: '0.27.7',
+    moduleBuild: '2026-10-26-1328',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -463,7 +463,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                                 { tag: 'option', value: 'flota', html: l('Estado de Flota') },
                                 { tag: 'option', value: 'top5km', html: l('Exceso de Kilometraje') },
                                 { tag: 'option', value: 'eco', html: l('Safety Score (ECO)') },
-                                { tag: 'option', value: 'gps', html: l('Sin Señal GPS') },
+                                { tag: 'option', value: 'gps', html: l('Vehículos Sin Señal GPS') },
                                 { tag: 'option', value: 'alertas', html: l('Alertas Generales') }
                             ]
                         },
@@ -582,7 +582,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     _widgetReportName: function (which) {
         return ({
             flota: l('Estado de Flota'), top5km: l('Exceso de Kilometraje'),
-            eco: l('Safety Score (ECO)'), gps: l('Sin Señal GPS'),
+            eco: l('Safety Score (ECO)'), gps: l('Vehículos Sin Señal GPS'),
             alertas: l('Alertas Generales')
         })[which] || this._lopExportTitle(which) || l('Reporte');
     },
@@ -1026,7 +1026,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 '<div class="box bad"><div class="v">' + (f.offline || 0) + '</div><div class="l">' + l('Sin conexión') + '</div></div>' +
                 '</div>';
         } else if (which === 'gps') {
-            title = l('Sin Señal GPS');
+            title = l('Vehículos Sin Señal GPS');
             var g = this._lastGpsBuckets || {};
             body = '<table><tr><th>' + l('Tiempo sin señal') + '</th><th>' + l('Vehículos') + '</th></tr>' +
                 '<tr><td>' + l('Menos de 24h') + '</td><td class="n">' + (g.b24 || 0) + '</td></tr>' +
@@ -1186,6 +1186,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     _openNativeReportFromModal: function (reportType, agentId, ts) {
         var me = this;
         if (!reportType || !agentId) { return; }
+        // Defensa: si la cuenta no tiene el informe, no se cierra el modal ni se
+        // cambia de pestaña (el botón ya viene deshabilitado en ese caso).
+        if (this._reportTypeAvailable(reportType) === false) { return; }
         var start = isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date();
         start.setHours(0, 0, 0, 0);
         var stop = new Date(start.getTime());
@@ -1250,6 +1253,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var days = this.ACC_HISTORY_DAYS;
         var title = l('Detalle Alarma de Posibles Accidentes');
         var byId = this._onlineRecordsByAgent();
+        // Informe nativo "Crash detection". false solo si la cuenta no lo tiene
+        // en su lista de informes de PILOT: abrirlo dejaría al usuario en un
+        // panel Informes vacío, así que el botón se deshabilita y el resto del
+        // detalle (tabla, ubicación, mapa) se muestra igual. null (no se pudo
+        // consultar la lista) deja el botón habilitado, como antes.
+        var nativeType = 254;
+        var reportMissing = this._reportTypeAvailable(nativeType) === false;
 
         var rowHtml = function (r) {
             var rec = r.agentId != null ? byId[r.agentId] : null;
@@ -1275,10 +1285,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // aviso, con una ventana de fechas correcta) y sí abre los de
             // días anteriores. Por eso el botón se deshabilita para los de hoy.
             var notReady = r.ts != null && me._eventDayKey(r.ts) === me._eventDayKey(Math.floor(Date.now() / 1000));
+            var nativeOff = reportMissing
+                ? l('Informe no disponible: esta cuenta no tiene habilitado en PILOT el informe de detección de accidentes')
+                : (notReady ? l('Informe aún no disponible: PILOT lo publica con una demora de varias horas, a veces hasta el día siguiente') : '');
             var nativeCell = r.agentId != null
-                ? '<button type="button" class="promatic_dashboard_enhancer-native-btn" data-native-report="254" data-native-agent="' +
+                ? '<button type="button" class="promatic_dashboard_enhancer-native-btn" data-native-report="' + nativeType + '" data-native-agent="' +
                   r.agentId + '" data-native-ts="' + (r.ts != null ? r.ts : '') + '"' +
-                  (notReady ? ' disabled title="' + esc(l('Informe aún no disponible: PILOT lo publica con una demora de varias horas, a veces hasta el día siguiente')) + '"' : '') + '>' +
+                  (nativeOff ? ' disabled title="' + esc(nativeOff) + '"' : '') + '>' +
                   l('Abrir informe en PILOT') + '</button>'
                 : l('N/D');
             return '<tr><td>' + esc(me._fmtEventDateTime(r.ts)) + '</td><td>' +
@@ -1316,6 +1329,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // trazabilidad, útil para verificar y fácil de quitar del modal.
         var desc = '<p class="desc">' + l('Alarmas de eventos de posible colisión detectadas por el acelerómetro. Cada fila es una alerta generada de un potencial accidente real, sin agregar ni incluir el ruido de detección repetida. La columna Calibrado indica si el sensor completó su calibración al momento de la detección. "Abrir informe en PILOT" lleva al informe nativo Crash detection de ese vehículo y día. Total: ' + rows.length + '.') + '</p>' +
             '<p class="desc"><b>' + l('PILOT publica el informe de cada accidente con una demora de varias horas, a veces hasta el día siguiente: para los accidentes de hoy el botón "Abrir informe en PILOT" aparece deshabilitado.') + '</b></p>' +
+            (reportMissing
+                ? '<p class="desc"><b>' + l('Esta cuenta no tiene habilitado en PILOT el informe de detección de accidentes: el botón "Abrir informe en PILOT" queda deshabilitado, pero el detalle de cada accidente se muestra igual.') + '</b></p>'
+                : '') +
             '<p class="desc">' + l('Fuente: events.php type=4911') + '</p>';
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>' + title +
@@ -1324,6 +1340,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '<div class="foot">' +
             l('Reporte generado por el Dashboard sobre datos de PILOT Telematics. El informe nativo equivalente es "Crash detection" en el panel Informes de PILOT.') +
             '</div>' + this._modalActionsScript() + '</body></html>';
+    },
+
+    /**
+     * Abre el detalle de accidentes. Antes deja cargada la lista de informes
+     * de la cuenta, porque de ella depende que el botón "Abrir informe en
+     * PILOT" quede habilitado (ver buildAccidentesReport). Si la lista ya
+     * estaba cargada, el modal se abre en el acto.
+     */
+    _openAccidentesModal: function () {
+        var me = this;
+        this._ensureReportTypes(function () {
+            var acc = me.accidentesMapSetup();
+            me.openReportModal(me.buildAccidentesReport(), l('Detalle Alarma de Posibles Accidentes'),
+                me._safe(function () { return me.buildAccidentesPdfDoc(); }), acc.points, acc.opts);
+        });
     },
 
     /**
@@ -1747,9 +1778,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     _openAlertDetail: function (kind) {
         var me = this;
         if (kind === 'accidentes') {
-            var acc = this.accidentesMapSetup();
-            this.openReportModal(this.buildAccidentesReport(), l('Detalle Alarma de Posibles Accidentes'),
-                this._safe(function () { return me.buildAccidentesPdfDoc(); }), acc.points, acc.opts);
+            this._openAccidentesModal();
         } else if (kind === 'ralenti') {
             var title = l('Detalle Ralentí Excesivo');
             var openIdle = function () {
@@ -2105,10 +2134,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // buildGpsSignalReport, buildGpsSignalPdfDoc y el click handler de los
     // chips (bindAlertReportLinks).
     _GPS_BUCKET_META: {
-        '24': { rowsKey: 'rows24', title: l('Sin señal — menos de 24h') },
-        '48': { rowsKey: 'rows48', title: l('Sin señal — entre 24 y 48h') },
-        'more': { rowsKey: 'rowsMore', title: l('Sin señal — más de 48h') },
-        'nodata': { rowsKey: 'rowsNoData', title: l('Sin señal — sin dato de última conexión') }
+        '24': { rowsKey: 'rows24', title: l('Vehículos Sin Señal GPS — menos de 24h') },
+        '48': { rowsKey: 'rows48', title: l('Vehículos Sin Señal GPS — entre 24 y 48h') },
+        'more': { rowsKey: 'rowsMore', title: l('Vehículos Sin Señal GPS — más de 48h') },
+        'nodata': { rowsKey: 'rowsNoData', title: l('Vehículos Sin Señal GPS — sin dato de última conexión') }
     },
 
     /**
@@ -2360,7 +2389,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             cls: 'promatic_dashboard_enhancer-area-mid',
             cn: [
                 this.cardMarkup('gps_signal', {
-                    title: l('Sin Señal GPS'),
+                    title: l('Vehículos Sin Señal GPS'),
                     hint: l('Vehículos sin conexión al servidor, agrupados por el tiempo desde su última señal recibida. Se actualiza en vivo con el árbol Online.'),
                     noFooter: true,
                     skeleton: 'chips'
@@ -2813,7 +2842,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      */
     VIEW_WIDGETS: [
         { id: 'alertas_generales', title: 'Alertas Generales', rac: 'on', lop: 'on' },
-        { id: 'gps_signal', title: 'Sin Señal GPS', rac: 'on', lop: 'on' },
+        { id: 'gps_signal', title: 'Vehículos Sin Señal GPS', rac: 'on', lop: 'on' },
         { id: 'flota', title: 'Estado de Flota', rac: 'on', lop: 'on' },
         { id: 'eco_score', title: 'Safety Score (ECO)', rac: 'on', lop: 'on' },
         { id: 'fleet_map', title: 'Ubicación Global de la Flota', rac: 'off', lop: 'on' },
@@ -10603,6 +10632,56 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return true;
     },
 
+    // Espera máxima por la carga de la lista de tipos de informe antes de
+    // seguir sin saber si un informe existe.
+    REPORT_TYPES_WAIT_MS: 3000,
+
+    /**
+     * Store del combo de tipos de informe del panel nativo Informes.
+     * @return {Ext.data.Store|null} null si el panel o el combo no existen todavía.
+     */
+    _reportTypeStore: function () {
+        var reports = window.skeleton && skeleton.navigation && skeleton.navigation.reports;
+        var combo = reports && reports.down && reports.down('#report_type');
+        return (combo && combo.getStore && combo.getStore()) || null;
+    },
+
+    /**
+     * Si un informe nativo está en la lista de la cuenta. Esa lista es lo que
+     * distingue una cuenta con el módulo habilitado de una sin él: los ids de
+     * módulo de la cuenta y las clases de Pilot.modules son iguales en todas.
+     * Los ids negativos de la lista son cabeceras de grupo y no se consultan.
+     * @param {Number} reportType id del tipo de informe (p. ej. 254).
+     * @return {Boolean|null} null si la lista aún no se puede consultar; quien
+     *     llama debe leerlo como "no se sabe", no como "no disponible".
+     */
+    _reportTypeAvailable: function (reportType) {
+        var store = this._reportTypeStore();
+        if (!store || !store.isLoaded() || store.getCount() === 0) { return null; }
+        return !!store.findRecord('id', Number(reportType), 0, false, false, true);
+    },
+
+    /**
+     * Deja cargada la lista de tipos de informe antes de consultarla con
+     * _reportTypeAvailable. Llama a `done` una sola vez y siempre: de
+     * inmediato si ya estaba cargada o no hay combo, y como máximo tras
+     * REPORT_TYPES_WAIT_MS si la carga no responde. Pedir la lista es lo que
+     * ya hace runNativeReport cuando abre un informe.
+     * @param {Function} done sin argumentos.
+     */
+    _ensureReportTypes: function (done) {
+        var store = this._reportTypeStore();
+        if (!store || store.isLoaded()) { done(); return; }
+        var finished = false;
+        var finish = function () { if (!finished) { finished = true; done(); } };
+        setTimeout(finish, this.REPORT_TYPES_WAIT_MS);
+        if (store.isLoading && store.isLoading()) {
+            store.on('load', finish, null, { single: true });
+        } else {
+            try { store.load({ callback: finish }); } catch (err) { finish(); }
+        }
+    },
+
     /**
      * Dispara un reporte nativo desde código (función entregada por Pilot,
      * adaptada a método). Requiere que el panel de Informes ya esté activo
@@ -10780,10 +10859,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             // se emite para esta card.
             if (a.hasCls && a.hasCls('promatic_dashboard_enhancer-stat-card--clickable') &&
                 a.dom && a.dom.querySelector('.pde_alert-accidentes')) {
-                var accMap = me.accidentesMapSetup();
-                me.openReportModal(me.buildAccidentesReport(), l('Detalle Alarma de Posibles Accidentes'),
-                    me._safe(function () { return me.buildAccidentesPdfDoc(); }),
-                    accMap.points, accMap.opts);
+                me._openAccidentesModal();
                 return;
             }
 

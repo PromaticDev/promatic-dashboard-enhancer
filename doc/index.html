@@ -188,7 +188,7 @@
             <li><strong>LOP</strong> — pensada para administradores de flota: suma la ubicación de la flota, los vehículos disponibles por sucursal, la conducción, el rendimiento de combustible y la mantención por kilometraje.</li>
             <li><strong>Vista inicial</strong> — la define el perfil de la cuenta o <code>config.json</code> (RAC por defecto). Cada persona puede cambiarla y su elección queda guardada solo en su navegador.</li>
             <li><strong>Alcance de la flota</strong> — el dashboard considera siempre la flota completa que PILOT muestra al usuario, sin depender de los vehículos marcados en el panel "Principal". Los reportes pesados tienen un tope de seguridad de vehículos consultados (<code>fleet.maxVehicles</code>, 1500 por defecto). Los mapas pueden acotarse a una carpeta con el menú de su tarjeta.</li>
-            <li><strong>Actualizar widgets</strong> — el botón del pie del panel vuelve a consultar todos los indicadores sin recargar la página y registra la hora de la última actualización. Estado de Flota y Sin Señal GPS se actualizan además en vivo con el árbol de vehículos de PILOT, y Alertas Generales se consulta sola cada 5 minutos; el resto de los widgets se actualiza con el botón.</li>
+            <li><strong>Actualizar widgets</strong> — el botón del pie del panel vuelve a consultar todos los indicadores sin recargar la página y registra la hora de la última actualización. Estado de Flota y Vehículos Sin Señal GPS se actualizan además en vivo con el árbol de vehículos de PILOT, y Alertas Generales se consulta sola cada 5 minutos; el resto de los widgets se actualiza con el botón.</li>
             <li><strong>Escala</strong> — los botones − y + del pie achican o agrandan todo el dashboard (de 80 % a 130 %, en pasos de 5 %), útil en pantallas grandes o monitores externos. Se guarda en el navegador.</li>
             <li><strong>Controles (solo administrador)</strong> — el botón "Controles" lo ve únicamente el administrador de la cuenta en PILOT. Abre una ventana para elegir la vista, revisar qué widgets tiene cada vista (activos, en desarrollo u ocultos) y consultar, en solo lectura, los parámetros vigentes (alcance, períodos de tiempo, umbral de ralentí y zona horaria). Los demás usuarios ven el dashboard completo, solo que sin ese botón. Nada de lo que hace un usuario sale de su navegador: la vista elegida y la escala no modifican la configuración de la cuenta ni la de otros usuarios.</li>
         </ul>
@@ -203,7 +203,7 @@
         <ul>
             <li><strong>Alertas Generales</strong> — una tarjeta con contador por categoría. Las categorías graves (accidentes, mantención y salida de territorio nacional) se destacan en naranja cuando hay incidencias, y las tarjetas de accidentes, ralentí, combustible y territorio nacional abren su detalle en una ventana, con tabla y mapa, que se puede imprimir o guardar en PDF. Mientras una categoría espera su respuesta muestra un indicador de carga; si PILOT no entrega el dato, muestra N/D.
                 <ul>
-                    <li><strong>Posible accidente</strong> — eventos de detección de accidente de PILOT de hoy y de ayer; el detalle conserva el historial de 7 días.</li>
+                    <li><strong>Posible accidente</strong> — eventos de detección de accidente de PILOT de hoy y de ayer; el detalle conserva el historial de 7 días. Cada fila tiene un botón "Abrir informe en PILOT" que queda deshabilitado para los accidentes de hoy (PILOT publica el informe con demora) y cuando la cuenta no tiene habilitado ese informe en PILOT; el resto del detalle (ubicación, mapa) se muestra igual.</li>
                     <li><strong>Requiere mantención</strong> — vehículos con una inspección o un servicio vencido o pendiente en el módulo Técnico-Operacional de PILOT.</li>
                     <li><strong>Ralentí excesivo</strong> — vehículos con más de 120 minutos de ralentí acumulado en los últimos 7 días (umbral y período configurables), según el informe Fleet ECO de PILOT.</li>
                     <li><strong>Inconsistencias en Carga</strong> y <strong>Drenaje de Combustible</strong> — cargas y bajas bruscas de nivel que PILOT detecta con el sensor de combustible. Ver la sección "Combustible: cargas y drenajes".</li>
@@ -211,7 +211,7 @@
                     <li><strong>Salida de territorio nacional</strong> — vehículos detenidos en una geocerca de paso fronterizo, según una notificación creada en PILOT. Se activa por cuenta (el perfil indica cuál es esa notificación); mientras no esté configurada, la tarjeta figura "en desarrollo". Cuenta vehículos distintos de los últimos 7 días.</li>
                 </ul>
             </li>
-            <li><strong>Sin Señal GPS</strong> — vehículos sin conexión con el servidor, agrupados por el tiempo transcurrido desde su última señal: menos de 24 h, entre 24 y 48 h y más de 48 h (el tramo más crítico se destaca), más "Sin dato" para los que no tienen registro de última conexión. Cada tramo abre el detalle con las patentes, su última posición y un mapa; si no hay desconexiones se muestra "Todo OK". Sale del árbol de vehículos (Online) de PILOT y se actualiza en vivo.</li>
+            <li><strong>Vehículos Sin Señal GPS</strong> — vehículos sin conexión con el servidor, agrupados por el tiempo transcurrido desde su última señal: menos de 24 h, entre 24 y 48 h y más de 48 h (el tramo más crítico se destaca), más "Sin dato" para los que no tienen registro de última conexión. Cada tramo abre el detalle con las patentes, su última posición y un mapa; si no hay desconexiones se muestra "Todo OK". Sale del árbol de vehículos (Online) de PILOT y se actualiza en vivo.</li>
             <li><strong>Estado de Flota</strong> — porcentaje de la flota activa (con conexión), en movimiento, estacionada y sin conexión, sobre el total de vehículos. Sale del árbol de vehículos (Online) de PILOT y se actualiza en vivo. Una barra en la parte superior del panel resume el total, los vehículos en línea y desconectados y la hora de la última actualización.</li>
             <li><strong>Safety Score (ECO)</strong> — puntaje de conducción segura de 0 a 100 que PILOT calcula en su informe Fleet ECO a partir de las frenadas y aceleraciones bruscas, el exceso de velocidad y el ralentí excesivo de cada vehículo. Muestra el puntaje global de la flota y un ranking de cinco vehículos (los dos mejores, el del medio y los dos peores), cada uno con su puntaje del período anterior. Verde desde 75, naranja de 45 a 74 y rojo bajo 45. Período por defecto: 7 días. En la vista RAC se puede acotar a una carpeta con el menú del mapa de Hotspots.</li>
             <li><strong>Hora Oficial</strong> — reloj con la hora de la zona horaria configurada (por defecto, America/Santiago). Se calcula en el navegador, sin consultar PILOT.</li>
@@ -258,7 +258,7 @@
 
         <h2>Exportar reportes</h2>
         <ul>
-            <li><strong>Exportar Reporte</strong> — se elige un widget (Estado de Flota, Exceso de Kilometraje, Safety Score, Sin Señal GPS o Alertas Generales; en la vista LOP también Vehículos por Sucursal, Conducción, Rendimiento de Combustible, Kilometraje para Mantención y Consumo de TAG) y se pulsa "Exportar". El reporte se abre en una ventana sobre el panel, con el período y una descripción de lo que mide, y se puede descargar en PDF, imprimir o cerrar. Se arma con los datos que el widget ya cargó: no hace consultas nuevas.</li>
+            <li><strong>Exportar Reporte</strong> — se elige un widget (Estado de Flota, Exceso de Kilometraje, Safety Score, Vehículos Sin Señal GPS o Alertas Generales; en la vista LOP también Vehículos por Sucursal, Conducción, Rendimiento de Combustible, Kilometraje para Mantención y Consumo de TAG) y se pulsa "Exportar". El reporte se abre en una ventana sobre el panel, con el período y una descripción de lo que mide, y se puede descargar en PDF, imprimir o cerrar. Se arma con los datos que el widget ya cargó: no hace consultas nuevas.</li>
             <li><strong>Golden Report</strong> — el botón "Generar" arma el documento "Golden Report — Resumen de Flota", para pantalla y PDF, con el período de cada widget. Incluye: una fotografía de la flota (vehículos, en movimiento, sin conexión y Safety Score promedio); los vehículos sin señal GPS por tramo, con su última señal y posición y un mapa; las Alertas Generales por categoría, con el valor de ayer y la variación donde existe ese dato (accidentes); el ranking de kilometraje; el Safety Score con el reparto de vehículos por banda y los 10 de menor puntaje; las secciones de la vista LOP (sucursales, conducción, combustible y mantención) cuando sus datos están cargados; y una guía para ver el detalle en los paneles de PILOT (kilometraje, Fleet ECO y mensajes y eventos).</li>
         </ul>
 
@@ -452,14 +452,14 @@
         </p>
 
         <h2>Estado</h2>
-        <p>Versión <strong>0.27.6</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
+        <p>Versión <strong>0.27.7</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
 
         <footer>
             Documentación de la extensión · Dashboard Enhancer
             <br>
-            Versión 0.27.6
+            Versión 0.27.7
             <br>
-            <p>Version 2026-10-26-1153</p>
+            <p>Version 2026-10-26-1328</p>
         </footer>
     </section>
 
@@ -517,7 +517,7 @@
             <li><strong>LOP</strong> — designed for fleet administrators: adds fleet location, vehicles available by branch, driving, fuel efficiency and mileage-based maintenance.</li>
             <li><strong>Initial view</strong> — set by the account profile or by <code>config.json</code> (RAC by default). Each person can change it, and the choice is stored only in their own browser.</li>
             <li><strong>Fleet scope</strong> — the dashboard always considers the entire fleet that PILOT shows the user, regardless of which vehicles are ticked in the "Main" panel. Heavy reports have a safety cap on the number of vehicles queried (<code>fleet.maxVehicles</code>, 1500 by default). Maps can be narrowed to one folder with the menu on their card.</li>
-            <li><strong>Refresh widgets</strong> — the button at the bottom of the dashboard ("Actualizar widgets") re-queries every indicator without reloading the page and stamps the time of the last update. Fleet Status and No GPS Signal also follow PILOT's live vehicle tree, and General Alerts re-queries itself every 5 minutes; the other widgets update with the button.</li>
+            <li><strong>Refresh widgets</strong> — the button at the bottom of the dashboard ("Actualizar widgets") re-queries every indicator without reloading the page and stamps the time of the last update. Fleet Status and Vehicles with No GPS Signal also follow PILOT's live vehicle tree, and General Alerts re-queries itself every 5 minutes; the other widgets update with the button.</li>
             <li><strong>Scale</strong> — the − and + buttons at the bottom shrink or enlarge the whole dashboard (80% to 130%, in 5% steps), which is handy on large screens or external monitors. It is saved in the browser.</li>
             <li><strong>Controls (administrator only)</strong> — the "Controles" button is visible only to the account's PILOT administrator. It opens a window to choose the view, review which widgets each view has (active, in development or hidden) and consult, read-only, the current parameters (scope, time periods, idle threshold and time zone). Other users see the full dashboard, only without that button. Nothing a user does leaves their browser: the chosen view and scale do not change the configuration of the account or of other users.</li>
         </ul>
@@ -532,7 +532,7 @@
         <ul>
             <li><strong>General Alerts</strong> (<em>Alertas Generales</em>) — one card with a counter per category. Serious categories (accidents, maintenance and exits from the national territory) are highlighted in orange when there are incidents, and the accident, idling, fuel and national-territory cards open their detail in a window, with a table and a map, which can be printed or saved as a PDF. While a category waits for its answer it shows a loading indicator; if PILOT does not deliver the data, it shows N/D (not available).
                 <ul>
-                    <li><strong>Possible accident</strong> (<em>Posible accidente</em>) — PILOT accident-detection events from today and yesterday; the detail keeps a 7-day history.</li>
+                    <li><strong>Possible accident</strong> (<em>Posible accidente</em>) — PILOT accident-detection events from today and yesterday; the detail keeps a 7-day history. Each row has an "Abrir informe en PILOT" (open report in PILOT) button, which is disabled for today's accidents (PILOT publishes the report with a delay) and when the account does not have that report enabled in PILOT; the rest of the detail (location, map) is shown anyway.</li>
                     <li><strong>Maintenance required</strong> (<em>Requiere mantención</em>) — vehicles with an overdue or pending inspection or service in PILOT's Technical-Operational module.</li>
                     <li><strong>Excessive idling</strong> (<em>Ralentí excesivo</em>) — vehicles with more than 120 minutes of accumulated idling in the last 7 days (threshold and period are configurable), according to PILOT's Fleet ECO report.</li>
                     <li><strong>Fuel load inconsistencies</strong> (<em>Inconsistencias en Carga</em>) and <strong>Fuel drain</strong> (<em>Drenaje de Combustible</em>) — refuelings and sharp level drops that PILOT detects with the fuel sensor. See the section "Fuel: loads and drains".</li>
@@ -540,7 +540,7 @@
                     <li><strong>Exit from national territory</strong> (<em>Salida de territorio nacional</em>) — vehicles stopped inside a border-crossing geofence, based on a notification created in PILOT. It is enabled per account (the profile says which notification it is); until it is configured, the card reads "in development". It counts distinct vehicles over the last 7 days.</li>
                 </ul>
             </li>
-            <li><strong>No GPS Signal</strong> (<em>Sin Señal GPS</em>) — vehicles disconnected from the server, grouped by the time elapsed since their last signal: under 24 h, between 24 and 48 h and over 48 h (the most critical group is highlighted), plus "Sin dato" (no data) for those with no last-connection record. Each group opens a detail with the plates, their last position and a map; if nothing is disconnected it shows "Todo OK" (all OK). It comes from PILOT's vehicle tree (Online) and updates live.</li>
+            <li><strong>Vehicles with No GPS Signal</strong> (<em>Vehículos Sin Señal GPS</em>) — vehicles disconnected from the server, grouped by the time elapsed since their last signal: under 24 h, between 24 and 48 h and over 48 h (the most critical group is highlighted), plus "Sin dato" (no data) for those with no last-connection record. Each group opens a detail with the plates, their last position and a map; if nothing is disconnected it shows "Todo OK" (all OK). It comes from PILOT's vehicle tree (Online) and updates live.</li>
             <li><strong>Fleet Status</strong> (<em>Estado de Flota</em>) — percentage of the fleet that is active (connected), moving, parked and disconnected, over the total number of vehicles. It comes from PILOT's vehicle tree (Online) and updates live. A bar at the top of the dashboard summarizes the total, the vehicles online and disconnected, and the time of the last update.</li>
             <li><strong>Safety Score (ECO)</strong> — a safe-driving score from 0 to 100 that PILOT calculates in its Fleet ECO report from each vehicle's harsh braking and acceleration, speeding and excessive idling. It shows the fleet-wide score and a ranking of five vehicles (the two best, the middle one and the two worst), each with its score for the previous period. Green from 75, orange from 45 to 74 and red below 45. Default period: 7 days. In the RAC view it can be narrowed to one folder with the menu on the Hotspots map.</li>
             <li><strong>Official Time</strong> (<em>Hora Oficial</em>) — a clock showing the time in the configured time zone (America/Santiago by default). It is computed in the browser, without querying PILOT.</li>
@@ -586,7 +586,7 @@
 
         <h2>Exporting reports</h2>
         <ul>
-            <li><strong>Export report</strong> (<em>Exportar Reporte</em>) — pick a widget (Fleet Status, Excess Mileage Vehicles, Safety Score, No GPS Signal or General Alerts; in the LOP view also Vehicles by Branch, Driving, Fuel Efficiency, Mileage to Maintenance and TAG consumption) and press "Exportar". The report opens in a window over the dashboard, with the period and a description of what it measures, and can be downloaded as a PDF, printed or closed. It is built from the data the widget has already loaded: it makes no new queries.</li>
+            <li><strong>Export report</strong> (<em>Exportar Reporte</em>) — pick a widget (Fleet Status, Excess Mileage Vehicles, Safety Score, Vehicles with No GPS Signal or General Alerts; in the LOP view also Vehicles by Branch, Driving, Fuel Efficiency, Mileage to Maintenance and TAG consumption) and press "Exportar". The report opens in a window over the dashboard, with the period and a description of what it measures, and can be downloaded as a PDF, printed or closed. It is built from the data the widget has already loaded: it makes no new queries.</li>
             <li><strong>Golden Report</strong> — the "Generar" button builds the document "Golden Report — Resumen de Flota" (Fleet Summary), for screen and PDF, using each widget's period. It includes: a snapshot of the fleet (vehicles, moving, disconnected and average Safety Score); vehicles without GPS signal by group, with their last signal and position and a map; General Alerts by category, with yesterday's value and the change where that data exists (accidents); the mileage ranking; the Safety Score with the split of vehicles by band and the 10 lowest scores; the LOP view sections (branches, driving, fuel and maintenance) when their data is loaded; and a guide to see the detail in PILOT's panels (mileage, Fleet ECO, and messages and events).</li>
         </ul>
 
@@ -778,14 +778,14 @@
         </p>
 
         <h2>Status</h2>
-        <p>Version <strong>0.27.6</strong> — under active development, verified and running on a live PILOT instance.</p>
+        <p>Version <strong>0.27.7</strong> — under active development, verified and running on a live PILOT instance.</p>
 
         <footer>
             Extension Documentation · Dashboard Enhancer
             <br>
-            Version 0.27.6
+            Version 0.27.7
             <br>
-            <p>Version 2026-10-26-1153</p>
+            <p>Version 2026-10-26-1328</p>
         </footer>
     </section>
 
