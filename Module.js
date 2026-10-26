@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.8',
-    moduleBuild: '2026-10-26-1505',
+    version: '0.27.9',
+    moduleBuild: '2026-10-26-1551',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -776,6 +776,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
+    // Resalte del punto elegido con "Ver en PILOT": su marcador pasa a un pin
+    // rojo y grande durante este tiempo, para distinguirlo de los puntos
+    // cercanos. 0 lo deja resaltado hasta que se elija otro punto.
+    REPORT_MODAL_FOCUS_MS: 4000,
+
+    // Pin rojo con la punta abajo. preserveAspectRatio="xMidYMax" mantiene la
+    // punta en la coordenada con cualquier tamaño de ícono que asigne el mapa.
+    _FOCUS_PIN: 'data:image/svg+xml;utf8,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="34" height="44" viewBox="0 0 34 44" preserveAspectRatio="xMidYMax meet">' +
+        '<path d="M17 43C17 43 2 27 2 16a15 15 0 0 1 30 0c0 11-15 27-15 27z" fill="#ef4444" stroke="#ffffff" stroke-width="2.5"/>' +
+        '<circle cx="17" cy="16" r="6" fill="#ffffff"/></svg>'),
+
     /**
      * Dibuja un marcador del mini-mapa del modal. Registra la coordenada
      * (5 decimales) para no duplicar un punto que ya está dibujado cuando se
@@ -786,14 +798,57 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (!map || !p || !isFinite(p.lat) || !isFinite(p.lon)) { return; }
         var key = Number(p.lat).toFixed(5) + ',' + Number(p.lon).toFixed(5);
         this._reportModalDrawn = this._reportModalDrawn || {};
+        this._reportModalLabels = this._reportModalLabels || {};
+        if (p.label) { this._reportModalLabels[key] = p.label; }
         if (this._reportModalDrawn[key]) { return; }
         this._reportModalDrawn[key] = true;
-        map.addMarker({
-            id: 'promatic_dashboard_enhancer_report_modal_marker_' + key,
-            lat: p.lat, lon: p.lon,
-            size: 'mini',
-            tooltip: p.label ? { msg: p.label, options: { direction: 'top' } } : undefined
-        });
+        this._putReportModalMarker(key, p.lat, p.lon, p.label, false);
+    },
+
+    /**
+     * Pone en el mini-mapa el marcador de un punto, normal o resaltado. Si ya
+     * hay uno con ese id lo reemplaza (MapContainer avisa por consola de los
+     * ids repetidos). El id sale de la coordenada (5 decimales).
+     */
+    _putReportModalMarker: function (key, lat, lon, label, highlighted) {
+        var map = this._reportModalMap;
+        if (!map) { return; }
+        var id = 'promatic_dashboard_enhancer_report_modal_marker_' + key;
+        var old = map.getMarker && map.getMarker(id);
+        if (old && map.removeMarker) { map.removeMarker(old); }
+        var opts = {
+            id: id, lat: lat, lon: lon,
+            size: highlighted ? 'big' : 'mini',
+            tooltip: label ? { msg: label, options: { direction: 'top' } } : undefined
+        };
+        if (highlighted) { opts.icon = this._FOCUS_PIN; }
+        map.addMarker(opts);
+    },
+
+    /** Resalta el marcador de un punto y devuelve el anterior a su aspecto normal. */
+    _highlightReportModalMarker: function (lat, lon, label) {
+        var me = this;
+        var key = Number(lat).toFixed(5) + ',' + Number(lon).toFixed(5);
+        this._clearReportModalHighlight();
+        this._putReportModalMarker(key, lat, lon, label || (this._reportModalLabels || {})[key], true);
+        this._reportModalHighlighted = { key: key, lat: lat, lon: lon };
+        if (this.REPORT_MODAL_FOCUS_MS > 0) {
+            this._reportModalHighlightTimer = setTimeout(function () { me._clearReportModalHighlight(); }, this.REPORT_MODAL_FOCUS_MS);
+        }
+    },
+
+    /** Quita el resalte vigente (si lo hay) y repone el marcador normal. */
+    _clearReportModalHighlight: function () {
+        var h = this._reportModalHighlighted;
+        if (this._reportModalHighlightTimer) {
+            clearTimeout(this._reportModalHighlightTimer);
+            this._reportModalHighlightTimer = null;
+        }
+        this._reportModalHighlighted = null;
+        if (h && this._reportModalMap) {
+            try { this._putReportModalMarker(h.key, h.lat, h.lon, (this._reportModalLabels || {})[h.key], false); }
+            catch (err) { console.warn('[promatic_dashboard_enhancer] no se pudo quitar el resalte del punto:', err); }
+        }
     },
 
     _focusReportModalMapPoint: function (lat, lon, label) {
@@ -802,6 +857,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         try {
             this._drawReportModalMarker({ lat: lat, lon: lon, label: label });
             map.setMapCenter(lat, lon, { zoom: 16 });
+            this._highlightReportModalMarker(lat, lon, label);
         }
         catch (err) { console.warn('[promatic_dashboard_enhancer] focus de punto en mapa del modal falló:', err); }
     },
@@ -861,9 +917,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             try { this._reportModalMapPanel.destroy(); } catch (e) { /* no-op */ }
             this._reportModalMapPanel = null;
         }
+        // El temporizador del resalte no debe tocar un mapa ya destruido.
+        if (this._reportModalHighlightTimer) { clearTimeout(this._reportModalHighlightTimer); }
+        this._reportModalHighlightTimer = null;
+        this._reportModalHighlighted = null;
         this._reportModalMap = null;
         this._reportModalMapPoints = null;
         this._reportModalDrawn = null;
+        this._reportModalLabels = null;
     },
 
     // CSS común de los reportes (impresión A4, tabla, cajas de score).
@@ -5522,15 +5583,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      *
      * @param {Ext.data.Model} rec Registro del vehículo en el online_tree (puede ser null).
      * @param {Object} e Evento (lat, lon).
-     * @return {{kind:string, name:(string|null), station:string, branchesKnown:boolean}}
+     * @return {{kind:string, name:(string|null), branchesKnown:boolean}}
      *   kind: 'station' | 'branch' | 'outside' | 'nd'. name: la estación o la
-     *   sucursal donde cae. station: el patrón de estación en mayúsculas, para
-     *   rotular. branchesKnown: la cuenta tiene sucursales mapeadas; si es
-     *   false, un 'outside' no descarta que el punto sea una sucursal.
+     *   sucursal donde cae. branchesKnown: la cuenta tiene sucursales
+     *   mapeadas; si es false, un 'outside' no descarta que el punto sea una
+     *   sucursal.
      */
     _fuelPlace: function (rec, e) {
         var text = String(this._fuelCfg().stationPattern || 'copec');
-        var out = { kind: 'nd', name: null, station: text.toUpperCase(), branchesKnown: false };
+        var out = { kind: 'nd', name: null, branchesKnown: false };
         var geofences = this._lastGeofences;
         if (e.lat == null || e.lon == null || !geofences) { return out; }
         // El patrón se toma como texto literal, no como expresión regular.
@@ -5577,7 +5638,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
         if (eventKind === 'carga') {
             if (pl.kind === 'station') { return { text: pl.name, sub: null, color: GREEN, bold: true }; }
-            return { text: l('Fuera de') + ' ' + pl.station, sub: pl.kind === 'branch' ? l('En sucursal') + ': ' + pl.name : null, color: RED, bold: true };
+            return { text: l('Fuera de') + ' ' + l('Bencinera'), sub: pl.kind === 'branch' ? l('En sucursal') + ': ' + pl.name : null, color: RED, bold: true };
         }
         if (pl.kind === 'station') { return { text: l('En estación') + ': ' + pl.name, sub: l('Lugar esperable: no se considera sospechoso'), color: GREEN, bold: false }; }
         if (pl.kind === 'branch') { return { text: l('En sucursal') + ': ' + pl.name, sub: l('Lugar esperable: no se considera sospechoso'), color: GRAY, bold: false }; }
