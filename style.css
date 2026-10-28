@@ -2273,6 +2273,29 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     color: var(--g6);
 }
 
+/* Tarjeta cuya cuenta no tiene el informe de PILOT que necesita: mismo
+   aspecto atenuado que "en desarrollo", pero se distingue por el texto. En el
+   mapa de Hotspots se pinta sobre el overlay de carga, que no recibe clics. */
+.promatic_dashboard_enhancer-unavailable {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    align-items: flex-start;
+    padding: 0.5em 0.25em;
+    font-size: 0.8rem;
+    color: var(--g5);
+}
+
+.promatic_dashboard_enhancer-unavailable__badge {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    padding: 0.125em 0.4375em;
+    border-radius: 0.25em;
+    background: var(--g1);
+    color: var(--g6);
+}
+
 /* Barra de porcentaje por sucursal (% estacionados). */
 .promatic_dashboard_enhancer-lop-bar {
     display: grid;

@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.9',
-    moduleBuild: '2026-10-26-1551',
+    version: '0.27.10',
+    moduleBuild: '2026-10-28-1046',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -248,7 +248,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me.bindFleetUpdates();
                         // Con la flota completa los reportes pesados no pueden
                         // salir todos a la vez: ver startInitialLoad.
-                        me.startInitialLoad();
+                        // La lista de informes de la cuenta decide qué
+                        // tarjetas consultan (WIDGET_REQUIRES): se espera a
+                        // que cargue (máx. REPORT_TYPES_WAIT_MS).
+                        me._ensureReportTypes(function () { me.startInitialLoad(); });
                         // Mapa de hotspots: instancia propia de MapContainer
                         // dentro de un Ext.panel.Panel (patrón del ejemplo
                         // oficial examples/airports/Map.js). El listener
@@ -4221,19 +4224,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
-     * Circuit breaker: true si `key` ya dio 401 en esta sesión. Se resetea
+     * Circuit breaker: true si `key` ya dio 401 (o 403) en esta sesión. Se resetea
      * solo con F5: PILOT podría desbloquear el endpoint en cualquier momento
      * y no debe quedar apagado para siempre por un error pasajero.
      */
     _isEndpointBlocked: function (key) {
         return !!(this._blockedEndpoints && this._blockedEndpoints[key]);
     },
-    _markEndpointBlocked: function (key) {
+    _markEndpointBlocked: function (key, status) {
         if (!this._blockedEndpoints) { this._blockedEndpoints = {}; }
         if (!this._blockedEndpoints[key]) {
             this._blockedEndpoints[key] = true;
             console.warn('[promatic_dashboard_enhancer] ' + key +
-                ' marcado como bloqueado (401) — no se reintenta hasta recargar la página.');
+                ' marcado como bloqueado (' + (status || 401) + ') — no se reintenta hasta recargar la página.');
         }
     },
 
@@ -4769,6 +4772,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return fetch(endpoints[i].url, { credentials: 'include' })
                 .then(function (resp) {
                     if (resp.status === 401) { me._markEndpointBlocked(endpoints[i].breakerKey); }
+                    // 403 "No right": la cuenta no tiene el módulo, así que las
+                    // otras variantes (con y sin `veh`) darían lo mismo. Se
+                    // cortan todas, para no repetir las peticiones cada 5 min.
+                    if (resp.status === 403) {
+                        for (var k = 0; k < endpoints.length; k++) { me._markEndpointBlocked(endpoints[k].breakerKey, 403); }
+                    }
                     if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
                     return resp.json();
                 })
@@ -6166,6 +6175,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var me = this;
         var cfg = (me.config && me.config.ecoScore) || (me.DEFAULT_CONFIG.ecoScore || {});
         var days = cfg.windowDays || 7;
+        if (this._paintIfUnavailable('eco_score')) { return; }
 
         this.withFleetVehicleIds(function (vehIds) {
             var stop = new Date();
@@ -6431,6 +6441,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var me = this;
         var cfg = (me.config && me.config.violations) || (me.DEFAULT_CONFIG.violations || {});
         var days = cfg.windowDays || 7;
+        if (this._paintIfUnavailable('violations')) { return; }
 
         this.withFleetVehicleIds(function (vehIds) {
             var stop = new Date();
@@ -6864,6 +6875,14 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var onlineTree = this.getOnlineTree();
         if (!onlineTree) { return; }
 
+        // El mapa no es el cuerpo de una tarjeta: el aviso se pinta sobre el
+        // overlay de carga, que ya cubre el mapa y se alterna sin tocarlo.
+        var missing = me._missingReports('hotspots');
+        if (missing.length > 0) {
+            var ov = Ext.get('promatic_dashboard_enhancer-hotspots-map-loading');
+            if (ov) { ov.setHtml(me._unavailableMarkup(missing)); ov.setDisplayed(true); }
+            return;
+        }
         me._showHotspotsMapLoading(true);
 
         var cfg = (this.config && this.config.hotspots) || this.DEFAULT_CONFIG.hotspots;
@@ -7459,6 +7478,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      */
     loadBranchGeofences: function (callback) {
         var me = this;
+        // Un 403 es que la cuenta no tiene geocercas (permiso), no un fallo
+        // pasajero: se recuerda por sesión para que los varios llamadores
+        // (mapa, sucursales, LOP) no repitan la misma petición rechazada.
+        if (me._isEndpointBlocked('api/v3/geofences')) {
+            callback('BRANCHES-GEOFENCES-FALLO', []);
+            return;
+        }
         var ctrl = new AbortController();
         var to = setTimeout(function () { ctrl.abort(); }, 20000);
 
@@ -7468,6 +7494,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             signal: ctrl.signal
         })
             .then(function (resp) {
+                if (resp.status === 403) { me._markEndpointBlocked('api/v3/geofences', 403); }
                 if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
                 return resp.json();
             })
@@ -9192,6 +9219,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var id = this.LOP_CARD_IDS.tag;
         var cfg = this._lopCfg('tag');
         var bcfg = this._lopCfg('batch');
+        if (this._paintIfUnavailable('lop_tag', id)) { return Promise.resolve(); }
         var cand = this._lopCandidateIds(cfg.windowDays);
         if (cand.ids.length === 0) {
             this.updateCardBody(id, this._lopNote(l('Sin vehículos con movimiento reciente en el alcance.')), 0, true);
@@ -9389,6 +9417,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var id = this.LOP_CARD_IDS.conduccion;
         var cfg = this._lopCfg('driving');
         var me = this, esc = Ext.String.htmlEncode;
+        if (this._paintIfUnavailable('lop_conduccion', id)) { return; }
         var vehRows = this._lopDrivingRows();
         if (vehRows.length === 0) {
             this.updateCardBody(id, this._lopNote(l('Esperando el Safety Score y las infracciones de manejo…')), 0, true);
@@ -10767,6 +10796,56 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         } else {
             try { store.load({ callback: finish }); } catch (err) { finish(); }
         }
+    },
+
+    // Informes nativos de los que depende cada tarjeta para tener datos. Solo
+    // van los medidos en cuentas reales (73, 96, 114, 223): un id de esta tabla
+    // que la lista de la cuenta no trae deja la tarjeta como "No disponible"
+    // sin consultar. Top KM no figura porque pide primero la API v3 y el 4
+    // está en todas las cuentas medidas.
+    WIDGET_REQUIRES: {
+        eco_score: [223],
+        violations: [114],
+        hotspots: [73],
+        lop_conduccion: [223, 114],
+        lop_tag: [96]
+    },
+
+    /**
+     * Informes que la cuenta no tiene de los que necesita una tarjeta.
+     * @param {String} cardId id de VIEW_WIDGETS.
+     * @return {Number[]} ids faltantes; vacío si están todos o si la lista de
+     *     la cuenta aún no se puede consultar (se trata como "no se sabe").
+     */
+    _missingReports: function (cardId) {
+        var req = this.WIDGET_REQUIRES[cardId] || [];
+        var missing = [];
+        for (var i = 0; i < req.length; i++) {
+            if (this._reportTypeAvailable(req[i]) === false) { missing.push(req[i]); }
+        }
+        return missing;
+    },
+
+    /** Marcado de "No disponible en esta cuenta" con los informes que faltan. */
+    _unavailableMarkup: function (missing) {
+        return Ext.DomHelper.markup({ cls: 'promatic_dashboard_enhancer-unavailable', cn: [
+            { tag: 'span', cls: 'promatic_dashboard_enhancer-unavailable__badge', html: l('NO DISPONIBLE EN ESTA CUENTA') },
+            { tag: 'div', html: l('La cuenta no tiene habilitado en PILOT el informe necesario (tipo') + ' ' + missing.join(', ') + ').' }
+        ] });
+    },
+
+    /**
+     * Si a la tarjeta le falta algún informe de la cuenta, la pinta como
+     * "No disponible" y avisa para que quien llama no haga la consulta.
+     * @param {String} cardId id de VIEW_WIDGETS (clave de WIDGET_REQUIRES).
+     * @param {String} [bodyId] id de la tarjeta cuyo cuerpo se pinta, si es otro.
+     * @return {Boolean} true si quedó como no disponible.
+     */
+    _paintIfUnavailable: function (cardId, bodyId) {
+        var missing = this._missingReports(cardId);
+        if (missing.length === 0) { return false; }
+        this.updateCardBody(bodyId || cardId, this._unavailableMarkup(missing), 0, true);
+        return true;
     },
 
     /**
