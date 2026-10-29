@@ -268,7 +268,7 @@
         <ul>
             <li><strong>Fondo del panel</strong> — una trama detrás de las tarjetas evita que floten sobre un panel blanco. Con 9 o más widgets visibles se usa una retícula liviana; con menos, curvas de nivel más visibles. Se ajusta con <code>ui.background</code> (<code>"auto"</code>, <code>"reticula"</code>, <code>"topo"</code>, <code>"color"</code> u <code>"off"</code>) y <code>ui.backgroundDenseFrom</code>.</li>
             <li><strong>Indicador de carga</strong> — mientras cada categoría de Alertas Generales espera su respuesta, su tarjeta muestra un indicador de carga en lugar de "N/D"; "N/D" queda para los datos que PILOT no entregó. Los demás widgets muestran una silueta animada mientras cargan (se desactiva si el sistema pide reducir el movimiento).</li>
-            <li><strong>Logo rotativo</strong> — cuando la cuenta tiene logo propio, la tarjeta del logo alterna con un fundido entre el logo de la cuenta, el de Promatic y el de PILOT (cada 6 segundos por defecto). Sin logo propio, o con la preferencia de reducir movimiento activada en el sistema, se mantiene el logo fijo. Se ajusta con <code>branding.logoRotation</code>.</li>
+            <li><strong>Logo rotativo</strong> — cuando la cuenta tiene logo propio, la tarjeta del logo alterna con un fundido entre el logo de la cuenta, el de Promatic y el de PILOT (cada 6 segundos por defecto). Sin logo propio, o con la preferencia de reducir movimiento activada en el sistema, se mantiene el logo fijo. Se ajusta con <code>branding.logoRotation</code>. El logo de la cuenta se indica con <code>branding.logoUrl</code> (dirección de una imagen PNG, JPG, WebP o SVG guardada en el almacenamiento de imágenes del servicio de configuración; no se aceptan direcciones de otro origen) o con <code>branding.logoSrc</code> (imagen incluida en el propio perfil, de tamaño acotado). Si ambos están, se usa <code>logoUrl</code>.</li>
         </ul>
 
         <h2>Configuración — <code>config.json</code></h2>
@@ -461,14 +461,14 @@
         </p>
 
         <h2>Estado</h2>
-        <p>Versión <strong>0.27.10</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
+        <p>Versión <strong>0.27.11</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
 
         <footer>
             Documentación de la extensión · Dashboard Enhancer
             <br>
-            Versión 0.27.10
+            Versión 0.27.11
             <br>
-            <p>Version 2026-10-28-1046</p>
+            <p>Version 2026-10-29-1827</p>
         </footer>
     </section>
 
@@ -605,7 +605,7 @@
         <ul>
             <li><strong>Dashboard background</strong> — a pattern behind the cards keeps them from floating on a blank white panel. With 9 or more visible widgets a light grid is used; with fewer, a more visible contour-line pattern. It is tuned with <code>ui.background</code> (<code>"auto"</code>, <code>"reticula"</code> for the grid, <code>"topo"</code> for the contour lines, <code>"color"</code> for the base color only, or <code>"off"</code>) and <code>ui.backgroundDenseFrom</code>.</li>
             <li><strong>Loading indicator</strong> — while each General Alerts category waits for its answer, its card shows a loading indicator instead of "N/D"; "N/D" is kept for data that PILOT did not deliver. The other widgets show an animated placeholder while they load (turned off if the system asks to reduce motion).</li>
-            <li><strong>Rotating logo</strong> — when the account has its own logo, the logo card fades between the account's logo, Promatic's and PILOT's (every 6 seconds by default). Without its own logo, or with the reduce-motion preference turned on in the system, the fixed logo stays. It is tuned with <code>branding.logoRotation</code>.</li>
+            <li><strong>Rotating logo</strong> — when the account has its own logo, the logo card fades between the account's logo, Promatic's and PILOT's (every 6 seconds by default). Without its own logo, or with the reduce-motion preference turned on in the system, the fixed logo stays. It is tuned with <code>branding.logoRotation</code>. The account's logo is set with <code>branding.logoUrl</code> (the address of a PNG, JPG, WebP or SVG image kept in the configuration service's image storage; addresses from any other origin are not accepted) or with <code>branding.logoSrc</code> (an image embedded in the profile itself, size-limited). If both are present, <code>logoUrl</code> is used.</li>
         </ul>
 
         <h2>Configuration — <code>config.json</code></h2>
@@ -795,14 +795,14 @@
         </p>
 
         <h2>Status</h2>
-        <p>Version <strong>0.27.10</strong> — under active development, verified and running on a live PILOT instance.</p>
+        <p>Version <strong>0.27.11</strong> — under active development, verified and running on a live PILOT instance.</p>
 
         <footer>
             Extension Documentation · Dashboard Enhancer
             <br>
-            Version 0.27.10
+            Version 0.27.11
             <br>
-            <p>Version 2026-10-28-1046</p>
+            <p>Version 2026-10-29-1827</p>
         </footer>
     </section>
 

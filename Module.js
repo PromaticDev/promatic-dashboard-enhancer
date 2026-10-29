@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.10',
-    moduleBuild: '2026-10-28-1046',
+    version: '0.27.11',
+    moduleBuild: '2026-10-29-1827',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -76,8 +76,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // menos, la más visible (curvas de nivel). También 'reticula', 'topo',
         // 'color' (solo el color base) y 'off' (no se toca el panel).
         ui: { preset: 'rac', hiddenWidgets: ['violations'], hiddenAlerts: ['manipulacion', 'fuerazona'], background: 'auto', backgroundDenseFrom: 9 },
-        // Logo de la cuenta: con logo propio (config remota, branding.logoSrc)
-        // alterna con el de Promatic y el de PILOT (ver renderLogo).
+        // Logo de la cuenta: con logo propio (config remota, branding.logoUrl o
+        // branding.logoSrc) alterna con el de Promatic y el de PILOT (ver renderLogo).
         // sequence: qué logos y en qué orden ('client', 'promatic', 'pilot');
         // seconds: cuánto se ve cada uno; fadeMs: duración del fundido.
         branding: { logoRotation: { enabled: true, seconds: 6, fadeMs: 800, sequence: ['client', 'promatic', 'pilot'] } },
@@ -3908,19 +3908,43 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
-     * Logo propio de la cuenta, entregado por la config remota
-     * (branding.logoSrc). Solo se acepta una imagen en línea (data URI png,
-     * jpeg o webp) de tamaño acotado: nunca una URL externa, para que un
-     * perfil no pueda hacer que el navegador pida recursos a terceros. Si no
-     * cumple, se usa el logo por defecto. La imagen vive en Supabase y no en
-     * este repo, que es público.
-     * @return {String|null} el data URI válido o null.
+     * Logo propio de la cuenta, entregado por la config remota. Dos formas:
+     *  - branding.logoUrl: imagen alojada en el almacenamiento público del mismo
+     *    proyecto de configuración (bucket de imágenes). Es la forma preferida:
+     *    el perfil guarda una dirección corta y no la imagen.
+     *  - branding.logoSrc: imagen en línea (data URI png, jpeg o webp) de
+     *    tamaño acotado.
+     * Nunca se acepta una URL de otro origen, para que un perfil no pueda hacer
+     * que el navegador pida recursos a terceros; el origen permitido sale del
+     * mismo remoteConfig.url que ya se consulta. Si no cumple, se usa el logo
+     * por defecto. La imagen vive en Supabase y no en este repo, que es público.
+     * @return {String|null} la URL o el data URI válidos, o null.
      */
     brandingLogoSrc: function () {
         var cfg = this.config && this.config.branding;
-        var src = cfg && cfg.logoSrc;
+        if (!cfg) { return null; }
+        var url = this.brandingLogoUrl(cfg.logoUrl);
+        if (url) { return url; }
+        var src = cfg.logoSrc;
         if (typeof src !== 'string' || src.length > 150000) { return null; }
         return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(src) ? src : null;
+    },
+
+    /**
+     * Valida una URL de logo: debe empezar por el prefijo del bucket de
+     * imágenes del proyecto de configuración y terminar en una extensión de
+     * imagen. Sin "..", sin "//" ni caracteres fuera de [A-Za-z0-9._-/], así
+     * no puede escapar de la carpeta ni llevar parámetros.
+     * @param {*} url valor de branding.logoUrl.
+     * @return {String|null} la misma URL si es válida; si no, null.
+     */
+    brandingLogoUrl: function (url) {
+        var remote = (this.config && this.config.remoteConfig) || {};
+        if (typeof url !== 'string' || typeof remote.url !== 'string' || remote.url.indexOf('https://') !== 0) { return null; }
+        var prefix = remote.url.replace(/\/+$/, '') + '/storage/v1/object/public/dashboard_media/';
+        if (url.length > 300 || url.indexOf(prefix) !== 0) { return null; }
+        var path = url.slice(prefix.length);
+        return /^[A-Za-z0-9._\-\/]+\.(png|jpe?g|webp|svg)$/i.test(path) && path.indexOf('..') === -1 && path.indexOf('//') === -1 ? url : null;
     },
 
     // Logo de la plataforma: lo sirve PILOT mismo (SVG público y sin caché), así
@@ -3954,7 +3978,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var base = this.getModuleBaseUrl();
         var all = {
             client: { src: custom, alt: 'Logo' },
-            promatic: { src: base + 'img/logo-promatic.png', alt: 'Promatic' },
+            promatic: { src: base + 'img/logo-promatic.svg', alt: 'Promatic' },
             pilot: { src: this.PILOT_LOGO_URL, alt: 'PILOT' }
         };
         return sequence.map(function (k) { all[k].key = k; return all[k]; });
