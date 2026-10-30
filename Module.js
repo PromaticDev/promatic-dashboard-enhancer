@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.27.11',
-    moduleBuild: '2026-10-29-1827',
+    version: '0.28.0',
+    moduleBuild: '2026-10-30-1436',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -163,6 +163,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             catalogBatch: 20, catalogCacheHours: 24, debugRawMax: 3
         }
     },
+
+    // Secciones de config que el código lee. De config.json o del perfil
+    // remoto solo se aceptan estas: un nombre mal escrito en el perfil se
+    // descarta con aviso en vez de quedar guardado sin efecto. `lop` no está
+    // en DEFAULT_CONFIG (sus valores por defecto viven en su propio lector).
+    // Al agregar una sección nueva hay que sumarla acá.
+    CONFIG_SECTIONS: ['top5km', 'fleet', 'ui', 'clock', 'ecoScore', 'borderAlert', 'violations',
+        'branches', 'privacy', 'hotspots', 'fuel', 'lop', 'branding', 'remoteConfig'],
+
+    // Claves que, copiadas con Ext.apply o una asignación, alcanzarían el
+    // prototipo de un objeto (o propiedades de Object) en vez de un dato.
+    CONFIG_BLOCKED_KEYS: ['__proto__', 'constructor', 'prototype'],
+
+    // Tope de anidación de un valor de config: la más profunda de hoy
+    // (branches.clientMap[i].groupNames[j]) usa 4 niveles.
+    CONFIG_MAX_DEPTH: 8,
 
     initModule: function () {
         console.log('[promatic_dashboard_enhancer] BUILD ' + this.moduleBuild + ' — initModule: inicio');
@@ -1724,13 +1740,19 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var acc = this._accidentDayTrend();
         var rows = [
             { label: l('Posibles accidentes (hoy)'), value: acc ? acc.today : null, detail: 'accidentes', trend: acc },
-            { label: l('Requiere mantención'), value: num(this._alertMantencion), detail: null, trend: null },
-            { label: l('Ralentí excesivo'), value: num(this._alertRalenti), detail: 'ralenti', trend: null }
+            { label: l('Requiere mantención'), value: num(this._alertMantencion), detail: null, trend: null }
         ];
-        [['carga', l('Posibles inconsistencias en carga')], ['drenaje', l('Posible drenaje de combustible')]].forEach(function (k) {
-            var sm = me._fuelSummary(k[0]);
-            rows.push({ label: k[1], cov: sm.cov, value: num(sm.count), detail: k[0], trend: null });
-        });
+        // Las filas cuyo informe la cuenta no tiene se omiten: un "N/D" las
+        // haría pasar por un dato que falló (ver _goldenUnavailableNote).
+        if (!this._missingReports('alertas_ralenti').length) {
+            rows.push({ label: l('Ralentí excesivo'), value: num(this._alertRalenti), detail: 'ralenti', trend: null });
+        }
+        if (!this._missingReports('alertas_combustible').length) {
+            [['carga', l('Posibles inconsistencias en carga')], ['drenaje', l('Posible drenaje de combustible')]].forEach(function (k) {
+                var sm = me._fuelSummary(k[0]);
+                rows.push({ label: k[1], cov: sm.cov, value: num(sm.count), detail: k[0], trend: null });
+            });
+        }
         rows.forEach(function (r) {
             r.hasDetail = !!(r.detail && (r.value > 0 || (r.trend && r.trend.yesterday > 0)));
         });
@@ -1980,8 +2002,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     '<td class="r">' + (r.trend ? '<span class="yest">' + r.trend.yesterday + '</span>' : '—') + '</td>' +
                     '<td class="c">' + me._goldenTrendHtml(r.trend) + '</td></tr>';
             });
+            var unavailable = me._goldenUnavailableNote();
             return out + '</table><p class="sub">' +
-                l('N/D: PILOT no entregó el dato (por ejemplo, vehículos sin sensor de combustible). "—" en acciones: sin incidencias o sin detalle; "—" en ayer y variación: no hay dato del día anterior.') + '</p>';
+                l('N/D: PILOT no entregó el dato (por ejemplo, vehículos sin sensor de combustible). "—" en acciones: sin incidencias o sin detalle; "—" en ayer y variación: no hay dato del día anterior.') + '</p>' +
+                (unavailable ? '<p class="sub">' + esc(unavailable) + '</p>' : '');
         });
 
         // Top KM
@@ -1998,7 +2022,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         // Safety Score: reparto por bandas de color y los 10 peores.
         s += sec('ECO', l('Safety Score — Ranking'), function () {
-            if (!eco) { return noData(l('Sin datos del Fleet ECO report cargados.')); }
+            if (!eco) {
+                return noData(me._missingReports('eco_score').length
+                    ? l('No disponible en esta cuenta: el informe no está habilitado en PILOT.')
+                    : l('Sin datos del Fleet ECO report cargados.'));
+            }
             var out = '<p class="hint">' + l('Porcentaje de vehículos por banda de puntaje en los últimos') + ' ' + eco.days + ' ' + l('días') +
                 ' (' + eco.total + ' ' + l('vehículos con datos') + ').</p>' +
                 '<div class="grid">' +
@@ -2388,6 +2416,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         { text: r.trend ? String(r.trend.yesterday) : '—', alignment: 'right', fontSize: 11, color: '#475569' },
                         me._goldenTrendPdf(r.trend)];
                 }), ['*', 70, 50, 110]));
+            var unavailable = me._goldenUnavailableNote();
+            if (unavailable) { P.push(hint(unavailable)); }
         });
 
         sec('KM', l('Vehículos con Exceso de Kilometraje'), function (P) {
@@ -2398,7 +2428,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
 
         sec('ECO', l('Safety Score — Ranking'), function (P) {
-            if (!eco) { P.push(noData(l('Sin datos del Fleet ECO report cargados.'))); return; }
+            if (!eco) {
+                P.push(noData(me._missingReports('eco_score').length
+                    ? l('No disponible en esta cuenta: el informe no está habilitado en PILOT.')
+                    : l('Sin datos del Fleet ECO report cargados.')));
+                return;
+            }
             P.push(hint(l('Porcentaje de vehículos por banda de puntaje en los últimos') + ' ' + eco.days + ' ' + l('días') +
                 ' (' + eco.total + ' ' + l('vehículos con datos') + ').'));
             P.push(me._pdfBoxes([
@@ -3211,6 +3246,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 '<div id="' + idBase + '-widgets">' + this._controlsWidgetsHtml(current) + '</div>' +
                 '<h4>' + esc(l('Parámetros vigentes (solo lectura)')) + '</h4>' +
                 '<table class="promatic_dashboard_enhancer-ctl__table">' + paramRows + '</table>' +
+                // Foto al abrir el modal; el registro es del administrador
+                // aunque el modal se invoque por otra vía que el botón.
+                (this.isAdminUser() ? '<h4>' + esc(l('Registro de errores')) + '</h4>' + this._errorLogHtml() : '') +
                 '<div id="' + idBase + '-msg" class="promatic_dashboard_enhancer-ctl__msg"></div>' +
             '</div>';
 
@@ -3218,7 +3256,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             title: l('Controles'),
             modal: true,
             resizable: false,
-            width: 480,
+            width: 560,
             maxHeight: Math.max(320, Math.floor(window.innerHeight * 0.9)),
             scrollable: 'y',
             closeAction: 'destroy',
@@ -3311,7 +3349,135 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     widgetErrorCode: function (base, err, context) {
         var code = base + (err && err.name === 'AbortError' ? '-TIMEOUT' : '-FALLO');
         console.error('[promatic_dashboard_enhancer] ' + code + ':', err, context || '');
+        this._logError({
+            tipo: 'widget', id: code, nombre: code,
+            detalle: String((err && err.message) || err || '') + (context ? ' (' + context + ')' : ''),
+            limiteMs: err && err.timeoutMs
+        });
         return code;
+    },
+
+    /**
+     * Anota en el error de un fetch abortado el límite de tiempo que se usó:
+     * un AbortError no lo dice, y el registro de errores lo necesita para
+     * ajustar los tiempos según el tamaño de la flota.
+     * @param {Error} err error capturado.
+     * @param {Number} ms límite en milisegundos con que se armó el abort.
+     * @return {Error} el mismo error, para relanzarlo.
+     */
+    _tagTimeout: function (err, ms) {
+        if (err && err.name === 'AbortError') {
+            try { err.timeoutMs = ms; } catch (e) { /* objeto congelado: se pierde solo el dato */ }
+        }
+        return err;
+    },
+
+    /** Cantidad de vehículos que la flota tiene cargada hoy; null si no se puede leer. */
+    _fleetSize: function () {
+        try {
+            var tree = this.getOnlineTree();
+            return tree ? this.getFleetVehicleIds(tree).length : null;
+        } catch (err) {
+            return null;
+        }
+    },
+
+    /**
+     * Registro de problemas de la sesión, para el administrador (modal
+     * Controles). Solo en memoria: se vacía con F5 y no sale del navegador.
+     * 'informe' (la cuenta no tiene el informe) y 'modulo' (endpoint bloqueado
+     * por 401/403) son un estado y se anotan una vez; 'widget' (falla de
+     * carga) es un evento y se cuenta, junto con la flota que había en ese
+     * momento: con eso se ajustan los tiempos de consulta de cada widget. Nunca
+     * lanza: un fallo del registro no puede afectar la carga de un widget.
+     * @param {Object} e {tipo, id, nombre, detalle, limiteMs?}
+     */
+    _logError: function (e) {
+        try {
+            if (!this._errorLog) { this._errorLog = {}; this._errorLogOrder = []; }
+            var key = e.tipo + '|' + e.id;
+            var now = new Date();
+            var cur = this._errorLog[key];
+            if (cur) {
+                if (e.tipo === 'widget') {
+                    cur.n++;
+                    cur.ultimo = now;
+                    cur.detalle = e.detalle;
+                    cur.vehiculos = this._fleetSize();
+                    if (e.limiteMs) { cur.limiteMs = e.limiteMs; }
+                }
+                return;
+            }
+            this._errorLog[key] = {
+                tipo: e.tipo, nombre: e.nombre, detalle: e.detalle, n: 1,
+                primero: now, ultimo: now,
+                vehiculos: e.tipo === 'widget' ? this._fleetSize() : null,
+                limiteMs: e.limiteMs || null
+            };
+            this._errorLogOrder.push(key);
+        } catch (err) { /* ver arriba */ }
+    },
+
+    /** Entradas del registro de errores, en el orden en que aparecieron. */
+    getErrorLog: function () {
+        var out = [];
+        var order = this._errorLogOrder || [];
+        for (var i = 0; i < order.length; i++) { out.push(this._errorLog[order[i]]); }
+        return out;
+    },
+
+    // Nombre en PILOT de los informes de WIDGET_REQUIRES. Una cuenta que no
+    // tiene el informe tampoco tiene su nombre en ninguna lista que la
+    // extensión pueda leer, así que se guarda aquí tal como lo muestra PILOT.
+    REPORT_NAME_FALLBACK: {
+        73: 'Conexión perdida',
+        96: 'Informe resumen de vías de peaje',
+        114: 'Informe de calidad de conducción',
+        223: 'Informe de la flota de ECO'
+    },
+
+    /**
+     * Nombre de un informe nativo para el registro de errores: el de la lista
+     * de la cuenta si lo tiene; si no (justo el caso de un informe que falta),
+     * el de REPORT_NAME_FALLBACK, y en último caso solo el número.
+     * @param {Number} reportType id del tipo de informe.
+     * @return {String}
+     */
+    _reportName: function (reportType) {
+        var name = null;
+        try {
+            var store = this._reportTypeStore();
+            var rec = store && store.isLoaded() && store.findRecord('id', Number(reportType), 0, false, false, true);
+            name = rec && rec.get('name');
+        } catch (err) { name = null; }
+        name = name || this.REPORT_NAME_FALLBACK[reportType];
+        return name ? l(name) + ' (' + reportType + ')' : l('Informe') + ' ' + reportType;
+    },
+
+    /** Nombre legible del módulo detrás de la clave de un circuit breaker. */
+    _moduleName: function (key) {
+        if (/^mod\/to\//.test(key)) { return l('Mantención'); }
+        if (/^api\/v3\/geofences/.test(key)) { return l('Geocercas'); }
+        if (/events\.php/.test(key)) { return l('Eventos'); }
+        var m = /^reports\.php:report_type=(\d+)/.exec(key);
+        return m ? this._reportName(Number(m[1])) : key;
+    },
+
+    /** Tabla del registro de errores para el modal Controles (solo administrador). */
+    _errorLogHtml: function () {
+        var esc = Ext.String.htmlEncode;
+        var list = this.getErrorLog();
+        if (list.length === 0) { return '<p>' + esc(l('Sin errores en esta sesión.')) + '</p>'; }
+        var kind = { informe: l('Informe'), modulo: l('Módulo'), widget: l('Widget') };
+        var rows = '<tr><th>' + esc(l('Tipo')) + '</th><th>' + esc(l('Qué')) + '</th><th>' + esc(l('Detalle')) +
+            '</th><th>' + esc(l('Veces')) + '</th><th>' + esc(l('Vehículos')) + '</th><th>' + esc(l('Límite')) + '</th></tr>';
+        for (var i = 0; i < list.length; i++) {
+            var e = list[i];
+            rows += '<tr><td>' + esc(kind[e.tipo]) + '</td><td>' + esc(e.nombre) + '</td><td>' + esc(e.detalle) +
+                '</td><td>' + e.n + '</td><td>' + (e.vehiculos == null ? '—' : e.vehiculos) +
+                '</td><td>' + (e.limiteMs ? Math.round(e.limiteMs / 1000) + ' s' : '—') + '</td></tr>';
+        }
+        return '<table class="promatic_dashboard_enhancer-ctl__table promatic_dashboard_enhancer-ctl__table--log">' + rows + '</table>';
     },
 
     getOnlineTree: function () {
@@ -4259,6 +4425,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (!this._blockedEndpoints) { this._blockedEndpoints = {}; }
         if (!this._blockedEndpoints[key]) {
             this._blockedEndpoints[key] = true;
+            this._logError({
+                tipo: 'modulo', id: key, nombre: this._moduleName(key),
+                detalle: 'HTTP ' + (status || 401)
+            });
             console.warn('[promatic_dashboard_enhancer] ' + key +
                 ' marcado como bloqueado (' + (status || 401) + ') — no se reintenta hasta recargar la página.');
         }
@@ -5362,6 +5532,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // hay que repintarlas: si no, el spinner quedaría para siempre.
         var wasWaiting = me._fuelWaiting;
         me._fuelWaiting = false;
+        // La cuenta no tiene el informe de combustible: no se consulta y las
+        // tarjetas pasan de "cargando" a "No disponible".
+        if (me._missingReports('alertas_combustible').length) {
+            if (wasWaiting) { me.renderAlertasGenerales(); }
+            return;
+        }
         if (!cfg.enabled || !vehIds || !vehIds.length || me._fuelRunning) {
             if (wasWaiting && !me._fuelRunning) { me.renderAlertasGenerales(); }
             return;
@@ -6046,7 +6222,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
 
         // count: número (conectada), PENDING (cargando → spinner), null o
         // undefined vencido (falló → "N/D") o beta:true (categoría futura →
-        // badge "beta", sin número). vehIds:
+        // badge "beta", sin número); beta:'unavailable' lo muestra como "No
+        // disponible" (la cuenta no tiene el informe). vehIds:
         // agent_ids afectados; si hay incidencia y hay ids, la tarjeta es
         // clicable y abre el panel Informes con esos vehículos marcados (el
         // usuario elige el informe). severe: marca las categorías GRAVES
@@ -6056,7 +6233,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var card = function (bg, title, count, iconSvg, titleAttr, isBeta, iconCls, vehIds, reportType, severe) {
             var body;
             if (isBeta) {
-                body = { cls: 'promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta', html: l('EN DESARROLLO') };
+                body = { cls: 'promatic_dashboard_enhancer-stat-card__count promatic_dashboard_enhancer-stat-card__count--beta',
+                    html: isBeta === 'unavailable' ? l('NO DISPONIBLE') : l('EN DESARROLLO') };
             } else if (count === PENDING) {
                 // El &nbsp; conserva la línea del contador; el spinner va en
                 // absoluto (ver style.css) para que el alto de la tarjeta no
@@ -6100,6 +6278,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // modal explica la cobertura aunque el conteo sea 0.
         var me = this;
         var fuelCard = function (kind, bg, title, titleAttr, iconCls) {
+            if (me._missingReports('alertas_combustible').length) {
+                return card(bg, title, null, svgCombustible,
+                    titleAttr + ' — ' + l('el informe necesario no está habilitado en esta cuenta'),
+                    'unavailable', iconCls, null, null, false);
+            }
             var sm = me._fuelSummary(kind);
             var count = sm.count;
             var beta = sm.state === 'unrecognized';
@@ -6116,6 +6299,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         };
 
         var idleMin = (((this.config && this.config.ecoScore) || this.DEFAULT_CONFIG.ecoScore).idleThresholdMin) || 120;
+        var ralentiOff = this._missingReports('alertas_ralenti').length > 0;
         var gridCls = 'promatic_dashboard_enhancer-stat-card-grid';
 
         // El conteo es de hoy y ayer; el histórico de la semana vive en el modal.
@@ -6154,8 +6338,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 // Ralentí abre un modal propio (buildRalentiReport): el
                 // informe nativo equivalente es el "Fleet ECO report"
                 // (report_type=223 group=6), que runNativeReport no soporta.
-                card('var(--g6)', l('Ralentí excesivo'), wait(ralenti), svgRalenti,
-                    l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'), false, 'pde_alert-ralenti',
+                card('var(--g6)', l('Ralentí excesivo'), ralentiOff ? null : wait(ralenti), svgRalenti,
+                    l('Vehículos con más de ' + idleMin + ' min de ralentí acumulado en el período'),
+                    ralentiOff ? 'unavailable' : false, 'pde_alert-ralenti',
                     this._alertRalentiIds || [], null, false),
                 fuelCard('carga', 'var(--g7)', l('Inconsistencias en Carga'),
                     (this._fuelCfg().nativeOnly ? l('Cargas de combustible detectadas por PILOT: alza de nivel mayor a') : l('Posibles cargas de combustible: alza de nivel mayor a')) + ' ' + this._fuelCfg().loadMinPct + '% ' + l('con el vehículo detenido, calculada sobre el sensor') +
@@ -6251,7 +6436,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     me._onLopDataReady();
                 })
                 .catch(function (err) {
-                    var code = me.widgetErrorCode('ECO-SCORE', err);
+                    var code = me.widgetErrorCode('ECO-SCORE', me._tagTimeout(err, 45000));
                     me.updateCardBody('eco_score', l('No se pudo cargar el Safety Score.') + ' (' + code + ')', 0, true);
                     // Ralentí sale del mismo reporte: sin él la tarjeta pasa de
                     // "cargando" a "N/D" en vez de quedar con el spinner. Un
@@ -8773,6 +8958,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * subtotales diarios con totales.
      */
     _lopFetchReport: function (reportType, csv, start, stop, timeoutMs, explode) {
+        var me = this;
         var body = this.buildReportBody(reportType, csv, start, stop);
         if (explode) { body = body.replace(/(^|&)explode=\d+/, '$1explode=' + encodeURIComponent(explode)); }
         var ctrl = new AbortController();
@@ -8786,6 +8972,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }).then(function (resp) {
             if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
             return resp.json();
+        }).catch(function (err) {
+            throw me._tagTimeout(err, timeoutMs);
         }).finally(function () { clearTimeout(to); });
     },
 
@@ -8920,6 +9108,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     loadLopFuel: function (force) {
         var me = this;
         var id = this.LOP_CARD_IDS.combustible;
+        if (this._paintIfUnavailable('lop_combustible', id)) { return Promise.resolve(); }
         var cfg = this._lopCfg('fuel');
         var bcfg = this._lopCfg('batch');
         var cand = this._lopCandidateIds(cfg.windowDays);
@@ -10000,6 +10189,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     fetchReportType: function (reportType, vehIdsCsv, startDate, stopDate, timeoutMs) {
+        var me = this;
         var body = this.buildReportBody(reportType, vehIdsCsv, startDate, stopDate);
         var ctrl = new AbortController();
         var timeout = setTimeout(function () {
@@ -10017,6 +10207,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 throw new Error('HTTP ' + resp.status);
             }
             return resp.json();
+        }).catch(function (err) {
+            throw me._tagTimeout(err, timeoutMs || 20000);
         }).finally(function () {
             clearTimeout(timeout);
         });
@@ -10826,13 +11018,17 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // van los medidos en cuentas reales (73, 96, 114, 223): un id de esta tabla
     // que la lista de la cuenta no trae deja la tarjeta como "No disponible"
     // sin consultar. Top KM no figura porque pide primero la API v3 y el 4
-    // está en todas las cuentas medidas.
+    // está en todas las cuentas medidas. Las filas de Alertas Generales que no
+    // son una tarjeta propia (Ralentí, combustible) llevan una clave aparte.
     WIDGET_REQUIRES: {
         eco_score: [223],
         violations: [114],
         hotspots: [73],
         lop_conduccion: [223, 114],
-        lop_tag: [96]
+        lop_tag: [96],
+        lop_combustible: [6],
+        alertas_ralenti: [223],
+        alertas_combustible: [16]
     },
 
     /**
@@ -10845,9 +11041,27 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var req = this.WIDGET_REQUIRES[cardId] || [];
         var missing = [];
         for (var i = 0; i < req.length; i++) {
-            if (this._reportTypeAvailable(req[i]) === false) { missing.push(req[i]); }
+            if (this._reportTypeAvailable(req[i]) === false) {
+                missing.push(req[i]);
+                this._logError({
+                    tipo: 'informe', id: req[i] + ':' + cardId, nombre: this._reportName(req[i]),
+                    detalle: l('No está en la lista de informes de la cuenta') + ' · ' + cardId
+                });
+            }
         }
         return missing;
+    },
+
+    /**
+     * Nota del Golden Report sobre las filas de Alertas Generales que se
+     * omiten porque la cuenta no tiene su informe (Ralentí, combustible).
+     * @return {String} vacío si no se omitió ninguna.
+     */
+    _goldenUnavailableNote: function () {
+        var names = [];
+        if (this._missingReports('alertas_ralenti').length) { names.push(l('Ralentí excesivo')); }
+        if (this._missingReports('alertas_combustible').length) { names.push(l('Combustible')); }
+        return names.length ? l('No disponible en esta cuenta (el informe no está habilitado en PILOT):') + ' ' + names.join(', ') + '.' : '';
     },
 
     /** Marcado de "No disponible en esta cuenta" con los informes que faltan. */
@@ -11156,6 +11370,96 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
+     * Copia un valor JSON a estructuras nuevas, sin las claves de
+     * CONFIG_BLOCKED_KEYS y hasta CONFIG_MAX_DEPTH niveles. Lo que no es JSON
+     * (funciones, undefined) o excede la profundidad no se copia. Se usa
+     * hasOwnProperty.call y no value.hasOwnProperty porque un JSON puede traer
+     * una clave con ese nombre y taparla.
+     * @param {*} value valor ya parseado con JSON.parse.
+     * @param {Number} depth nivel actual (0 en la primera llamada).
+     * @return {*} la copia, o undefined si el valor no se puede copiar.
+     */
+    _cloneJsonSafe: function (value, depth) {
+        var has = Object.prototype.hasOwnProperty;
+        var type = typeof value;
+        var copy, item, key, i;
+        if (value === null || type === 'string' || type === 'number' || type === 'boolean') { return value; }
+        if (type !== 'object' || depth > this.CONFIG_MAX_DEPTH) { return undefined; }
+        if (Array.isArray(value)) {
+            copy = [];
+            for (i = 0; i < value.length; i++) {
+                item = this._cloneJsonSafe(value[i], depth + 1);
+                if (item !== undefined) { copy.push(item); }
+            }
+            return copy;
+        }
+        copy = {};
+        for (key in value) {
+            if (has.call(value, key) && this.CONFIG_BLOCKED_KEYS.indexOf(key) === -1) {
+                item = this._cloneJsonSafe(value[key], depth + 1);
+                if (item !== undefined) { copy[key] = item; }
+            }
+        }
+        return copy;
+    },
+
+    /**
+     * Mezcla por sección (un nivel) la config entrante sobre una copia de
+     * `base`: cada sección entrante pisa clave por clave a la de `base` y lo
+     * anidado se reemplaza completo. Es el único camino por donde entra config
+     * externa (config.json y perfil remoto), así que acá se descarta lo que no
+     * corresponde y se avisa por consola:
+     *   - secciones fuera de CONFIG_SECTIONS o listadas en opts.skip;
+     *   - secciones que no son un objeto;
+     *   - con opts.strictTypes, claves cuyo tipo no coincide con el de la
+     *     clave que reemplazan en `base` (null siempre se acepta);
+     *   - claves de CONFIG_BLOCKED_KEYS a cualquier profundidad (sin aviso).
+     * Las secciones que empiezan con "_" son comentarios del JSON: se ignoran.
+     * Con `base` se parte de una copia, sin modificarlo.
+     *
+     * @param {Object} base config vigente.
+     * @param {Object} incoming JSON parseado (config.json o perfil remoto).
+     * @param {Object} opts { origin: texto del aviso, strictTypes: Boolean, skip: [secciones] }
+     * @return {Object} config nueva; copia de `base` si `incoming` no es un objeto.
+     */
+    _mergeConfigSections: function (base, incoming, opts) {
+        var has = Object.prototype.hasOwnProperty;
+        var kind = function (v) { return v === null ? 'null' : (Array.isArray(v) ? 'array' : typeof v); };
+        var skip = (opts && opts.skip) || [];
+        var merged = {};
+        var dropped = [];
+        var section, clean, key, current;
+
+        for (section in base) {
+            if (has.call(base, section)) { merged[section] = Ext.apply({}, base[section]); }
+        }
+        if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
+            for (section in incoming) {
+                if (!has.call(incoming, section) || section.charAt(0) === '_') { continue; }
+                clean = this.CONFIG_SECTIONS.indexOf(section) !== -1 && skip.indexOf(section) === -1
+                    ? this._cloneJsonSafe(incoming[section], 0) : undefined;
+                if (!clean || typeof clean !== 'object' || Array.isArray(clean)) { dropped.push(section); continue; }
+                current = has.call(merged, section) ? merged[section] : {};
+                if (opts && opts.strictTypes) {
+                    for (key in clean) {
+                        if (has.call(clean, key) && has.call(current, key) && current[key] !== null &&
+                            clean[key] !== null && kind(clean[key]) !== kind(current[key])) {
+                            dropped.push(section + '.' + key);
+                            delete clean[key];
+                        }
+                    }
+                }
+                merged[section] = Ext.apply(current, clean);
+            }
+        }
+        if (dropped.length) {
+            console.warn('[promatic_dashboard_enhancer] config ' + ((opts && opts.origin) || '') +
+                ': se descartó lo que no corresponde (' + dropped.join(', ') + ')');
+        }
+        return merged;
+    },
+
+    /**
      * Carga config.json y lo mergea (por sección, un nivel) sobre
      * DEFAULT_CONFIG. No bloquea el arranque: los widgets corren en el
      * 'afterrender' del panel (bastante después de initModule), así que
@@ -11173,21 +11477,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 return resp.json();
             })
             .then(function (json) {
-                var merged = {};
-                var section;
-                for (section in me.DEFAULT_CONFIG) {
-                    if (me.DEFAULT_CONFIG.hasOwnProperty(section)) {
-                        merged[section] = Ext.apply({}, me.DEFAULT_CONFIG[section]);
-                    }
-                }
-                for (section in json) {
-                    if (json.hasOwnProperty(section) && section.charAt(0) !== '_' &&
-                        json[section] && typeof json[section] === 'object') {
-                        merged[section] = Ext.apply(merged[section] || {}, json[section]);
-                    }
-                }
-                me.config = merged;
-                Store.promatic_dashboard_enhancer.Module.debugLog('config.json cargado', merged);
+                me.config = me._mergeConfigSections(me.DEFAULT_CONFIG, json, { origin: 'config.json' });
+                Store.promatic_dashboard_enhancer.Module.debugLog('config.json cargado', me.config);
             })
             .catch(function (err) {
                 me.config = me.DEFAULT_CONFIG;
@@ -11246,20 +11537,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             })
             .then(function (json) {
                 if (!json || typeof json !== 'object') { return; }
-                var merged = {};
-                var section;
-                for (section in me.config) {
-                    if (me.config.hasOwnProperty(section)) {
-                        merged[section] = Ext.apply({}, me.config[section]);
-                    }
-                }
-                for (section in json) {
-                    if (json.hasOwnProperty(section) && section.charAt(0) !== '_' &&
-                        section !== 'remoteConfig' && json[section] && typeof json[section] === 'object') {
-                        merged[section] = Ext.apply(merged[section] || {}, json[section]);
-                    }
-                }
-                me.config = merged;
+                // La config remota no puede cambiar a dónde se pide la config
+                // (remoteConfig) y sus valores deben tener el tipo del valor
+                // que reemplazan.
+                me.config = me._mergeConfigSections(me.config, json,
+                    { origin: 'remota', strictTypes: true, skip: ['remoteConfig'] });
                 Store.promatic_dashboard_enhancer.Module.debugLog('config remota aplicada');
             })
             .catch(function (err) {

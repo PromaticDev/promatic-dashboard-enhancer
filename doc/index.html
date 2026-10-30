@@ -190,7 +190,7 @@
             <li><strong>Alcance de la flota</strong> — el dashboard considera siempre la flota completa que PILOT muestra al usuario, sin depender de los vehículos marcados en el panel "Principal". Los reportes pesados tienen un tope de seguridad de vehículos consultados (<code>fleet.maxVehicles</code>, 1500 por defecto). Los mapas pueden acotarse a una carpeta con el menú de su tarjeta.</li>
             <li><strong>Actualizar widgets</strong> — el botón del pie del panel vuelve a consultar todos los indicadores sin recargar la página y registra la hora de la última actualización. Estado de Flota y Vehículos Sin Señal GPS se actualizan además en vivo con el árbol de vehículos de PILOT, y Alertas Generales se consulta sola cada 5 minutos; el resto de los widgets se actualiza con el botón.</li>
             <li><strong>Escala</strong> — los botones − y + del pie achican o agrandan todo el dashboard (de 80 % a 130 %, en pasos de 5 %), útil en pantallas grandes o monitores externos. Se guarda en el navegador.</li>
-            <li><strong>Controles (solo administrador)</strong> — el botón "Controles" lo ve únicamente el administrador de la cuenta en PILOT. Abre una ventana para elegir la vista, revisar qué widgets tiene cada vista (activos, en desarrollo u ocultos) y consultar, en solo lectura, los parámetros vigentes (alcance, períodos de tiempo, umbral de ralentí y zona horaria). Los demás usuarios ven el dashboard completo, solo que sin ese botón. Nada de lo que hace un usuario sale de su navegador: la vista elegida y la escala no modifican la configuración de la cuenta ni la de otros usuarios.</li>
+            <li><strong>Controles (solo administrador)</strong> — el botón "Controles" lo ve únicamente el administrador de la cuenta en PILOT. Abre una ventana para elegir la vista, revisar qué widgets tiene cada vista (activos, en desarrollo u ocultos) y consultar, en solo lectura, los parámetros vigentes (alcance, períodos de tiempo, umbral de ralentí y zona horaria). Incluye también un registro de errores de la sesión: los informes o módulos que la cuenta no tiene y los widgets que fallaron al cargar, con cuántas veces ocurrió, cuántos vehículos tenía la flota en ese momento y el tiempo límite de la consulta; sirve para ajustar los tiempos según el tamaño de la cuenta. El registro vive solo en el navegador y se vacía al recargar la página. Los demás usuarios ven el dashboard completo, solo que sin ese botón. Nada de lo que hace un usuario sale de su navegador: la vista elegida y la escala no modifican la configuración de la cuenta ni la de otros usuarios.</li>
         </ul>
 
         <h2>Widgets de ambas vistas</h2>
@@ -218,7 +218,7 @@
             <li><strong>Logo</strong> — muestra el logo de la extensión o, si la cuenta tiene uno propio en su perfil, el de la cuenta (ver "Apariencia"). Debajo se indican la versión y el build instalados, útiles para reportar una incidencia.</li>
         </ul>
 
-        <p>Si la cuenta no tiene habilitado en PILOT el informe que necesita un widget (por ejemplo, el de Safety Score, infracciones, pérdida de conexión o peajes), el widget no consulta nada y muestra "No disponible en esta cuenta" con el tipo de informe que falta. Lo mismo ocurre con el módulo de mantención y las geocercas: si PILOT responde que la cuenta no tiene permiso, la extensión no vuelve a pedirlos hasta recargar la página.</p>
+        <p>Si la cuenta no tiene habilitado en PILOT el informe que necesita un widget (por ejemplo, el de Safety Score, infracciones, pérdida de conexión o peajes), el widget no consulta nada y muestra "No disponible en esta cuenta" con el tipo de informe que falta. Lo mismo ocurre con el módulo de mantención y las geocercas: si PILOT responde que la cuenta no tiene permiso, la extensión no vuelve a pedirlos hasta recargar la página. En Alertas Generales, las tarjetas de Ralentí y de combustible muestran "No disponible" cuando falta su informe, y el Golden Report omite esas filas (y la sección de Safety Score) con una nota en su lugar.</p>
 
         <h2>Widgets de la vista RAC</h2>
         <ul>
@@ -286,6 +286,11 @@
             demás usuarios ven el dashboard con los valores de <code>config.json</code> (por ejemplo,
             sin logo propio ni sucursales). Los parámetros vigentes se pueden consultar, en solo
             lectura, desde el botón "Controles".
+        </p>
+        <p>
+            La extensión solo acepta las secciones que conoce: una sección con un nombre mal escrito,
+            o con un nombre reservado, se descarta con un aviso en la consola del navegador en vez de
+            quedar guardada sin efecto.
         </p>
         <p>Secciones y valores por defecto:</p>
         <pre><code>{
@@ -461,14 +466,14 @@
         </p>
 
         <h2>Estado</h2>
-        <p>Versión <strong>0.27.11</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
+        <p>Versión <strong>0.28.0</strong> — en desarrollo activo, verificada y funcionando en instancia PILOT real.</p>
 
         <footer>
             Documentación de la extensión · Dashboard Enhancer
             <br>
-            Versión 0.27.11
+            Versión 0.28.0
             <br>
-            <p>Version 2026-10-29-1827</p>
+            <p>Version 2026-10-30-1436</p>
         </footer>
     </section>
 
@@ -528,7 +533,7 @@
             <li><strong>Fleet scope</strong> — the dashboard always considers the entire fleet that PILOT shows the user, regardless of which vehicles are ticked in the "Main" panel. Heavy reports have a safety cap on the number of vehicles queried (<code>fleet.maxVehicles</code>, 1500 by default). Maps can be narrowed to one folder with the menu on their card.</li>
             <li><strong>Refresh widgets</strong> — the button at the bottom of the dashboard ("Actualizar widgets") re-queries every indicator without reloading the page and stamps the time of the last update. Fleet Status and Vehicles with No GPS Signal also follow PILOT's live vehicle tree, and General Alerts re-queries itself every 5 minutes; the other widgets update with the button.</li>
             <li><strong>Scale</strong> — the − and + buttons at the bottom shrink or enlarge the whole dashboard (80% to 130%, in 5% steps), which is handy on large screens or external monitors. It is saved in the browser.</li>
-            <li><strong>Controls (administrator only)</strong> — the "Controles" button is visible only to the account's PILOT administrator. It opens a window to choose the view, review which widgets each view has (active, in development or hidden) and consult, read-only, the current parameters (scope, time periods, idle threshold and time zone). Other users see the full dashboard, only without that button. Nothing a user does leaves their browser: the chosen view and scale do not change the configuration of the account or of other users.</li>
+            <li><strong>Controls (administrator only)</strong> — the "Controles" button is visible only to the account's PILOT administrator. It opens a window to choose the view, review which widgets each view has (active, in development or hidden) and consult, read-only, the current parameters (scope, time periods, idle threshold and time zone). It also includes a session error log: the reports or modules the account does not have and the widgets that failed to load, with how many times it happened, how many vehicles the fleet had at that moment and the query time limit; it helps tune the time limits to the size of the account. The log lives only in the browser and is cleared when the page is reloaded. Other users see the full dashboard, only without that button. Nothing a user does leaves their browser: the chosen view and scale do not change the configuration of the account or of other users.</li>
         </ul>
 
         <h2>Widgets in both views</h2>
@@ -556,7 +561,7 @@
             <li><strong>Logo</strong> — shows the extension's logo or, if the account has its own logo in its profile, the account's logo (see "Appearance"). Below it, the installed version and build are shown, which is useful when reporting an issue.</li>
         </ul>
 
-        <p>If the account does not have in PILOT the report a widget needs (for example, Safety Score, violations, connection loss or tolls), the widget does not query anything and shows "Not available in this account" with the missing report type. The same applies to the maintenance module and geofences: if PILOT answers that the account has no permission, the extension does not request them again until the page is reloaded.</p>
+        <p>If the account does not have in PILOT the report a widget needs (for example, Safety Score, violations, connection loss or tolls), the widget does not query anything and shows "Not available in this account" with the missing report type. The same applies to the maintenance module and geofences: if PILOT answers that the account has no permission, the extension does not request them again until the page is reloaded. In General Alerts, the Idle and fuel cards show "Not available" when their report is missing, and the Golden Report leaves those rows out (and the Safety Score section) with a note in their place.</p>
 
         <h2>RAC view widgets</h2>
         <ul>
@@ -622,6 +627,11 @@
             <code>config.json</code>. Only the administrator receives the account profile: other users see
             the dashboard with the <code>config.json</code> values (for example, without an own logo or
             branches). The current parameters can be consulted, read-only, from the "Controles" button.
+        </p>
+        <p>
+            The extension only accepts the sections it knows: a section with a misspelled name, or with
+            a reserved name, is discarded with a warning in the browser console instead of being stored
+            with no effect.
         </p>
         <p>Sections and default values:</p>
         <pre><code>{
@@ -795,14 +805,14 @@
         </p>
 
         <h2>Status</h2>
-        <p>Version <strong>0.27.11</strong> — under active development, verified and running on a live PILOT instance.</p>
+        <p>Version <strong>0.28.0</strong> — under active development, verified and running on a live PILOT instance.</p>
 
         <footer>
             Extension Documentation · Dashboard Enhancer
             <br>
-            Version 0.27.11
+            Version 0.28.0
             <br>
-            <p>Version 2026-10-29-1827</p>
+            <p>Version 2026-10-30-1436</p>
         </footer>
     </section>
 

@@ -2094,6 +2094,21 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     white-space: nowrap;
 }
 
+.promatic_dashboard_enhancer-ctl__table--log {
+    font-size: 0.85em;
+}
+
+.promatic_dashboard_enhancer-ctl__table--log th {
+    padding: 0.3em 0.4em;
+    text-align: left;
+    border-bottom: 1px solid #cbd5e1;
+}
+
+.promatic_dashboard_enhancer-ctl__table--log td {
+    vertical-align: top;
+    overflow-wrap: anywhere;
+}
+
 .promatic_dashboard_enhancer-ctl__st--dev {
     color: #498db8;
     font-style: italic;
