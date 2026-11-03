@@ -2068,6 +2068,12 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     margin-top: 0;
 }
 
+/* Agrupa las versiones del historial por tipo de configuración. */
+.promatic_dashboard_enhancer-ctl h5 {
+    margin: 8px 0 4px;
+    font-size: 12px;
+}
+
 .promatic_dashboard_enhancer-ctl__opt {
     display: block;
     padding: 0.35em 0;
@@ -2358,4 +2364,11 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
    se carguen, pero no se muestra. */
 .promatic_dashboard_enhancer-widget-hidden {
     display: none !important;
+}
+
+/* Aviso al pie de un widget cuando una consulta de flota en bloques quedó incompleta. */
+.promatic_dashboard_enhancer-partial {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #92400e;
 }

@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.28.0',
-    moduleBuild: '2026-10-30-1436',
+    version: '0.29.0',
+    moduleBuild: '2026-11-03-1841',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -49,7 +49,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // varios widgets trabajan sobre una muestra parcial. 1500 cubre con
         // holgura una flota de ~1350 vehículos; si la flota supera el tope,
         // subirlo acá y en config.json.
-        fleet: { scope: 'all', maxVehicles: 1500 },
+        //
+        // requestChunkSize: vehículos por consulta a PILOT. Lo que rompe una
+        // petición es su tamaño, no el total de la flota, así que una flota
+        // mayor se consulta en bloques de este tamaño (máximo en LIMITES).
+        fleet: { scope: 'all', maxVehicles: 1500, requestChunkSize: 400 },
         // Vista activa del panel: 'rac' (renta de autos sueltos) o 'lop'
         // (administrador de flota). Un override en localStorage (modal
         // "Controles") gana sobre este valor.
@@ -75,7 +79,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // ven: con backgroundDenseFrom o más, la liviana (retícula); con
         // menos, la más visible (curvas de nivel). También 'reticula', 'topo',
         // 'color' (solo el color base) y 'off' (no se toca el panel).
-        ui: { preset: 'rac', hiddenWidgets: ['violations'], hiddenAlerts: ['manipulacion', 'fuerazona'], background: 'auto', backgroundDenseFrom: 9 },
+        // refreshSeconds: cada cuántos segundos corre el refresco automático;
+        // el rango permitido (60 a 360) lo fija LIMITES.
+        ui: { preset: 'rac', hiddenWidgets: ['violations'], hiddenAlerts: ['manipulacion', 'fuerazona'], background: 'auto', backgroundDenseFrom: 9, refreshSeconds: 60 },
         // Logo de la cuenta: con logo propio (config remota, branding.logoUrl o
         // branding.logoSrc) alterna con el de Promatic y el de PILOT (ver renderLogo).
         // sequence: qué logos y en qué orden ('client', 'promatic', 'pilot');
@@ -119,6 +125,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         branches: {
             clientMap: []
         },
+        // Valores fijos que no edita el administrador de la cuenta (solo
+        // Promatic, vía config_sistema): timeouts de las consultas en ms,
+        // cuántos fallos seguidos cortan un widget y chunkPauseMs, la pausa
+        // entre bloques de una consulta de flota. `limites` lleva los
+        // overrides de rango de la cuenta; ver LIMITES.
+        sistema: { timeoutsMs: { trips: 8000, analytics: 15000, reports: 20000, fleet: 45000, geofences: 20000, events: 30000, fuel: 30000 }, failLimit: 8, chunkPauseMs: 1500, limites: {} },
         remoteConfig: { url: 'https://qeveneftsqplkbjetwxf.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFldmVuZWZ0c3FwbGtiamV0d3hmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyMTMzNjIsImV4cCI6MjEwNjc4OTM2Mn0.bFs4o94f9fZT-iHtOUqJY3DuKaxoBNWXb9NpbeOWeuY' },
         // maskPlates=true reemplaza la patente (en PILOT suele ser el "Nombre
         // de Vehículo") por un alias en toda la UI. Está desactivado porque
@@ -164,13 +176,44 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         }
     },
 
+    // Rangos de los parámetros que cargan consultas sobre PILOT. Los fija
+    // Promatic porque salen de los límites de la API: un valor fuera de rango
+    // puede romper la petición de un widget. Lote y cantidad de vehículos
+    // solo tienen tope; pausa y caché solo tienen piso (bajarlos aumenta la
+    // carga). DEBE coincidir con la tabla limites_base de Supabase: la base
+    // rechaza lo que excede el rango al guardar y esta tabla recorta lo que
+    // llega, por si una versión vieja o una edición manual lo dejó fuera.
+    // fleet.maxVehicles (cuántos vehículos abarca la flota) no figura: no tiene
+    // tope porque una flota grande se consulta en bloques de requestChunkSize.
+    LIMITES: {
+        'fleet.requestChunkSize': { min: 1, max: 400 },
+        'top5km.activeVehicleCap': { min: 1, max: 300 },
+        'top5km.tripsMaxVehicles': { min: 1, max: 30 },
+        'top5km.tripsBatchSize': { min: 1, max: 4 },
+        'top5km.windowDays': { min: 1, max: 7 },
+        'ecoScore.windowDays': { min: 1, max: 7 },
+        'violations.windowDays': { min: 1, max: 7 },
+        'borderAlert.windowDays': { min: 1, max: 7 },
+        'hotspots.windowDays': { min: 1, max: 30 },
+        'fuel.windowDays': { min: 1, max: 3 },
+        'fuel.batchSize': { min: 1, max: 3 },
+        'fuel.pauseMs': { min: 1000, max: 10000 },
+        'fuel.maxVehicles': { min: 1, max: 60 },
+        'fuel.cacheMinutes': { min: 30, max: 240 },
+        'lop.batch.batchSize': { min: 1, max: 60 },
+        'lop.batch.batchPauseMs': { min: 1500, max: 10000 },
+        'lop.batch.maxVehicles': { min: 1, max: 600 },
+        'lop.batch.cacheMinutes': { min: 30, max: 240 },
+        'ui.refreshSeconds': { min: 60, max: 360 }
+    },
+
     // Secciones de config que el código lee. De config.json o del perfil
     // remoto solo se aceptan estas: un nombre mal escrito en el perfil se
     // descarta con aviso en vez de quedar guardado sin efecto. `lop` no está
     // en DEFAULT_CONFIG (sus valores por defecto viven en su propio lector).
     // Al agregar una sección nueva hay que sumarla acá.
     CONFIG_SECTIONS: ['top5km', 'fleet', 'ui', 'clock', 'ecoScore', 'borderAlert', 'violations',
-        'branches', 'privacy', 'hotspots', 'fuel', 'lop', 'branding', 'remoteConfig'],
+        'branches', 'privacy', 'hotspots', 'fuel', 'lop', 'branding', 'sistema', 'remoteConfig'],
 
     // Claves que, copiadas con Ext.apply o una asignación, alcanzarían el
     // prototipo de un objeto (o propiedades de Object) en vez de un dato.
@@ -2895,7 +2938,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 clearTimeout(guard);
                 me._autoRefreshBusy = false;
             });
-        }, 60000);
+        }, me._autoRefreshMs = me._refreshMs());
     },
 
     // Pinta el skeleton de carga en el body de una card (si está montada).
@@ -3249,6 +3292,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 // Foto al abrir el modal; el registro es del administrador
                 // aunque el modal se invoque por otra vía que el botón.
                 (this.isAdminUser() ? '<h4>' + esc(l('Registro de errores')) + '</h4>' + this._errorLogHtml() : '') +
+                (this.canEditConfig() ? '<h4>' + esc(l('Historial de configuración')) + '</h4><div id="' + idBase + '-hist">' + esc(l('Cargando…')) + '</div>' : '') +
                 '<div id="' + idBase + '-msg" class="promatic_dashboard_enhancer-ctl__msg"></div>' +
             '</div>';
 
@@ -3275,10 +3319,34 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         }
                     }
                 },
+                {
+                    text: l('Restaurar'),
+                    hidden: !this.canEditConfig(),
+                    handler: function () {
+                        var sel = document.querySelector('input[name="' + idBase + '-hist"]:checked');
+                        var msg = document.getElementById(idBase + '-msg');
+                        if (!sel) { if (msg) { msg.textContent = l('Elige una versión de la lista.'); } return; }
+                        var parts = sel.value.split('|');
+                        Ext.Msg.confirm(l('Restaurar configuración'),
+                            l('Se creará una versión nueva con la configuración elegida. ¿Continuar?'), function (btn) {
+                                if (btn !== 'yes') { return; }
+                                me.restoreConfig(parts[0], Number(parts[1])).then(function () {
+                                    if (msg) { msg.textContent = l('Restaurada. Recarga la página (F5) para aplicarla.'); }
+                                }, function () {
+                                    if (msg) { msg.textContent = l('No se pudo restaurar; no se cambió nada.'); }
+                                });
+                            });
+                    }
+                },
                 { text: l('Cerrar'), handler: function () { me.closeControlsModal(); } }
             ],
             listeners: {
                 afterrender: function (win) {
+                    var hist = document.getElementById(idBase + '-hist');
+                    if (hist) {
+                        me.listConfigHistory().then(function (rows) { hist.innerHTML = me._configHistoryHtml(rows); },
+                            function () { hist.textContent = l('No se pudo leer el historial.'); });
+                    }
                     win.getEl().on('change', function (e) {
                         var t = e.getTarget('input[type=radio]');
                         var box = document.getElementById(idBase + '-widgets');
@@ -3461,6 +3529,55 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         if (/events\.php/.test(key)) { return l('Eventos'); }
         var m = /^reports\.php:report_type=(\d+)/.exec(key);
         return m ? this._reportName(Number(m[1])) : key;
+    },
+
+    /** Administrador (edicion) o superadmin: pueden ver y restaurar el historial de la config. */
+    canEditConfig: function () { return this._configNivel === 'edicion' || this._configNivel === 'superadmin'; },
+
+    /** Solo Promatic: además de lo del administrador, ve y restaura la config sensible y la del sistema. */
+    isSuperAdmin: function () { return this._configNivel === 'superadmin'; },
+
+    /**
+     * Cuenta destino para el superadmin (su token pertenece a otra cuenta que la
+     * de la sesión); el administrador no la envía: la base la saca del token.
+     */
+    _targetAccount: function () { return this.isSuperAdmin() ? { p_account_id: this._accountId() } : {}; },
+
+    /** Versiones guardadas de la config de la cuenta (solo metadatos), de la más nueva a la más antigua. */
+    listConfigHistory: function () {
+        return this._rpc('listar_historial_cuenta', Ext.apply({ p_hashes: this._editHashes || [] }, this._targetAccount()));
+    },
+
+    /** Crea una versión nueva con el contenido de `version` (0 = sin ajustes, vuelve a config.json). */
+    restoreConfig: function (kind, version) {
+        return this._rpc('restaurar_config_cuenta',
+            Ext.apply({ p_hashes: this._editHashes || [], p_kind: kind, p_version: version }, this._targetAccount()));
+    },
+
+    /** Lista de selección única de versiones por tipo, más «Por omisión»; todo escapado. */
+    _configHistoryHtml: function (rows) {
+        var esc = Ext.String.htmlEncode, name = 'promatic_dashboard_enhancer-ctl-hist';
+        var titulos = {
+            config_publica: l('Configuración general'),
+            config_sensible: l('Configuración de carpetas y grupos'),
+            config_sistema: l('Configuración del sistema')
+        };
+        var motivos = { inicial: l('Inicial'), edicion: l('Edición'), restauracion: l('Restauración'), sql: l('Edición manual') };
+        var out = '';
+        // El administrador solo restaura la general; la base lo exige igual.
+        var tipos = this.isSuperAdmin() ? ['config_publica', 'config_sensible', 'config_sistema'] : ['config_publica'];
+        tipos.forEach(function (kind) {
+            out += '<h5>' + esc(titulos[kind]) + '</h5>';
+            (rows || []).filter(function (r) { return r.kind === kind; }).forEach(function (r) {
+                out += '<label class="promatic_dashboard_enhancer-ctl__opt"><input type="radio" name="' + name + '" value="' +
+                    esc(kind + '|' + r.version) + '"> <b>' + esc(motivos[r.motivo] || r.motivo) + '</b><span>' +
+                    esc(String(r.created_at).replace('T', ' ').slice(0, 16)) + ' · ' + esc(r.editor || '') + '</span></label>';
+            });
+            out += '<label class="promatic_dashboard_enhancer-ctl__opt"><input type="radio" name="' + name + '" value="' +
+                esc(kind + '|0') + '"> <b>' + esc(l('Por omisión (sin ajustes)')) + '</b><span>' +
+                esc(l('Vuelve a la configuración base de la extensión')) + '</span></label>';
+        });
+        return out;
     },
 
     /** Tabla del registro de errores para el modal Controles (solo administrador). */
@@ -4534,7 +4651,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '&date_stop=' + encodeURIComponent(isoNoMs(stopDate)) +
             '&limit=5000&page=1&start=0&node=root';
         var ctrl = new AbortController();
-        var to = setTimeout(function () { ctrl.abort(); }, 45000);
+        var to = setTimeout(function () { ctrl.abort(); }, this._sys('timeoutsMs.fleet', 45000));
 
         return fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include', signal: ctrl.signal })
             .then(function (resp) {
@@ -4603,7 +4720,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '&date_stop=' + encodeURIComponent(isoNoMs(stopDate)) +
             '&limit=5000&page=1&start=0&node=root';
         var ctrl = new AbortController();
-        var to = setTimeout(function () { ctrl.abort(); }, 45000);
+        var to = setTimeout(function () { ctrl.abort(); }, this._sys('timeoutsMs.fleet', 45000));
 
         return fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include', signal: ctrl.signal })
             .then(function (resp) {
@@ -4758,7 +4875,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             '&date_stop=' + encodeURIComponent(isoNoMs(stopDate)) +
             '&limit=1000&page=1&start=0';
         var ctrl = new AbortController();
-        var to = setTimeout(function () { ctrl.abort(); }, 30000);
+        var to = setTimeout(function () { ctrl.abort(); }, this._sys('timeoutsMs.events', 30000));
         return fetch('/backend/ax/mod/events.php?' + qs, { credentials: 'include', signal: ctrl.signal })
             .then(function (resp) {
                 if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
@@ -5584,7 +5701,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var rawLogged = 0;
 
             var runOne = function (id) {
-                return me.fetchReportType(16, String(id), start, stop, 30000).then(function (resp) {
+                return me.fetchReportType(16, String(id), start, stop, me._sys('timeoutsMs.fuel', 30000)).then(function (resp) {
                     if (rawLogged < cfg.debugRawMax) {
                         rawLogged++;
                         dbg('combustible report_type=16 crudo (agent ' + id + '):', resp);
@@ -6391,11 +6508,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var start = new Date();
             start.setDate(start.getDate() - days);
 
-            // Reusa el cuerpo estándar de reports.php (buildReportBody) y
-            // solo sobrescribe group=6 y report_type=223.
-            var body = me.buildReportBody(223, vehIds.join(','), start, stop)
-                .replace(/(^|&)group=1(&|$)/, '$1group=6$2');
-
+            // Cada bloque reusa el cuerpo estándar de reports.php
+            // (buildReportBody) y solo sobrescribe group=6 y report_type=223.
             // El "Previous Rating" (c8) lo calcula PILOT sobre
             // pre_start_date/pre_stop_date. buildReportBody los deja iguales
             // al período actual (válido para los otros reportes) y el rating
@@ -6405,38 +6519,46 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var fmtDay = function (d) { return pad2(d.getDate()) + '.' + pad2(d.getMonth() + 1) + '.' + d.getFullYear(); };
             var preStart = new Date(start);
             preStart.setDate(preStart.getDate() - days);
-            body = body
-                .replace(/(^|&)pre_start_date=[^&]*/, '$1pre_start_date=' + encodeURIComponent(fmtDay(preStart)))
-                .replace(/(^|&)pre_stop_date=[^&]*/, '$1pre_stop_date=' + encodeURIComponent(fmtDay(start)));
-
-            var ctrl = new AbortController();
-            // 45 s y no 25 s: con fleet.maxVehicles=1500 el POST manda hasta
-            // 1500 agent_id en un solo request. Con flota chica sobraba
-            // margen; con la flota completa daba timeout.
-            var to = setTimeout(function () { ctrl.abort(); }, 45000);
-
-            fetch('/backend/ax/reports.php', {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: body,
-                signal: ctrl.signal
-            })
-                .then(function (resp) {
-                    if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
-                    return resp.json();
+            var limitMs = me._sys('timeoutsMs.fleet', 45000);
+            var fetchChunk = function (csv) {
+                var body = me.buildReportBody(223, csv, start, stop)
+                    .replace(/(^|&)group=1(&|$)/, '$1group=6$2')
+                    .replace(/(^|&)pre_start_date=[^&]*/, '$1pre_start_date=' + encodeURIComponent(fmtDay(preStart)))
+                    .replace(/(^|&)pre_stop_date=[^&]*/, '$1pre_stop_date=' + encodeURIComponent(fmtDay(start)));
+                var ctrl = new AbortController();
+                var to = setTimeout(function () { ctrl.abort(); }, limitMs);
+                return fetch('/backend/ax/reports.php', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body,
+                    signal: ctrl.signal
                 })
-                .then(function (data) {
+                    .then(function (resp) {
+                        if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                        return resp.json();
+                    })
+                    .catch(function (err) { throw me._tagTimeout(err, limitMs); })
+                    .finally(function () { clearTimeout(to); });
+            };
+
+            me._runBatches(vehIds, function (slice) { return fetchChunk(slice.join(',')); },
+                { batchSize: me._chunkSize(), pauseMs: me._chunkPauseMs() })
+                .then(function (r) {
+                    if (!r.resps.length) { throw r.lastError || new Error('ningún bloque respondió'); }
+                    r.partial = !!r.aborted || r.failed > 0;
+                    var data = me.mergeReportResponses(r.resps);
                     // Cachea la respuesta cruda: loadAlertasGenerales la
                     // reusa para la alerta de ralentí excesivo (c1 = Excess
                     // Idle en segundos) sin una segunda llamada al reporte.
                     me._lastEcoResp = data;
                     me.renderEcoScore(data, days);
+                    me._appendPartialNote('eco_score', r, 'ECO-SCORE');
                     me.refreshRalentiAlert();
                     me._onLopDataReady();
                 })
                 .catch(function (err) {
-                    var code = me.widgetErrorCode('ECO-SCORE', me._tagTimeout(err, 45000));
+                    var code = me.widgetErrorCode('ECO-SCORE', me._tagTimeout(err, me._sys('timeoutsMs.fleet', 45000)));
                     me.updateCardBody('eco_score', l('No se pudo cargar el Safety Score.') + ' (' + code + ')', 0, true);
                     // Ralentí sale del mismo reporte: sin él la tarjeta pasa de
                     // "cargando" a "N/D" en vez de quedar con el spinner. Un
@@ -6446,8 +6568,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me._alertRalentiIds = [];
                         me.renderAlertasGenerales();
                     }
-                })
-                .finally(function () { clearTimeout(to); });
+                });
         });
     },
 
@@ -6657,11 +6778,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var start = new Date();
             start.setDate(start.getDate() - days);
 
-            // 45 s y no 25 s, mismo motivo que Safety Score: con
-            // fleet.maxVehicles=1500 el POST tarda más de 25 s.
-            me.fetchReportType(114, vehIds.join(','), start, stop, 45000)
-                .then(function (data) {
-                    me.renderViolationsTrend(data, days);
+            me.fetchReportChunked(114, vehIds, start, stop)
+                .then(function (r) {
+                    me.renderViolationsTrend(r.merged, days);
+                    me._appendPartialNote('violations', r, 'VIOLATIONS');
                 })
                 .catch(function (err) {
                     var code = me.widgetErrorCode('VIOLATIONS', err);
@@ -7101,13 +7221,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var shortMax = (cfg && cfg.shortGapMaxSeconds) || 90;
 
         this.withFleetVehicleIds(function (vehIds) {
-            var csv = vehIds.join(',');
             var stop = new Date();
             var start = new Date();
             start.setDate(start.getDate() - windowDays);
 
-            me.fetchConnectionLostPoints(csv, start, stop, shortMin)
-                .then(function (allPoints) { return me._dropBranchCuts(allPoints); })
+            me._fetchConnectionLostChunked(vehIds, start, stop, shortMin)
+                .then(function (r) {
+                    me._notePartial(r, 'HOTSPOTS');
+                    return me._dropBranchCuts(r.points);
+                })
                 .then(function (rawPoints) {
                     var bucketsLong = {}, bucketsShort = {};
                     var countLong = 0, countShort = 0;
@@ -7338,19 +7460,26 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * breves/largos client-side, evitando 2 requests.
      */
     fetchConnectionLostPoints: function (vehIdsCsv, startDate, stopDate, contrTimeFloor) {
+        var me = this;
         var body = this.buildReportBody(73, vehIdsCsv, startDate, stopDate)
             .replace(/contr_time=\d+/, 'contr_time=' + encodeURIComponent(contrTimeFloor))
             .replace(/group=\d+/, 'group=1');
+        var limitMs = this._sys('timeoutsMs.fleet', 45000);
+        var ctrl = new AbortController();
+        var to = setTimeout(function () { ctrl.abort(); }, limitMs);
         return fetch('/backend/ax/reports.php', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body
+            body: body,
+            signal: ctrl.signal
         })
             .then(function (resp) {
                 if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
                 return resp.json();
             })
+            .catch(function (err) { throw me._tagTimeout(err, limitMs); })
+            .finally(function () { clearTimeout(to); })
             .then(function (json) {
                 var data = (json && json.data) || {};
                 var out = [];
@@ -7369,6 +7498,24 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 }
                 return out;
             });
+    },
+
+    /**
+     * Puntos de pérdida de conexión de toda la flota, un bloque de
+     * _chunkSize() vehículos a la vez. Cada bloque ya devuelve sus puntos
+     * procesados, así que se concatenan (el informe numera los ítems por
+     * respuesta y unir los JSON crudos podría pisar claves).
+     */
+    _fetchConnectionLostChunked: function (vehIds, start, stop, shortMin) {
+        var me = this;
+        return this._runBatches(vehIds, function (slice) {
+            return me.fetchConnectionLostPoints(slice.join(','), start, stop, shortMin);
+        }, { batchSize: this._chunkSize(), pauseMs: this._chunkPauseMs() }).then(function (r) {
+            if (!r.resps.length) { throw r.lastError || new Error('ningún bloque respondió'); }
+            r.points = [].concat.apply([], r.resps);
+            r.partial = !!r.aborted || r.failed > 0;
+            return r;
+        });
     },
 
     /**
@@ -7695,7 +7842,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             return;
         }
         var ctrl = new AbortController();
-        var to = setTimeout(function () { ctrl.abort(); }, 20000);
+        var to = setTimeout(function () { ctrl.abort(); }, me._sys('timeoutsMs.geofences', 20000));
 
         fetch('/api/v3/geofences', {
             method: 'GET',
@@ -8984,15 +9131,16 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * saturado, insistir solo empeora. onProgress(done, total, partial) se
      * llama tras cada lote para pintar resultados parciales. isStale() corta
      * si arrancó una carga más nueva.
-     * Resuelve { resps, failed, done, total, aborted }.
+     * Resuelve { resps, failed, done, total, aborted, lastError }.
      */
-    _lopRunBatches: function (ids, runOne, opts) {
+    _runBatches: function (ids, runOne, opts) {
         var total = ids.length, done = 0, failed = 0, consecutive = 0, aborted = false;
         var resps = [];
+        var lastError = null;
         var queue = ids.slice();
         return new Promise(function (resolve) {
             var step = function () {
-                if (queue.length === 0 || (opts.isStale && opts.isStale())) { resolve({ resps: resps, failed: failed, done: done, total: total, aborted: aborted }); return; }
+                if (queue.length === 0 || (opts.isStale && opts.isStale())) { resolve({ resps: resps, failed: failed, done: done, total: total, aborted: aborted, lastError: lastError }); return; }
                 var slice = queue.splice(0, opts.batchSize);
                 runOne(slice).then(function (resp) {
                     consecutive = 0;
@@ -9000,6 +9148,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 }).catch(function (err) {
                     failed++;
                     consecutive++;
+                    lastError = err;
                     console.warn('[promatic_dashboard_enhancer] lote de reporte falló (' + (err && err.message ? err.message : err) + ')');
                 }).then(function () {
                     done += slice.length;
@@ -9008,9 +9157,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         aborted = true;
                         console.warn('[promatic_dashboard_enhancer] 2 lotes seguidos fallaron: se corta la cola (' +
                             queue.length + ' vehículos sin consultar) para no arriesgar la sesión con PILOT.');
-                        resolve({ resps: resps, failed: failed, done: done, total: total, aborted: true });
+                        resolve({ resps: resps, failed: failed, done: done, total: total, aborted: true, lastError: lastError });
                         return;
                     }
+                    // La pausa separa bloques; después del último no se espera
+                    // (una flota chica terminaría esa pausa más tarde sin motivo).
+                    if (queue.length === 0) { step(); return; }
                     setTimeout(step, opts.pauseMs);
                 });
             };
@@ -9127,7 +9279,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var plan = { queried: cand.ids.length, scope: cand.scope };
 
         if (!me._lopFuel) { me._lopShowLoading(id, 'ranking', l('Cargando combustible…'), 0, cand.ids.length); }
-        return this._lopRunBatches(cand.ids, function (slice) {
+        return this._runBatches(cand.ids, function (slice) {
             return me._lopFetchReport(6, slice.join(','), start, stop, bcfg.batchTimeoutMs, cfg.explode);
         }, {
             batchSize: bcfg.batchSize, pauseMs: bcfg.batchPauseMs,
@@ -9448,7 +9600,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         start.setDate(start.getDate() - cfg.windowDays);
 
         if (!me._lopTag) { me._lopShowLoading(id, 'ranking', l('Cargando peajes…'), 0, cand.ids.length); }
-        return this._lopRunBatches(cand.ids, function (slice) {
+        return this._runBatches(cand.ids, function (slice) {
             return me._lopFetchReport(96, slice.join(','), start, stop, bcfg.batchTimeoutMs, cfg.explode);
         }, {
             batchSize: bcfg.batchSize, pauseMs: bcfg.batchPauseMs,
@@ -10191,10 +10343,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     fetchReportType: function (reportType, vehIdsCsv, startDate, stopDate, timeoutMs) {
         var me = this;
         var body = this.buildReportBody(reportType, vehIdsCsv, startDate, stopDate);
+        var limitMs = timeoutMs || this._sys('timeoutsMs.reports', 20000);
         var ctrl = new AbortController();
         var timeout = setTimeout(function () {
             ctrl.abort();
-        }, timeoutMs || 20000);
+        }, limitMs);
 
         return fetch('/backend/ax/reports.php', {
             method: 'POST',
@@ -10208,10 +10361,103 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             }
             return resp.json();
         }).catch(function (err) {
-            throw me._tagTimeout(err, timeoutMs || 20000);
+            throw me._tagTimeout(err, limitMs);
         }).finally(function () {
             clearTimeout(timeout);
         });
+    },
+
+    /** Vehículos por consulta: fleet.requestChunkSize, siempre entre 1 y el tope de LIMITES. */
+    _chunkSize: function () {
+        var lim = this.LIMITES['fleet.requestChunkSize'];
+        var n = Number(((this.config && this.config.fleet) || {}).requestChunkSize);
+        if (!isFinite(n)) { n = lim.max; }
+        return Math.floor(Math.min(Math.max(n, lim.min), lim.max));
+    },
+
+    /** Pausa entre bloques de una consulta de flota (ms). */
+    _chunkPauseMs: function () { return this._sys('chunkPauseMs', 1500); },
+
+    /**
+     * Une las respuestas de varios bloques en una sola { success, data }.
+     * Arreglos se concatenan; objetos se unen clave por clave hasta 3 niveles
+     * (el informe de ECO agrupa por grupo y patente: el mismo grupo llega en
+     * varios bloques con patentes distintas); en cualquier otro caso gana el
+     * último. Las claves de CONFIG_BLOCKED_KEYS se ignoran a cualquier nivel.
+     * Sin respuestas útiles devuelve { success: false, data: [] }.
+     */
+    mergeReportResponses: function (resps) {
+        var me = this;
+        var datas = (resps || []).filter(function (r) { return r && r.success !== false && r.data !== undefined; })
+            .map(function (r) { return r.data; });
+        if (!datas.length) { return { success: false, data: [] }; }
+        if (datas.every(Array.isArray)) { return { success: true, data: [].concat.apply([], datas) }; }
+        var isObj = function (v) { return v !== null && typeof v === 'object' && !Array.isArray(v); };
+        var mergeInto = function (target, src, depth) {
+            Object.keys(src).forEach(function (k) {
+                if (me.CONFIG_BLOCKED_KEYS.indexOf(k) !== -1) { return; }
+                var cur = Object.prototype.hasOwnProperty.call(target, k) ? target[k] : undefined;
+                if (Array.isArray(cur) && Array.isArray(src[k])) {
+                    target[k] = cur.concat(src[k]);
+                } else if (isObj(cur) && isObj(src[k]) && depth < 3) {
+                    mergeInto(cur, src[k], depth + 1);
+                } else if (isObj(src[k]) && depth < 3) {
+                    target[k] = {};
+                    mergeInto(target[k], src[k], depth + 1);
+                } else {
+                    target[k] = src[k];
+                }
+            });
+        };
+        var out = {};
+        datas.forEach(function (d) { if (isObj(d)) { mergeInto(out, d, 1); } });
+        return { success: true, data: out };
+    },
+
+    /**
+     * Consulta un informe para toda la flota en bloques de _chunkSize()
+     * vehículos, uno a la vez, con la pausa de _chunkPauseMs() entre bloques y
+     * el timeout de config.sistema por bloque. Una flota que cabe en un bloque
+     * hace una sola consulta y no espera. Resuelve con `merged` (respuestas
+     * unidas) y `partial` (faltaron bloques); si ningún bloque respondió
+     * rechaza con el último error, para conservar si fue un timeout.
+     * opts: { pauseMs?, isStale?, onProgress? }.
+     */
+    fetchReportChunked: function (reportType, ids, start, stop, opts) {
+        var me = this;
+        opts = opts || {};
+        var timeoutMs = this._sys('timeoutsMs.fleet', 45000);
+        return this._runBatches(ids, function (slice) {
+            return me.fetchReportType(reportType, slice.join(','), start, stop, timeoutMs);
+        }, {
+            batchSize: this._chunkSize(),
+            pauseMs: opts.pauseMs !== undefined ? opts.pauseMs : this._chunkPauseMs(),
+            isStale: opts.isStale,
+            onProgress: opts.onProgress
+        }).then(function (r) {
+            if (!r.resps.length && r.failed > 0) { throw r.lastError || new Error('ningún bloque respondió'); }
+            r.merged = me.mergeReportResponses(r.resps);
+            r.partial = !!r.aborted || r.failed > 0;
+            return r;
+        });
+    },
+
+    /** Pie para un resultado de bloques incompleto; '' si está completo. */
+    _partialNote: function (r) {
+        return r && r.partial ? l('Datos parciales') + ' (' + r.done + ' ' + l('de') + ' ' + r.total + ' ' + l('vehículos') + ')' : '';
+    },
+
+    /** Deja un resultado parcial en el registro de errores del administrador. */
+    _notePartial: function (r, codeBase) {
+        if (r && r.partial) { this.widgetErrorCode(codeBase, new Error('parcial ' + r.done + '/' + r.total)); }
+    },
+
+    /** Además del registro, agrega el aviso de datos parciales al final del cuerpo de la card. */
+    _appendPartialNote: function (cardId, r, codeBase) {
+        if (!r || !r.partial) { return; }
+        this._notePartial(r, codeBase);
+        var el = Ext.get('promatic_dashboard_enhancer-card-body-' + cardId);
+        if (el) { Ext.DomHelper.append(el, { cls: 'promatic_dashboard_enhancer-partial', html: Ext.String.htmlEncode(this._partialNote(r)) }); }
     },
 
     /**
@@ -10227,7 +10473,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var ctrl = new AbortController();
         var timeout = setTimeout(function () {
             ctrl.abort();
-        }, timeoutMs || 8000);
+        }, timeoutMs || this._sys('timeoutsMs.trips', 8000));
 
         return fetch(url, {
             method: 'GET',
@@ -10320,7 +10566,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var ctrl = new AbortController();
         var timeout = setTimeout(function () {
             ctrl.abort();
-        }, timeoutMs || 8000);
+        }, timeoutMs || this._sys('timeoutsMs.analytics', 15000));
 
         return fetch('/backend/ax/analytics/vehicles.php', {
             method: 'POST',
@@ -10349,7 +10595,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var ctrl = new AbortController();
         var timeout = setTimeout(function () {
             ctrl.abort();
-        }, timeoutMs || 8000);
+        }, timeoutMs || this._sys('timeoutsMs.analytics', 15000));
 
         return fetch('/backend/ax/analytics/dashboard.php', {
             method: 'POST',
@@ -10532,7 +10778,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var stale = function () { return loadNonce !== me._top5LoadNonce; };
 
             var runReports = function () {
-                return me.fetchReportType(4, csv, startDate, stopDate, 20000)
+                return me.fetchReportType(4, csv, startDate, stopDate, me._sys('timeoutsMs.reports', 20000))
                     .then(function (report) {
                         if (stale()) { return; }
                         me.renderTop5Km(me.parseReportType4(report, nameToId), days, startDate, stopDate, count);
@@ -10540,7 +10786,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     });
             };
             var runRatings = function () {
-                return me.fetchAnalyticsMainData(csv, 15000,
+                return me.fetchAnalyticsMainData(csv, me._sys('timeoutsMs.analytics', 15000),
                     startDate.toISOString().slice(0, 19), stopDate.toISOString().slice(0, 19))
                     .then(function (mainData) {
                         if (stale()) { return; }
@@ -10604,7 +10850,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var me = this;
         var batchSize = cfg.tripsBatchSize || 4;
         var kmField = cfg.kmField || 'gps';
-        var CONSECUTIVE_FAIL_LIMIT = 8;
+        var CONSECUTIVE_FAIL_LIMIT = me._sys('failLimit', 8);
         var tsUnix = Math.floor(startDate.getTime() / 1000);
         var teUnix = Math.floor(stopDate.getTime() / 1000);
         var idToName = {};
@@ -10623,7 +10869,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             if (queue.length === 0 || breakerTripped) { return PromiseImpl.resolve(); }
             var slice = queue.splice(0, batchSize);
             var calls = slice.map(function (id) {
-                return me.fetchVehicleTripsV3(id, tsUnix, teUnix, 8000)
+                return me.fetchVehicleTripsV3(id, tsUnix, teUnix, me._sys('timeoutsMs.trips', 8000))
                     .then(function (resp) {
                         consecutiveFails = 0;
                         results.push({ id: id, km: me.sumTripsKm(resp, kmField), daily: me.dailyTripsKm(resp, kmField, dayList) });
@@ -11369,6 +11615,72 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return '/store/promatic_dashboard_enhancer/';
     },
 
+    /** Valor en una ruta con puntos ('fleet.requestChunkSize') o undefined si falta algún nivel. */
+    _getPath: function (obj, path) {
+        var parts = path.split('.'), cur = obj, i;
+        for (i = 0; i < parts.length; i++) {
+            if (cur === null || typeof cur !== 'object' || !Object.prototype.hasOwnProperty.call(cur, parts[i])) { return undefined; }
+            cur = cur[parts[i]];
+        }
+        return cur;
+    },
+
+    /** Valor fijo de config.sistema (ruta con puntos); respaldo si falta o no es un número positivo. */
+    _sys: function (path, fallback) {
+        var v = this._getPath((this.config && this.config.sistema) || {}, path);
+        return typeof v === 'number' && isFinite(v) && v > 0 ? v : fallback;
+    },
+
+    /**
+     * Recorta a LIMITES lo que llega de la nube. Devuelve una copia (no muta
+     * `incoming`) y la lista de recortes. `overrides` es el mapa de rangos de
+     * la cuenta: { clave: { min?, max? } }, cada lado reemplaza al base.
+     * Un valor que no es número se elimina para que valga el de config.json.
+     */
+    _applyLimits: function (incoming, overrides) {
+        var me = this, clamped = [];
+        var config = me._cloneJsonSafe(incoming, 0) || {};
+        Object.keys(me.LIMITES).forEach(function (clave) {
+            var parts = clave.split('.'), last = parts.pop(), parent = config, i;
+            for (i = 0; i < parts.length; i++) {
+                parent = parent && typeof parent === 'object' ? parent[parts[i]] : undefined;
+            }
+            if (!parent || typeof parent !== 'object' || !Object.prototype.hasOwnProperty.call(parent, last)) { return; }
+            var base = me.LIMITES[clave], ov = (overrides && overrides[clave]) || {};
+            var lo = typeof ov.min === 'number' ? ov.min : base.min;
+            var hi = typeof ov.max === 'number' ? ov.max : base.max;
+            var v = parent[last];
+            if (typeof v !== 'number' || !isFinite(v)) {
+                delete parent[last];
+                clamped.push({ clave: clave, de: v, a: null });
+            } else if (v < lo || v > hi) {
+                parent[last] = Math.min(Math.max(v, lo), hi);
+                clamped.push({ clave: clave, de: v, a: parent[last] });
+            }
+        });
+        clamped.forEach(function (c) {
+            me._logError({ tipo: 'modulo', id: 'limite:' + c.clave, nombre: 'Config: ' + c.clave,
+                detalle: 'valor ' + c.de + (c.a === null ? ' descartado' : ' recortado a ' + c.a) });
+        });
+        return { config: config, clamped: clamped };
+    },
+
+    /** Intervalo del refresco automático en ms, siempre dentro de LIMITES['ui.refreshSeconds']. */
+    _refreshMs: function () {
+        var lim = this.LIMITES['ui.refreshSeconds'];
+        var s = Number(((this.config && this.config.ui) || {}).refreshSeconds);
+        if (!isFinite(s)) { s = lim.min; }
+        return Math.min(Math.max(s, lim.min), lim.max) * 1000;
+    },
+
+    /** Reinicia el refresco automático si el intervalo vigente cambió (la config remota llega después del arranque). */
+    _restartAutoRefresh: function () {
+        if (!this._autoRefreshTimer || this._autoRefreshMs === this._refreshMs()) { return; }
+        clearInterval(this._autoRefreshTimer);
+        this._autoRefreshTimer = null;
+        this.startAutoRefresh();
+    },
+
     /**
      * Copia un valor JSON a estructuras nuevas, sin las claves de
      * CONFIG_BLOCKED_KEYS y hasta CONFIG_MAX_DEPTH niveles. Lo que no es JSON
@@ -11491,6 +11803,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 // render, la vista puede ser distinta de la que se aplicó.
                 if (me._activePreset && me.effectiveUiPreset() !== me._activePreset) { me.applyViewPreset(); }
                 me.syncHiddenWidgets();
+                me._restartAutoRefresh();
                 // El logo se pinta al montar el panel, normalmente antes de
                 // que llegue la config remota: se repinta si trae uno propio.
                 if (me._logoSrcShown !== undefined && me.brandingLogoSrc() !== me._logoSrcShown) { me.renderLogo(); }
@@ -11505,49 +11818,82 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         });
     },
 
+    /** account_id de la cuenta de PILOT como número, o null si no se puede leer. */
+    _accountId: function () {
+        try {
+            var id = Pilot.helpers.CurrentUser.getAccountId();
+            var n = typeof id === 'number' ? id : (/^\d+$/.test(String(id)) ? Number(id) : NaN);
+            return isFinite(n) ? n : null;
+        } catch (e) { return null; }
+    },
+
+    /** POST a una función RPC de Supabase con la clave pública. Lanza si la respuesta no es 2xx. */
+    _rpc: function (name, body) {
+        var remote = (this.config && this.config.remoteConfig) || {};
+        return fetch(remote.url + '/rest/v1/rpc/' + name, {
+            method: 'POST',
+            headers: { 'apikey': remote.key, 'Authorization': 'Bearer ' + remote.key, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(function (resp) {
+            if (!resp.ok) { throw new Error(name + ' HTTP ' + resp.status); }
+            return resp.json();
+        });
+    },
+
+    /** Hashes SHA-256 de los tokens de Monitor visibles para el usuario ([] si no tiene o falla). */
+    _tokenHashes: function () {
+        var me = this;
+        return fetch('/backend/ax/user/tokens.php?page=1&start=0&limit=25', { credentials: 'same-origin' })
+            .then(function (resp) { if (!resp.ok) { throw new Error('tokens HTTP ' + resp.status); } return resp.json(); })
+            .then(function (list) {
+                var tokens = (Array.isArray(list) ? list : []).filter(function (t) { return t && t.token; });
+                return Promise.all(tokens.map(function (t) { return me.sha256Hex(String(t.token)); }));
+            })
+            .catch(function () { return []; });
+    },
+
+    /**
+     * Config remota por cuenta, en dos niveles (ver el diseño de la config por
+     * cuenta): el público por account_id, sin token, que cubre también a quien
+     * no es administrador; y el sensible por hash de token. Cada fallo deja
+     * lo que ya hay (config.json). Orden: sistema < pública < sensible, con lo
+     * que llega recortado a LIMITES y al override de la cuenta.
+     */
     loadRemoteConfig: function () {
         var me = this;
         var remote = (me.config && me.config.remoteConfig) || {};
         if (!remote.url || !remote.key || !window.crypto || !crypto.subtle) { return Promise.resolve(); }
-
-        return fetch('/backend/ax/user/tokens.php?page=1&start=0&limit=25', { credentials: 'same-origin' })
-            .then(function (resp) {
-                if (!resp.ok) { throw new Error('tokens HTTP ' + resp.status); }
-                return resp.json();
-            })
-            .then(function (list) {
-                var tokens = (Array.isArray(list) ? list : []).filter(function (t) { return t && t.token; });
-                if (tokens.length === 0) { throw new Error('sin tokens visibles'); }
-                return Promise.all(tokens.map(function (t) { return me.sha256Hex(String(t.token)); }));
-            })
-            .then(function (hashes) {
-                return fetch(remote.url + '/rest/v1/rpc/get_config', {
-                    method: 'POST',
-                    headers: {
-                        'apikey': remote.key,
-                        'Authorization': 'Bearer ' + remote.key,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ hashes: hashes })
-                });
-            })
-            .then(function (resp) {
-                if (!resp.ok) { throw new Error('config remota HTTP ' + resp.status); }
-                return resp.json();
-            })
-            .then(function (json) {
-                if (!json || typeof json !== 'object') { return; }
-                // La config remota no puede cambiar a dónde se pide la config
-                // (remoteConfig) y sus valores deben tener el tipo del valor
-                // que reemplazan.
-                me.config = me._mergeConfigSections(me.config, json,
-                    { origin: 'remota', strictTypes: true, skip: ['remoteConfig'] });
-                Store.promatic_dashboard_enhancer.Module.debugLog('config remota aplicada');
-            })
-            .catch(function (err) {
-                console.warn('[promatic_dashboard_enhancer] config remota no disponible (' +
+        var warn = function (what) {
+            return function (err) {
+                console.warn('[promatic_dashboard_enhancer] config remota ' + what + ' no disponible (' +
                     (err && err.message ? err.message : err) + ') — se mantiene config.json');
+                return null;
+            };
+        };
+        var accountId = me._accountId();
+        var publico = accountId === null ? Promise.resolve(null)
+            : me._rpc('get_config_cuenta', { p_account_id: accountId }).catch(warn('pública'));
+        var sensible = me._tokenHashes().then(function (hashes) {
+            if (!hashes.length) { return null; }
+            me._editHashes = hashes;
+            return me._rpc('get_config_sensible', { p_hashes: hashes }).catch(warn('sensible'));
+        });
+
+        return Promise.all([publico, sensible]).then(function (r) {
+            var pub = r[0], sen = r[1];
+            var opts = { origin: 'remota', strictTypes: true, skip: ['remoteConfig'] };
+            var overrides = null;
+            if (pub && pub.sistema && typeof pub.sistema === 'object') {
+                overrides = pub.sistema.limites || null;
+                me.config = me._mergeConfigSections(me.config, { sistema: pub.sistema }, opts);
+            }
+            [pub && pub.config, sen && sen.config].forEach(function (cfg) {
+                if (!cfg || typeof cfg !== 'object') { return; }
+                me.config = me._mergeConfigSections(me.config, me._applyLimits(cfg, overrides).config, opts);
             });
+            me._configNivel = sen && sen.nivel ? sen.nivel : null;
+            Store.promatic_dashboard_enhancer.Module.debugLog('config remota aplicada (nivel ' + me._configNivel + ')');
+        }).catch(warn(''));
     },
 
     loadStyles: function () {
