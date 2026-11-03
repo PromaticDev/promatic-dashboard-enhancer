@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.29.0',
-    moduleBuild: '2026-11-03-1841',
+    version: '0.29.1',
+    moduleBuild: '2026-11-03-1941',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -127,10 +127,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         },
         // Valores fijos que no edita el administrador de la cuenta (solo
         // Promatic, vía config_sistema): timeouts de las consultas en ms,
-        // cuántos fallos seguidos cortan un widget y chunkPauseMs, la pausa
-        // entre bloques de una consulta de flota. `limites` lleva los
+        // cuántos fallos seguidos cortan un widget, tripsPauseMs (pausa entre
+        // grupos de vehículos de Top KM) y chunkPauseMs, la pausa entre
+        // bloques de una consulta de flota. `limites` lleva los
         // overrides de rango de la cuenta; ver LIMITES.
-        sistema: { timeoutsMs: { trips: 8000, analytics: 15000, reports: 20000, fleet: 45000, geofences: 20000, events: 30000, fuel: 30000 }, failLimit: 8, chunkPauseMs: 1500, limites: {} },
+        sistema: { timeoutsMs: { trips: 8000, analytics: 15000, reports: 20000, fleet: 45000, geofences: 20000, events: 30000, fuel: 30000 }, failLimit: 3, tripsPauseMs: 1500, chunkPauseMs: 1500, limites: {} },
         remoteConfig: { url: 'https://qeveneftsqplkbjetwxf.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFldmVuZWZ0c3FwbGtiamV0d3hmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyMTMzNjIsImV4cCI6MjEwNjc4OTM2Mn0.bFs4o94f9fZT-iHtOUqJY3DuKaxoBNWXb9NpbeOWeuY' },
         // maskPlates=true reemplaza la patente (en PILOT suele ser el "Nombre
         // de Vehículo") por un alias en toda la UI. Está desactivado porque
@@ -10850,7 +10851,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var me = this;
         var batchSize = cfg.tripsBatchSize || 4;
         var kmField = cfg.kmField || 'gps';
-        var CONSECUTIVE_FAIL_LIMIT = me._sys('failLimit', 8);
+        // 3 y no más: la API v3 rechaza con 401 a ciertos vehículos y PILOT
+        // cierra la sesión si ve una cadena larga; con grupos de 4 en paralelo
+        // un límite alto deja salir una decena de rechazos antes de cortar.
+        var CONSECUTIVE_FAIL_LIMIT = me._sys('failLimit', 3);
+        var pauseMs = me._sys('tripsPauseMs', 1500);
         var tsUnix = Math.floor(startDate.getTime() / 1000);
         var teUnix = Math.floor(stopDate.getTime() / 1000);
         var idToName = {};
@@ -10860,7 +10865,11 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         var dayList = me._calendarDays(startDate, stopDate);
 
         var results = [];
-        var queue = vehIds.slice();
+        // Los vehículos que la API v3 ya rechazó en esta sesión no se vuelven a
+        // pedir: salen primero en el orden por movimiento reciente y repetirían
+        // la misma cadena de 401 en cada refresco.
+        var rejected = me._tripsRejected || (me._tripsRejected = {});
+        var queue = vehIds.filter(function (id) { return !rejected[id]; });
         var consecutiveFails = 0;
         var breakerTripped = false;
         var PromiseImpl = (typeof Ext !== 'undefined' && Ext.Promise) ? Ext.Promise : Promise;
@@ -10876,6 +10885,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     })
                     .catch(function (err) {
                         consecutiveFails++;
+                        // Solo un rechazo de la API (401/403) se recuerda; un timeout puede ser pasajero.
+                        if (err && /HTTP 40[13]/.test(err.message || '')) { rejected[id] = true; }
                         console.warn('[promatic_dashboard_enhancer] Top KM trips-v3: vehículo ' +
                             id + ' falló (' + (err && err.message ? err.message : err) + ') — cuenta 0');
                         results.push({ id: id, km: 0 });
@@ -10889,7 +10900,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         ' vehículos sin consultar) para no arriesgar la sesión con PILOT.');
                     return;
                 }
-                return runBatch();
+                // La pausa baja el ritmo de consultas entre grupos; no hace falta tras el último.
+                return queue.length ? me._sleep(pauseMs).then(runBatch) : runBatch();
             });
         }
 
