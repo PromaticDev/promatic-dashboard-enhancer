@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.29.1',
-    moduleBuild: '2026-11-03-1941',
+    version: '0.29.2',
+    moduleBuild: '2026-11-04-1817',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -116,8 +116,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         // texto confiable para deducir qué geocercas son sucursal de qué
         // flota.
         //
-        // Cada entrada de clientMap indica qué carpeta de flota (folderMatch:
-        // substring sin distinguir mayúsculas, buscado en toda la cadena de
+        // Cada entrada de clientMap indica qué carpeta de flota (nombreFlota:
+        // lista de substrings sin distinguir mayúsculas, buscados en toda la cadena de
         // ancestros del árbol "Principal") corresponde a qué group_name
         // EXACTOS de geocercas (groupNames) cuentan como sucursal/base. Reusa
         // el nombre de carpeta que ya existe en el árbol del cliente; no
@@ -7828,10 +7828,152 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
+     * Nombre de carpeta tal como lo entrega v3 en `group_name`: sin las etiquetas
+     * HTML con que zones.php resalta las carpetas compartidas y sin el sufijo
+     * "[cuenta dueña]". Una subcarpeta que solo tenía ese sufijo queda vacía,
+     * igual que en v3. Así un mismo `groupNames` de clientMap sirve con ambas
+     * fuentes, en la cuenta que comparte la carpeta y en la que la posee.
+     * @param {*} raw nombre de la carpeta en zones.php.
+     * @return {String}
+     */
+    _cleanGroupName: function (raw) {
+        return String(raw == null ? '' : raw).replace(/<[^>]*>/g, '').replace(/\s*\[[^\]]*\]\s*$/, '').trim();
+    },
+
+    /**
+     * Nombres de `branches.clientMap[].groupNames` que no aparecen como
+     * `group_name` en las geocercas cargadas. Si hay alguno, v3 no trae esa
+     * carpeta (las compartidas desde otra cuenta llegan incompletas) y se
+     * recurre a zones.php.
+     * @param {Array} geofences geocercas ya cargadas (formato v3).
+     * @return {Array<String>} nombres faltantes, sin repetir.
+     */
+    _missingBranchGroups: function (geofences) {
+        var map = ((this.config && this.config.branches) || {}).clientMap || [];
+        var present = {}, missing = [];
+        (geofences || []).forEach(function (g) { present[g.group_name] = true; });
+        map.forEach(function (entry) {
+            (entry.groupNames || []).forEach(function (name) {
+                if (name && !present[name] && missing.indexOf(name) === -1) { missing.push(name); }
+            });
+        });
+        return missing;
+    },
+
+    /**
+     * Convierte una zona de zones.php al formato de v3 que leen
+     * _lopGeofenceShape y _pointInGeofence. zones.php entrega las coordenadas
+     * como texto: "lat,lon|lat,lon|..." (polígono) o "lat;lon;radio" (círculo).
+     * Una línea (menos de 3 puntos) o una zona sin coordenadas no sirven para
+     * saber si un vehículo está dentro: devuelve null.
+     * @param {Object} zone nodo de zona de zones.php.
+     * @param {String} groupName carpeta inmediata, ya limpia.
+     * @return {Object|null}
+     */
+    _zoneToGeofence: function (zone, groupName) {
+        var text = String(zone && zone.metadata && zone.metadata.points || '');
+        var base = {
+            id: zone.zone_id,
+            name: String(zone.name || zone.text || '').replace(/<[^>]*>/g, '').trim(),
+            group_name: groupName
+        };
+        if (!text) { return null; }
+        if (text.indexOf('|') === -1 && text.split(';').length >= 3) {
+            var c = text.split(';');
+            var lat = Number(c[0]), lon = Number(c[1]), r = Number(c[2]);
+            if (!isFinite(lat) || !isFinite(lon) || !(r > 0)) { return null; }
+            base.type = 'circle';
+            base.points = [lat, lon, r];
+            return base;
+        }
+        var pts = text.split('|').map(function (p) {
+            var q = p.split(',');
+            return [Number(q[0]), Number(q[1])];
+        }).filter(function (p) { return isFinite(p[0]) && isFinite(p[1]); });
+        if (pts.length < 3) { return null; }
+        base.type = 'polygon';
+        base.points = pts;
+        return base;
+    },
+
+    /**
+     * Zonas de las carpetas pedidas, tomadas del árbol de zones.php y llevadas
+     * al formato de v3. Solo cuentan las zonas cuya carpeta inmediata (nombre
+     * limpio) está en `groupNames`: las subcarpetas son otro grupo, igual que
+     * en v3. El árbol trae todas las carpetas de una vez; aquí se descarta lo
+     * que el clientMap no pidió.
+     * @param {Array} tree raíz de zones.php (carpetas con `children`).
+     * @param {Array<String>} groupNames carpetas a conservar.
+     * @return {Array<Object>}
+     */
+    _zonesTreeToGeofences: function (tree, groupNames) {
+        var me = this, out = [], wanted = {};
+        groupNames.forEach(function (n) { wanted[n] = true; });
+        (function walk(nodes, groupName) {
+            (nodes || []).forEach(function (n) {
+                if (!n || typeof n !== 'object') { return; }
+                if (n.metadata && n.metadata.points != null) {
+                    if (wanted[groupName] === true) {
+                        var g = me._zoneToGeofence(n, groupName);
+                        if (g) { out.push(g); }
+                    }
+                } else if (Array.isArray(n.children)) {
+                    walk(n.children, me._cleanGroupName(n.name || n.text));
+                }
+            });
+        })(tree, '');
+        return out;
+    },
+
+    /**
+     * Respaldo de v3: suma las zonas de las carpetas del clientMap que v3 no
+     * trajo. v3 omite carpetas compartidas desde otra cuenta; zones.php (la
+     * fuente de la propia interfaz de PILOT) sí las incluye. Solo se consulta
+     * si falta algún grupo, así una cuenta cuyas sucursales llegan por v3 no
+     * hace ninguna petición extra. El árbol completo es grande, por eso se
+     * guarda en memoria y no se pide en cada recarga. Un 401/403 se recuerda
+     * por sesión (circuit breaker); cualquier otro fallo deja solo lo de v3:
+     * un respaldo caído no debe tumbar la carga de geocercas.
+     * @param {Array} list geocercas de v3.
+     * @return {Promise<Array>} v3 más las zonas aportadas por zones.php.
+     */
+    _addSharedFolderGeofences: function (list) {
+        var me = this, key = 'backend/ax/zones.php';
+        var missing = me._missingBranchGroups(list);
+        if (!missing.length || me._isEndpointBlocked(key)) { return Promise.resolve(list); }
+
+        var tree;
+        if (me._zonesTree) {
+            tree = Promise.resolve(me._zonesTree);
+        } else {
+            var ctrl = new AbortController();
+            var to = setTimeout(function () { ctrl.abort(); }, me._sys('timeoutsMs.zones', 30000));
+            tree = fetch('/backend/ax/zones.php?node=root', { method: 'GET', credentials: 'include', signal: ctrl.signal })
+                .then(function (resp) {
+                    if (resp.status === 401 || resp.status === 403) { me._markEndpointBlocked(key, resp.status); }
+                    if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+                    return resp.json();
+                })
+                .then(function (data) {
+                    me._zonesTree = Array.isArray(data) ? data : (data && (data.children || data.data)) || [];
+                    return me._zonesTree;
+                })
+                .finally(function () { clearTimeout(to); });
+        }
+        return tree.then(function (nodes) {
+            var extra = me._zonesTreeToGeofences(nodes, missing);
+            Store.promatic_dashboard_enhancer.Module.debugLog('geocercas compartidas: ' + extra.length +
+                ' zonas de zones.php para ' + JSON.stringify(missing));
+            return list.concat(extra);
+        }).catch(function () { return list; });
+    },
+
+    /**
      * Geocercas de la cuenta: GET /api/v3/geofences (URL relativa, same-
      * origin). Trae TODAS; qué cuenta como "sucursal" lo decide
      * _matchGeofenceGroup (patrón de nombre) o config.branches.clientMap, no
-     * un campo del schema.
+     * un campo del schema. Si v3 no trae alguna carpeta del clientMap, se
+     * completa con zones.php (_addSharedFolderGeofences).
      */
     loadBranchGeofences: function (callback) {
         var me = this;
@@ -7856,7 +7998,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 return resp.json();
             })
             .then(function (data) {
-                me._lastGeofences = Array.isArray(data) ? data : (data && data.data) || [];
+                return me._addSharedFolderGeofences(Array.isArray(data) ? data : (data && data.data) || []);
+            })
+            .then(function (list) {
+                me._lastGeofences = list;
                 callback(null, me._lastGeofences);
             })
             .catch(function (err) {
