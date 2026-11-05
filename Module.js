@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.29.2',
-    moduleBuild: '2026-11-04-1817',
+    version: '0.29.3',
+    moduleBuild: '2026-11-05-1114',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -3555,6 +3555,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             Ext.apply({ p_hashes: this._editHashes || [], p_kind: kind, p_version: version }, this._targetAccount()));
     },
 
+    /**
+     * Fecha de una fila del historial en la hora de la cuenta (`clock.timeZone`).
+     * La base guarda `created_at` en UTC (ISO 8601); mostrarlo tal cual
+     * adelanta la hora real. Si no se puede interpretar, se deja el texto
+     * recortado para no ocultar la fila.
+     */
+    _fmtHistoryDate: function (iso) {
+        var ms = Date.parse(iso);
+        if (isNaN(ms)) { return String(iso).replace('T', ' ').slice(0, 16); }
+        return this._fmtEventDateTime(ms / 1000);
+    },
+
     /** Lista de selección única de versiones por tipo, más «Por omisión»; todo escapado. */
     _configHistoryHtml: function (rows) {
         var esc = Ext.String.htmlEncode, name = 'promatic_dashboard_enhancer-ctl-hist';
@@ -3572,12 +3584,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             (rows || []).filter(function (r) { return r.kind === kind; }).forEach(function (r) {
                 out += '<label class="promatic_dashboard_enhancer-ctl__opt"><input type="radio" name="' + name + '" value="' +
                     esc(kind + '|' + r.version) + '"> <b>' + esc(motivos[r.motivo] || r.motivo) + '</b><span>' +
-                    esc(String(r.created_at).replace('T', ' ').slice(0, 16)) + ' · ' + esc(r.editor || '') + '</span></label>';
-            });
+                    esc(this._fmtHistoryDate(r.created_at)) + ' · ' + esc(r.editor || '') + '</span></label>';
+            }, this);
             out += '<label class="promatic_dashboard_enhancer-ctl__opt"><input type="radio" name="' + name + '" value="' +
                 esc(kind + '|0') + '"> <b>' + esc(l('Por omisión (sin ajustes)')) + '</b><span>' +
                 esc(l('Vuelve a la configuración base de la extensión')) + '</span></label>';
-        });
+        }, this);
         return out;
     },
 
