@@ -2056,12 +2056,16 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     color: #064368;
 }
 
+/* Títulos de sección con fondo. --base-light-color es una variable de PILOT
+   (no se define aquí); el hex es el respaldo si el tema no la trae. */
 .promatic_dashboard_enhancer-ctl h4 {
-    margin: 1em 0 0.4em;
+    margin: 1.5em 0;
     font-size: 11px;
     letter-spacing: 0.4px;
     text-transform: uppercase;
     color: #0a67a0;
+    background-color: var(--base-light-color, #f1f5f9);
+    padding: 2.5px 5px;
 }
 
 .promatic_dashboard_enhancer-ctl h4:first-child {
