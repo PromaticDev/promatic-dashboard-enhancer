@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.29.4',
-    moduleBuild: '2026-11-05-1115',
+    version: '0.30.0',
+    moduleBuild: '2026-11-05-1713',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -566,13 +566,13 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     cn: [
                         { cls: 'promatic_dashboard_enhancer-export-card__title', html: l('Vista') },
                         this.viewSwitchMarkup()
-                    // Controles es un panel técnico (parámetros internos): solo
+                    // Ajustes es un panel técnico (parámetros internos): solo
                     // para el administrador. El cambio de vista queda para todos.
                     ].concat(this.isAdminUser() ? [{
                         tag: 'button', type: 'button',
                         id: 'promatic_dashboard_enhancer-controls-btn',
                         cls: 'promatic_dashboard_enhancer-export-card__btn',
-                        html: l('Controles') + ' ›'
+                        html: l('Ajustes') + ' ›'
                     }] : [])
                 }
             ]
@@ -3258,8 +3258,25 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
-     * Modal "Controles": selector de vista (RAC / LOP) y lectura de los
-     * parámetros efectivos. Guardar persiste la vista en localStorage y la
+     * Secciones del modal «Ajustes» que le corresponden a quien lo abre.
+     * Apariencia es para todos; Historial, para quien edita la config
+     * (administrador o superadmin del token); Errores, para el administrador
+     * de PILOT o quien edita la config. Es solo presentación: la base valida
+     * cada escritura.
+     * @return {Object[]} [{ id, title }] en el orden del menú.
+     */
+    _ajustesSections: function () {
+        var out = [{ id: 'apariencia', title: l('Apariencia') }];
+        var edita = this.canEditConfig();
+        if (edita) { out.push({ id: 'historial', title: l('Historial') }); }
+        if (edita || this.isAdminUser()) { out.push({ id: 'errores', title: l('Errores') }); }
+        return out;
+    },
+
+    /**
+     * Modal "Ajustes" (antes "Controles"; los métodos conservan el nombre):
+     * menú lateral con Apariencia (selector de vista RAC / LOP y lectura de los
+     * parámetros efectivos), Historial y Errores. Guardar persiste la vista en localStorage y la
      * aplica en vivo. La edición real de la config vivirá en un backend, por
      * eso el modal no escribe nada fuera del navegador.
      */
@@ -3281,62 +3298,68 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             paramRows += '<tr><td>' + esc(rows[i][0]) + '</td><td>' + esc(String(rows[i][1])) + '</td></tr>';
         }
 
-        var html =
-            '<div class="promatic_dashboard_enhancer-ctl">' +
+        var secciones = this._ajustesSections();
+        var nav = '', main = '';
+        var contenido = {
+            apariencia:
                 '<h4>' + esc(l('Vista')) + '</h4>' +
                 radio('rac', 'RAC', l('Renta de autos sueltos')) +
                 radio('lop', 'LOP', l('Administrador de flota')) +
                 '<h4>' + esc(l('Widgets de la vista elegida')) + '</h4>' +
                 '<div id="' + idBase + '-widgets">' + this._controlsWidgetsHtml(current) + '</div>' +
                 '<h4>' + esc(l('Parámetros vigentes (solo lectura)')) + '</h4>' +
-                '<table class="promatic_dashboard_enhancer-ctl__table">' + paramRows + '</table>' +
-                // Foto al abrir el modal; el registro es del administrador
-                // aunque el modal se invoque por otra vía que el botón.
-                (this.isAdminUser() ? '<h4>' + esc(l('Registro de errores')) + '</h4>' + this._errorLogHtml() : '') +
-                (this.canEditConfig() ? '<h4>' + esc(l('Historial de configuración')) + '</h4><div id="' + idBase + '-hist">' + esc(l('Cargando…')) + '</div>' : '') +
-                '<div id="' + idBase + '-msg" class="promatic_dashboard_enhancer-ctl__msg"></div>' +
+                '<table class="promatic_dashboard_enhancer-ctl__table">' + paramRows + '</table>',
+            // Foto al abrir el modal: el registro no se actualiza mientras está abierto.
+            errores: this.isAdminUser() || this.canEditConfig() ? this._errorLogHtml() : '',
+            historial: '<div id="' + idBase + '-hist">' + esc(l('Cargando…')) + '</div>'
+        };
+        secciones.forEach(function (sec, i) {
+            nav += '<button type="button" class="promatic_dashboard_enhancer-ctl__navbtn' + (i === 0 ? ' promatic_dashboard_enhancer-ctl__navbtn--on' : '') +
+                '" data-sec="' + sec.id + '">' + esc(sec.title) + '</button>';
+            main += '<section class="promatic_dashboard_enhancer-ctl__sec' + (i === 0 ? ' promatic_dashboard_enhancer-ctl__sec--on' : '') +
+                '" data-sec="' + sec.id + '">' + contenido[sec.id] + '</section>';
+        });
+        var html =
+            '<div class="promatic_dashboard_enhancer-ctl promatic_dashboard_enhancer-ctl--ajustes">' +
+                '<nav class="promatic_dashboard_enhancer-ctl__nav">' + nav + '</nav>' +
+                '<div class="promatic_dashboard_enhancer-ctl__main">' + main +
+                    '<div id="' + idBase + '-msg" class="promatic_dashboard_enhancer-ctl__msg"></div>' +
+                '</div>' +
             '</div>';
+        var say = function (text) {
+            var msg = document.getElementById(idBase + '-msg');
+            if (msg) { msg.textContent = text; }
+        };
+        var confirmRestore = function (title, text, kind, version) {
+            Ext.Msg.confirm(title, text, function (btn) {
+                if (btn !== 'yes') { return; }
+                me.restoreConfig(kind, version).then(function () {
+                    say(l('Restaurada. Recarga la página (F5) para aplicarla.'));
+                }, function () {
+                    say(l('No se pudo restaurar; no se cambió nada.'));
+                });
+            });
+        };
 
         this._controlsWin = Ext.create('Ext.window.Window', {
-            title: l('Controles'),
+            title: l('Ajustes'),
             modal: true,
             resizable: false,
-            width: 560,
+            width: 720,
             maxHeight: Math.max(320, Math.floor(window.innerHeight * 0.9)),
             scrollable: 'y',
             closeAction: 'destroy',
             html: html,
             buttons: [
                 {
+                    itemId: 'guardar',
                     text: l('Guardar'),
                     handler: function () {
                         var checked = document.querySelector('input[name="' + idBase + '-view"]:checked');
                         var preset = checked ? checked.value : current;
                         me.setUiPresetOverride(preset);
                         me.applyViewPreset();
-                        var msg = document.getElementById(idBase + '-msg');
-                        if (msg) {
-                            msg.textContent = l('La configuración de vista pasará a gestionarse desde el Backend en una próxima versión.');
-                        }
-                    }
-                },
-                {
-                    text: l('Restaurar'),
-                    hidden: !this.canEditConfig(),
-                    handler: function () {
-                        var sel = document.querySelector('input[name="' + idBase + '-hist"]:checked');
-                        var msg = document.getElementById(idBase + '-msg');
-                        if (!sel) { if (msg) { msg.textContent = l('Elige una versión de la lista.'); } return; }
-                        var parts = sel.value.split('|');
-                        Ext.Msg.confirm(l('Restaurar configuración'),
-                            l('Se creará una versión nueva con la configuración elegida. ¿Continuar?'), function (btn) {
-                                if (btn !== 'yes') { return; }
-                                me.restoreConfig(parts[0], Number(parts[1])).then(function () {
-                                    if (msg) { msg.textContent = l('Restaurada. Recarga la página (F5) para aplicarla.'); }
-                                }, function () {
-                                    if (msg) { msg.textContent = l('No se pudo restaurar; no se cambió nada.'); }
-                                });
-                            });
+                        say(l('La configuración de vista pasará a gestionarse desde el Backend en una próxima versión.'));
                     }
                 },
                 { text: l('Cerrar'), handler: function () { me.closeControlsModal(); } }
@@ -3349,9 +3372,38 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                             function () { hist.textContent = l('No se pudo leer el historial.'); });
                     }
                     win.getEl().on('change', function (e) {
-                        var t = e.getTarget('input[type=radio]');
+                        var t = e.getTarget('input[name="' + idBase + '-view"]');
                         var box = document.getElementById(idBase + '-widgets');
                         if (t && box) { box.innerHTML = me._controlsWidgetsHtml(t.value); }
+                    });
+                    win.getEl().on('click', function (e) {
+                        var nb = e.getTarget('[data-sec].promatic_dashboard_enhancer-ctl__navbtn');
+                        if (nb) {
+                            var root = win.getEl().dom;
+                            [].forEach.call(root.querySelectorAll('[data-sec]'), function (n) {
+                                var on = n.getAttribute('data-sec') === nb.getAttribute('data-sec');
+                                var base = n.tagName === 'SECTION' ? 'promatic_dashboard_enhancer-ctl__sec--on' : 'promatic_dashboard_enhancer-ctl__navbtn--on';
+                                n.classList[on ? 'add' : 'remove'](base);
+                            });
+                            // El selector de vista solo se guarda desde Apariencia.
+                            win.down('#guardar').setHidden(nb.getAttribute('data-sec') !== 'apariencia');
+                            say('');
+                            return;
+                        }
+                        var act = e.getTarget('[data-act]');
+                        if (!act) { return; }
+                        if (act.getAttribute('data-act') === 'volver') {
+                            var sel = document.querySelector('input[name="' + idBase + '-hist"]:checked');
+                            if (!sel) { say(l('Elige una versión de la lista.')); return; }
+                            var parts = sel.value.split('|');
+                            confirmRestore(l('Volver a una versión anterior'),
+                                l('Se creará una versión nueva con la configuración elegida; lo actual queda en el historial. ¿Continuar?'),
+                                parts[0], Number(parts[1]));
+                        } else if (act.getAttribute('data-act') === 'fabrica') {
+                            confirmRestore(l('Restaurar modo fábrica'),
+                                l('Se perderán los ajustes de esta configuración, incluidos el logo y la rotación. Queda en el historial y se puede volver a una versión anterior. ¿Restaurar modo fábrica?'),
+                                act.getAttribute('data-kind'), 0);
+                        }
                     });
                 },
                 destroy: function () { me._controlsWin = null; }
@@ -3570,18 +3622,29 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
     },
 
-    /** Lista de selección única de versiones por tipo, más «Por omisión»; todo escapado. */
+    /**
+     * Historial en dos acciones separadas, porque confundirlas borra lo
+     * personalizado de la cuenta (logo, rotación, etc.):
+     *  - «Volver a una versión anterior»: lista de selección única por tipo y
+     *    un botón (data-act="volver") que restaura la elegida.
+     *  - «Restaurar modo fábrica»: un botón por tipo (data-act="fabrica") que
+     *    deja esa configuración sin ajustes (versión 0, vuelve a config.json).
+     * Todo escapado; los botones los atiende el modal por delegación.
+     * @param {Object[]} rows filas de listar_historial_cuenta.
+     * @return {String} HTML.
+     */
     _configHistoryHtml: function (rows) {
         var esc = Ext.String.htmlEncode, name = 'promatic_dashboard_enhancer-ctl-hist';
+        var btn = 'promatic_dashboard_enhancer-ctl__btn';
         var titulos = {
             config_publica: l('Configuración general'),
             config_sensible: l('Configuración de carpetas y grupos'),
             config_sistema: l('Configuración del sistema')
         };
         var motivos = { inicial: l('Inicial'), edicion: l('Edición'), restauracion: l('Restauración'), sql: l('Edición manual') };
-        var out = '';
         // El administrador solo restaura la general; la base lo exige igual.
         var tipos = this.isSuperAdmin() ? ['config_publica', 'config_sensible', 'config_sistema'] : ['config_publica'];
+        var out = '<h4>' + esc(l('Volver a una versión anterior')) + '</h4>';
         tipos.forEach(function (kind) {
             out += '<h5>' + esc(titulos[kind]) + '</h5>';
             (rows || []).filter(function (r) { return r.kind === kind; }).forEach(function (r) {
@@ -3589,10 +3652,15 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                     esc(kind + '|' + r.version) + '"> <b>' + esc(motivos[r.motivo] || r.motivo) + '</b><span>' +
                     esc(this._fmtHistoryDate(r.created_at)) + ' · ' + esc(r.editor || '') + '</span></label>';
             }, this);
-            out += '<label class="promatic_dashboard_enhancer-ctl__opt"><input type="radio" name="' + name + '" value="' +
-                esc(kind + '|0') + '"> <b>' + esc(l('Por omisión (sin ajustes)')) + '</b><span>' +
-                esc(l('Vuelve a la configuración base de la extensión')) + '</span></label>';
         }, this);
+        out += '<button type="button" class="' + btn + '" data-act="volver">' + esc(l('Volver a la versión elegida')) + '</button>';
+        out += '<h4>' + esc(l('Restaurar modo fábrica')) + '</h4>' +
+            '<p class="promatic_dashboard_enhancer-ctl__hint">' +
+            esc(l('Deja la configuración sin ajustes y borra lo personalizado (logo, rotación y demás). No es lo mismo que volver a una versión anterior; queda en el historial.')) + '</p>';
+        tipos.forEach(function (kind) {
+            out += '<button type="button" class="' + btn + ' ' + btn + '--danger" data-act="fabrica" data-kind="' + esc(kind) + '">' +
+                esc(titulos[kind]) + '</button> ';
+        });
         return out;
     },
 

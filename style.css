@@ -2047,7 +2047,7 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     border-radius: 0.5em;
 }
 
-/* ===== Modal "Controles" =====
+/* ===== Modal "Ajustes" =====
    Vive en el body (fuera del panel), donde no existen los tokens --g*: los
    colores van como hex. */
 .promatic_dashboard_enhancer-ctl {
@@ -2118,6 +2118,75 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
 .promatic_dashboard_enhancer-ctl__st--dev {
     color: #498db8;
     font-style: italic;
+}
+
+/* Menú lateral del modal: una sección visible a la vez. */
+.promatic_dashboard_enhancer-ctl--ajustes {
+    display: flex;
+    gap: 1em;
+    padding: 0;
+}
+
+.promatic_dashboard_enhancer-ctl__nav {
+    flex: 0 0 150px;
+    padding: 0.5em 0;
+    background: #f1f5f9;
+    border-right: 1px solid #cbd5e1;
+}
+
+.promatic_dashboard_enhancer-ctl__navbtn {
+    display: block;
+    width: 100%;
+    padding: 0.6em 1em;
+    border: 0;
+    border-left: 3px solid transparent;
+    background: transparent;
+    color: #498db8;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-ctl__navbtn--on {
+    background: #ffffff;
+    border-left-color: #0a67a0;
+    color: #064368;
+    font-weight: 600;
+}
+
+.promatic_dashboard_enhancer-ctl__main {
+    flex: 1;
+    padding: 0.75em 1em 0.75em 0;
+    min-width: 0;
+}
+
+.promatic_dashboard_enhancer-ctl__sec {
+    display: none;
+}
+
+.promatic_dashboard_enhancer-ctl__sec--on {
+    display: block;
+}
+
+.promatic_dashboard_enhancer-ctl__hint {
+    margin: 0 0 0.5em;
+    color: #498db8;
+}
+
+.promatic_dashboard_enhancer-ctl__btn {
+    margin: 0.5em 0.4em 0 0;
+    padding: 0.35em 0.9em;
+    border: 1px solid #0a67a0;
+    border-radius: 3px;
+    background: #ffffff;
+    color: #0a67a0;
+    font: inherit;
+    cursor: pointer;
+}
+
+.promatic_dashboard_enhancer-ctl__btn--danger {
+    border-color: #ad1100;
+    color: #ad1100;
 }
 
 .promatic_dashboard_enhancer-ctl__msg {
