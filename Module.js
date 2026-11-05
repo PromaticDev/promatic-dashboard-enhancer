@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.30.0',
-    moduleBuild: '2026-11-05-1713',
+    version: '0.31.0',
+    moduleBuild: '2026-11-05-1804',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -3294,7 +3294,10 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
         };
         var paramRows = '';
         var rows = this._controlsParamRows();
+        var edita = this.canEditConfig();
         for (var i = 0; i < rows.length; i++) {
+            // La zona horaria se edita en el formulario: no se repite en la tabla.
+            if (edita && rows[i][0] === l('Zona horaria')) { continue; }
             paramRows += '<tr><td>' + esc(rows[i][0]) + '</td><td>' + esc(String(rows[i][1])) + '</td></tr>';
         }
 
@@ -3307,6 +3310,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 radio('lop', 'LOP', l('Administrador de flota')) +
                 '<h4>' + esc(l('Widgets de la vista elegida')) + '</h4>' +
                 '<div id="' + idBase + '-widgets">' + this._controlsWidgetsHtml(current) + '</div>' +
+                (edita ? this._appearanceFormHtml(idBase) : '') +
                 '<h4>' + esc(l('Parámetros vigentes (solo lectura)')) + '</h4>' +
                 '<table class="promatic_dashboard_enhancer-ctl__table">' + paramRows + '</table>',
             // Foto al abrir el modal: el registro no se actualiza mientras está abierto.
@@ -3353,7 +3357,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             buttons: [
                 {
                     itemId: 'guardar',
-                    text: l('Guardar'),
+                    text: l('Guardar vista'),
                     handler: function () {
                         var checked = document.querySelector('input[name="' + idBase + '-view"]:checked');
                         var preset = checked ? checked.value : current;
@@ -3392,7 +3396,22 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         }
                         var act = e.getTarget('[data-act]');
                         if (!act) { return; }
-                        if (act.getAttribute('data-act') === 'volver') {
+                        if (act.getAttribute('data-act') === 'guardar-params') {
+                            var val = me._validateAppearance({
+                                refreshSeconds: document.getElementById(idBase + '-refresh').value,
+                                timeZone: document.getElementById(idBase + '-tz').value,
+                                maskPlates: document.getElementById(idBase + '-mask').checked
+                            });
+                            if (val.error) { say(val.error); return; }
+                            if (!Object.keys(val.changes).length) { say(l('Sin cambios que guardar.')); return; }
+                            me.saveConfig(val.changes).then(function () {
+                                say(l('Guardado. Recarga la página (F5) para aplicarlo.'));
+                            }, function (err) {
+                                say(/HTTP 400/.test(err && err.message)
+                                    ? l('La base rechazó el valor (fuera de rango o no permitido); no se cambió nada.')
+                                    : l('No se pudo guardar; no se cambió nada.'));
+                            });
+                        } else if (act.getAttribute('data-act') === 'volver') {
                             var sel = document.querySelector('input[name="' + idBase + '-hist"]:checked');
                             if (!sel) { say(l('Elige una versión de la lista.')); return; }
                             var parts = sel.value.split('|');
@@ -3595,6 +3614,118 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * de la sesión); el administrador no la envía: la base la saca del token.
      */
     _targetAccount: function () { return this.isSuperAdmin() ? { p_account_id: this._accountId() } : {}; },
+
+    /** Zonas horarias que se ofrecen primero: Chile, la región y UTC. */
+    TZ_PREFERIDAS: ['America/Santiago', 'America/Punta_Arenas', 'Pacific/Easter', 'America/Lima', 'America/Bogota',
+        'America/Argentina/Buenos_Aires', 'America/Sao_Paulo', 'America/Mexico_City', 'UTC'],
+
+    /**
+     * Formulario de parámetros básicos de la sección Apariencia (solo quien
+     * edita la config). Muestra los valores vigentes; la zona horaria es una
+     * lista cerrada y el refresco lleva los límites de LIMITES.
+     * @param {String} idBase prefijo de los ids del modal.
+     * @return {String} HTML escapado.
+     */
+    _appearanceFormHtml: function (idBase) {
+        var esc = Ext.String.htmlEncode;
+        var lim = this.LIMITES['ui.refreshSeconds'];
+        var cur = this.clockConfig().timeZone;
+        var opts = this._timeZoneOptions(cur).map(function (z) {
+            return '<option value="' + esc(z) + '"' + (z === cur ? ' selected' : '') + '>' + esc(z) + '</option>';
+        }).join('');
+        var field = 'promatic_dashboard_enhancer-ctl__field';
+        return '<h4>' + esc(l('Parámetros básicos')) + '</h4>' +
+            '<div class="' + field + '"><label for="' + idBase + '-refresh">' + esc(l('Refresco automático (segundos)')) + '</label>' +
+                '<input type="number" id="' + idBase + '-refresh" min="' + lim.min + '" max="' + lim.max + '" step="1" value="' +
+                esc(String(this._cfgValue('ui', 'refreshSeconds'))) + '"><span>' + lim.min + ' – ' + lim.max + '</span></div>' +
+            '<div class="' + field + '"><label for="' + idBase + '-tz">' + esc(l('Zona horaria')) + '</label>' +
+                '<select id="' + idBase + '-tz">' + opts + '</select></div>' +
+            '<div class="' + field + '"><label for="' + idBase + '-mask">' + esc(l('Enmascarar patentes')) + '</label>' +
+                '<input type="checkbox" id="' + idBase + '-mask"' + (this._cfgValue('privacy', 'maskPlates') ? ' checked' : '') + '></div>' +
+            '<button type="button" class="promatic_dashboard_enhancer-ctl__btn" data-act="guardar-params">' + esc(l('Guardar parámetros')) + '</button>';
+    },
+
+    /**
+     * Lista cerrada de zonas horarias para el selector: la actual primero si no
+     * es una de las preferidas (así abrir Ajustes no la cambia sin querer), luego
+     * Chile y la región, luego el resto que conoce el navegador. Se ofrece una
+     * lista y no un texto libre porque un nombre mal escrito hace fallar
+     * Intl.DateTimeFormat en todo el dashboard.
+     * @param {String} current zona horaria vigente.
+     * @return {String[]} nombres IANA sin repetir.
+     */
+    _timeZoneOptions: function (current) {
+        var todas = [];
+        try { todas = (Intl.supportedValuesOf && Intl.supportedValuesOf('timeZone')) || []; } catch (err) { todas = []; }
+        var out = [], seen = {};
+        [current].concat(this.TZ_PREFERIDAS, todas).forEach(function (z) {
+            if (z && !seen[z]) { seen[z] = true; out.push(z); }
+        });
+        return out;
+    },
+
+    /**
+     * Valida los campos de Apariencia y devuelve solo lo que cambió respecto
+     * de la config vigente, agrupado por sección (el formato que espera
+     * saveConfig). La base rechaza los valores fuera de rango; aquí se avisa
+     * antes para no perder el formulario.
+     * @param {Object} v { refreshSeconds, timeZone, maskPlates } tal como los
+     *     escribió la persona (el refresco puede venir como texto).
+     * @return {Object} { error } con el mensaje, o { changes } (vacío si no hay cambios).
+     */
+    _validateAppearance: function (v) {
+        var lim = this.LIMITES['ui.refreshSeconds'];
+        var changes = {};
+        var secs = Number(v.refreshSeconds);
+        if (String(v.refreshSeconds).trim() === '' || !isFinite(secs) || Math.floor(secs) !== secs || secs < lim.min || secs > lim.max) {
+            return { error: l('El refresco debe ser un número entero de segundos entre') + ' ' + lim.min + ' ' + l('y') + ' ' + lim.max + '.' };
+        }
+        var zonaOk = this._timeZoneOptions(this.clockConfig().timeZone).indexOf(v.timeZone) !== -1;
+        if (zonaOk) {
+            try { new Intl.DateTimeFormat('es-CL', { timeZone: v.timeZone }); } catch (err) { zonaOk = false; }
+        }
+        if (!zonaOk) { return { error: l('Elige una zona horaria de la lista.') }; }
+        if (secs !== this._cfgValue('ui', 'refreshSeconds')) { changes.ui = { refreshSeconds: secs }; }
+        if (v.timeZone !== this.clockConfig().timeZone) { changes.clock = { timeZone: v.timeZone }; }
+        if (!!v.maskPlates !== !!this._cfgValue('privacy', 'maskPlates')) { changes.privacy = { maskPlates: !!v.maskPlates }; }
+        return { changes: changes };
+    },
+
+    /**
+     * Guarda cambios en la config pública de la cuenta. La base reemplaza cada
+     * sección completa (un administrador no puede enviar claves fuera de su
+     * lista; el superadmin reemplaza toda la config pública), así que cada
+     * sección editada se arma desde la copia guardada más los cambios.
+     * El token de edición puede ser cualquiera de los del usuario: se prueban
+     * en orden, recordando el que sirvió; un rechazo por permiso (401/403)
+     * pasa al siguiente y cualquier otro error se informa sin reintentar.
+     * @param {Object} changes secciones parciales, p. ej. { ui: { refreshSeconds: 90 } }.
+     * @return {Promise} se resuelve al guardar; se rechaza con el error de la base.
+     */
+    saveConfig: function (changes) {
+        var me = this;
+        var raw = this._rawPublica || {};
+        var payload = this.isSuperAdmin() ? (this._cloneJsonSafe(raw, 0) || {}) : {};
+        Object.keys(changes).forEach(function (sec) {
+            var actual = raw[sec] && typeof raw[sec] === 'object' ? me._cloneJsonSafe(raw[sec], 0) : {};
+            payload[sec] = Ext.apply(actual || {}, changes[sec]);
+        });
+        var hashes = (this._editHash ? [this._editHash] : []).concat((this._editHashes || []).filter(function (h) { return h !== me._editHash; }));
+        var origen = { version: this.version, build: this.moduleBuild };
+        var intentar = function (i) {
+            if (i >= hashes.length) { return Promise.reject(new Error('set_config_cuenta sin token autorizado')); }
+            return me._rpc('set_config_cuenta', Ext.apply({
+                p_hash: hashes[i], p_kind: 'config_publica', p_config: payload, p_origen: origen
+            }, me._targetAccount())).then(function () {
+                me._editHash = hashes[i];
+                me._rawPublica = payload;
+            }, function (err) {
+                if (/HTTP (401|403)\b/.test(err && err.message)) { return intentar(i + 1); }
+                throw err;
+            });
+        };
+        return intentar(0);
+    },
 
     /** Versiones guardadas de la config de la cuenta (solo metadatos), de la más nueva a la más antigua. */
     listConfigHistory: function () {
@@ -12131,6 +12262,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 if (!cfg || typeof cfg !== 'object') { return; }
                 me.config = me._mergeConfigSections(me.config, me._applyLimits(cfg, overrides).config, opts);
             });
+            // Copia tal como está guardada (sin mezclar con config.json): el guardado
+            // de Ajustes reenvía secciones completas y no debe arrastrar valores por omisión.
+            me._rawPublica = (pub && pub.config && typeof pub.config === 'object' && me._cloneJsonSafe(pub.config, 0)) || {};
             me._configNivel = sen && sen.nivel ? sen.nivel : null;
             Store.promatic_dashboard_enhancer.Module.debugLog('config remota aplicada (nivel ' + me._configNivel + ')');
         }).catch(warn(''));

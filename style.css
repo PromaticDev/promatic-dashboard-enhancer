@@ -2168,6 +2168,26 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     display: block;
 }
 
+/* Fila de un campo editable de Ajustes: etiqueta a la izquierda, control a la derecha. */
+.promatic_dashboard_enhancer-ctl__field {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    margin: 0.4em 0;
+}
+
+.promatic_dashboard_enhancer-ctl__field label {
+    flex: 0 0 200px;
+}
+
+.promatic_dashboard_enhancer-ctl__field input[type="number"] {
+    width: 5em;
+}
+
+.promatic_dashboard_enhancer-ctl__field span {
+    color: #498db8;
+}
+
 .promatic_dashboard_enhancer-ctl__hint {
     margin: 0 0 0.5em;
     color: #498db8;
