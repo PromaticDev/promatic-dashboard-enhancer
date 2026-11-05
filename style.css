@@ -2188,6 +2188,13 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     color: #498db8;
 }
 
+/* Campo con un valor que no pasó la validación: borde rojo hasta que se edite. */
+.promatic_dashboard_enhancer-ctl__field--invalid {
+    border: 2px solid #ad1100;
+    border-radius: 3px;
+    outline: none;
+}
+
 .promatic_dashboard_enhancer-ctl__hint {
     margin: 0 0 0.5em;
     color: #498db8;
@@ -2213,6 +2220,10 @@ a.promatic_dashboard_enhancer-rank-row:hover .promatic_dashboard_enhancer-chev {
     margin-top: 0.75em;
     color: #0a67a0;
     font-weight: 600;
+}
+
+.promatic_dashboard_enhancer-ctl__msg--error {
+    color: #ad1100;
 }
 
 /* ===== Widgets de la vista LOP (sucursales, conducción, combustible,

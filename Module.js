@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.31.0',
-    moduleBuild: '2026-11-05-1804',
+    version: '0.31.1',
+    moduleBuild: '2026-11-05-1821',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -3334,6 +3334,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
             var msg = document.getElementById(idBase + '-msg');
             if (msg) { msg.textContent = text; }
         };
+        // Aviso de la sección de parámetros: bajo su botón; en rojo si es un error.
+        var sayParams = function (text, isError) {
+            var el = document.getElementById(idBase + '-msg-params');
+            if (!el) { return; }
+            el.textContent = text;
+            el.classList[isError ? 'add' : 'remove']('promatic_dashboard_enhancer-ctl__msg--error');
+        };
+        // Quita el borde rojo y el aviso: al volver a validar o al editar un campo.
+        var clearParams = function () {
+            ['-refresh', '-tz'].forEach(function (suffix) {
+                var f = document.getElementById(idBase + suffix);
+                if (f) { f.classList.remove('promatic_dashboard_enhancer-ctl__field--invalid'); }
+            });
+            sayParams('', false);
+        };
         var confirmRestore = function (title, text, kind, version) {
             Ext.Msg.confirm(title, text, function (btn) {
                 if (btn !== 'yes') { return; }
@@ -3375,6 +3390,12 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                         me.listConfigHistory().then(function (rows) { hist.innerHTML = me._configHistoryHtml(rows); },
                             function () { hist.textContent = l('No se pudo leer el historial.'); });
                     }
+                    // Editar un campo marcado como inválido quita la marca.
+                    var onEdit = function (e) {
+                        if (e.getTarget('.promatic_dashboard_enhancer-ctl__field')) { clearParams(); }
+                    };
+                    win.getEl().on('input', onEdit);
+                    win.getEl().on('change', onEdit);
                     win.getEl().on('change', function (e) {
                         var t = e.getTarget('input[name="' + idBase + '-view"]');
                         var box = document.getElementById(idBase + '-widgets');
@@ -3392,6 +3413,7 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                             // El selector de vista solo se guarda desde Apariencia.
                             win.down('#guardar').setHidden(nb.getAttribute('data-sec') !== 'apariencia');
                             say('');
+                            clearParams();
                             return;
                         }
                         var act = e.getTarget('[data-act]');
@@ -3402,14 +3424,20 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                                 timeZone: document.getElementById(idBase + '-tz').value,
                                 maskPlates: document.getElementById(idBase + '-mask').checked
                             });
-                            if (val.error) { say(val.error); return; }
-                            if (!Object.keys(val.changes).length) { say(l('Sin cambios que guardar.')); return; }
+                            clearParams();
+                            if (val.error) {
+                                sayParams(val.error, true);
+                                var bad = document.getElementById(idBase + (val.field === 'timeZone' ? '-tz' : '-refresh'));
+                                if (bad) { bad.classList.add('promatic_dashboard_enhancer-ctl__field--invalid'); bad.focus(); }
+                                return;
+                            }
+                            if (!Object.keys(val.changes).length) { sayParams(l('Sin cambios que guardar.'), false); return; }
                             me.saveConfig(val.changes).then(function () {
-                                say(l('Guardado. Recarga la página (F5) para aplicarlo.'));
+                                sayParams(l('Guardado. Recarga la página (F5) para aplicarlo.'), false);
                             }, function (err) {
-                                say(/HTTP 400/.test(err && err.message)
+                                sayParams(/HTTP 400/.test(err && err.message)
                                     ? l('La base rechazó el valor (fuera de rango o no permitido); no se cambió nada.')
-                                    : l('No se pudo guardar; no se cambió nada.'));
+                                    : l('No se pudo guardar; no se cambió nada.'), true);
                             });
                         } else if (act.getAttribute('data-act') === 'volver') {
                             var sel = document.querySelector('input[name="' + idBase + '-hist"]:checked');
@@ -3642,7 +3670,9 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
                 '<select id="' + idBase + '-tz">' + opts + '</select></div>' +
             '<div class="' + field + '"><label for="' + idBase + '-mask">' + esc(l('Enmascarar patentes')) + '</label>' +
                 '<input type="checkbox" id="' + idBase + '-mask"' + (this._cfgValue('privacy', 'maskPlates') ? ' checked' : '') + '></div>' +
-            '<button type="button" class="promatic_dashboard_enhancer-ctl__btn" data-act="guardar-params">' + esc(l('Guardar parámetros')) + '</button>';
+            '<button type="button" class="promatic_dashboard_enhancer-ctl__btn" data-act="guardar-params">' + esc(l('Guardar parámetros')) + '</button>' +
+            // El aviso de esta sección va bajo su botón y no en el mensaje general del modal.
+            '<div id="' + idBase + '-msg-params" class="promatic_dashboard_enhancer-ctl__msg" role="status"></div>';
     },
 
     /**
@@ -3671,20 +3701,21 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
      * antes para no perder el formulario.
      * @param {Object} v { refreshSeconds, timeZone, maskPlates } tal como los
      *     escribió la persona (el refresco puede venir como texto).
-     * @return {Object} { error } con el mensaje, o { changes } (vacío si no hay cambios).
+     * @return {Object} { field, error } con el campo que falló ('refreshSeconds' o
+     *     'timeZone') y el mensaje, o { changes } (vacío si no hay cambios).
      */
     _validateAppearance: function (v) {
         var lim = this.LIMITES['ui.refreshSeconds'];
         var changes = {};
         var secs = Number(v.refreshSeconds);
         if (String(v.refreshSeconds).trim() === '' || !isFinite(secs) || Math.floor(secs) !== secs || secs < lim.min || secs > lim.max) {
-            return { error: l('El refresco debe ser un número entero de segundos entre') + ' ' + lim.min + ' ' + l('y') + ' ' + lim.max + '.' };
+            return { field: 'refreshSeconds', error: l('El refresco debe ser un número entero de segundos entre') + ' ' + lim.min + ' ' + l('y') + ' ' + lim.max + '.' };
         }
         var zonaOk = this._timeZoneOptions(this.clockConfig().timeZone).indexOf(v.timeZone) !== -1;
         if (zonaOk) {
             try { new Intl.DateTimeFormat('es-CL', { timeZone: v.timeZone }); } catch (err) { zonaOk = false; }
         }
-        if (!zonaOk) { return { error: l('Elige una zona horaria de la lista.') }; }
+        if (!zonaOk) { return { field: 'timeZone', error: l('Elige una zona horaria de la lista.') }; }
         if (secs !== this._cfgValue('ui', 'refreshSeconds')) { changes.ui = { refreshSeconds: secs }; }
         if (v.timeZone !== this.clockConfig().timeZone) { changes.clock = { timeZone: v.timeZone }; }
         if (!!v.maskPlates !== !!this._cfgValue('privacy', 'maskPlates')) { changes.privacy = { maskPlates: !!v.maskPlates }; }
