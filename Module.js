@@ -5,8 +5,8 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     // cambios o widget nuevo, patch por fix puntual. moduleBuild (fecha+hora)
     // lo escribe el script de publicación en cada publicación: es el cache-
     // busting del CSS y la traza en consola. No es la versión.
-    version: '0.29.3',
-    moduleBuild: '2026-11-05-1114',
+    version: '0.29.4',
+    moduleBuild: '2026-11-05-1115',
 
     statics: {
         DEBUG_STORAGE_KEY: 'promatic_dashboard_enhancer_debug',
@@ -3556,15 +3556,18 @@ Ext.define('Store.promatic_dashboard_enhancer.Module', {
     },
 
     /**
-     * Fecha de una fila del historial en la hora de la cuenta (`clock.timeZone`).
-     * La base guarda `created_at` en UTC (ISO 8601); mostrarlo tal cual
-     * adelanta la hora real. Si no se puede interpretar, se deja el texto
-     * recortado para no ocultar la fila.
+     * Fecha de una fila del historial en la hora local del navegador.
+     * La base guarda `created_at` en UTC (ISO 8601) y así se mantiene;
+     * mostrarlo sin convertir adelanta la hora real. Se usa la zona del
+     * navegador (quien edita ve su propia hora), no `clock.timeZone`. Si
+     * no se puede interpretar, se deja el texto recortado para no ocultar la fila.
      */
     _fmtHistoryDate: function (iso) {
         var ms = Date.parse(iso);
         if (isNaN(ms)) { return String(iso).replace('T', ' ').slice(0, 16); }
-        return this._fmtEventDateTime(ms / 1000);
+        var d = new Date(ms);
+        function p2(n) { return (n < 10 ? '0' : '') + n; }
+        return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
     },
 
     /** Lista de selección única de versiones por tipo, más «Por omisión»; todo escapado. */
